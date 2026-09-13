@@ -1,0 +1,22 @@
+[
+  {
+    "key": "FBAUTO1.eyJjdXN0b21lciI6IkFsaWNlIFNlbGxlciIsImh3aWQiOiJGQkFVVE8tMUZGQi03MkQ3LTQ5NzctREQ4MCIsInRpZXIiOiJQcm8iLCJjcmVhdGVkIjoxNzg5Mjk5NDIxLCJleHBpcnkiOjE3OTE4OTE0MjEsIm5vdGVzIjoiIn0.5B6AC48FBABB04E8",
+    "customer": "Alice Seller",
+    "hwid": "FBAUTO-1FFB-72D7-4977-DD80",
+    "tier": "Pro",
+    "created_date": "2026-09-13 11:37:01",
+    "expiry_date": "2026-10-13 11:37:01",
+    "notes": "",
+    "status": "ACTIVE"
+  },
+  {
+    "key": "FBAUTO1.eyJjdXN0b21lciI6IlRlc3QgQ3VzdG9tZXIiLCJod2lkIjoiRkJBVVRPLTFGRkItNzJENy00OTc3LUREODAiLCJ0aWVyIjoiUHJvIiwiY3JlYXRlZCI6MTc4OTI5ODc5MywiZXhwaXJ5IjoxNzkxODkwNzkzLCJub3RlcyI6IiJ9.D69D1A4D85196E7A",
+    "customer": "Test Customer",
+    "hwid": "FBAUTO-1FFB-72D7-4977-DD80",
+    "tier": "Pro",
+    "created_date": "2026-09-13 11:26:33",
+    "expiry_date": "2026-10-13 11:26:33",
+    "notes": "",
+    "status": "ACTIVE"
+  }
+]

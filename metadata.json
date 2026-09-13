@@ -1,0 +1,6 @@
+{
+  "name": "FB Auto Bot",
+  "description": "High-performance Facebook Marketplace automation bot, HWID licensing suite, and landing page.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

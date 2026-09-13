@@ -1,0 +1,43 @@
+{
+  "accounts": [
+    {
+      "id": "acc_shop_usa_01",
+      "name": "ShopUSA_Official (Main)",
+      "email": "shopusa_seller@domain.com",
+      "cookies": "c_user=100084729184012; xs=29%3Ak109fa8472:2:171829104; datr=xYz98_21901a;",
+      "proxy": "socks5://185.199.229.15:8080",
+      "proxy_type": "SOCKS5",
+      "proxy_user": "p_user92",
+      "proxy_pass": "pass_sec92",
+      "status": "Healthy",
+      "last_checked": "2026-09-13 10:45:19",
+      "notes": "Verified US aged account. Marketplace unlocked."
+    },
+    {
+      "id": "acc_marketplace_pro_02",
+      "name": "Marketplace_Pro_CA",
+      "email": "alex_marketplace_ca@domain.com",
+      "cookies": "c_user=100091827364510; xs=14%3Am092bx7162:2:171994821; datr=wOp12_88192b;",
+      "proxy": "http://45.136.231.88:3128",
+      "proxy_type": "HTTP",
+      "proxy_user": "ca_proxy_01",
+      "proxy_pass": "securePass_ca!",
+      "status": "Healthy",
+      "last_checked": "2026-09-13 10:45:19",
+      "notes": "Canadian proxy profile with 2FA enabled."
+    },
+    {
+      "id": "acc_deal_hunter_uk_03",
+      "name": "DealHunter_UK_03",
+      "email": "dealhunter_uk@domain.com",
+      "cookies": "c_user=100072615483921; xs=42%3Az881pc0091:2:172110294; datr=mKl33_77192c;",
+      "proxy": "socks5://91.216.145.22:1080",
+      "proxy_type": "SOCKS5",
+      "proxy_user": "uk_bot_usr",
+      "proxy_pass": "uk_bot_key",
+      "status": "Needs Login",
+      "last_checked": "2026-09-13 10:45:19",
+      "notes": "Backup account for electronics & phones."
+    }
+  ]
+}

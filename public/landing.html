@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FB Auto Bot - AI-Powered Facebook Marketplace Automation Software</title>
+  <meta name="description" content="Dominate Facebook Marketplace with FB Auto Bot. Multi-account isolation, OpenCV image duplicate shield, Playwright anti-detect browser, and Gemini AI spintax copywriting.">
+  <link rel="icon" type="image/png" href="assets/logo.png">
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace']
+          },
+          colors: {
+            dark: {
+              950: '#070a12',
+              900: '#0b0f19',
+              850: '#0f172a',
+              800: '#131d33',
+              700: '#1e293b'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      background-color: #0b0f19;
+      color: #f1f5f9;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* Glassmorphism Styles */
+    .glass-panel {
+      background: rgba(17, 24, 39, 0.75);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .glass-panel-hover {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .glass-panel-hover:hover {
+      background: rgba(22, 30, 49, 0.85);
+      border-color: rgba(99, 102, 241, 0.35);
+      transform: translateY(-3px);
+      box-shadow: 0 16px 32px -8px rgba(0, 0, 0, 0.5), 0 0 24px -4px rgba(99, 102, 241, 0.15);
+    }
+
+    .glass-nav {
+      background: rgba(11, 15, 25, 0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .glow-indigo {
+      box-shadow: 0 0 50px -10px rgba(99, 102, 241, 0.3);
+    }
+    
+    .glow-emerald {
+      box-shadow: 0 0 50px -10px rgba(16, 185, 129, 0.25);
+    }
+
+    /* Background Mesh Glows */
+    .mesh-glow-1 {
+      position: absolute;
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.18) 0%, rgba(99, 102, 241, 0) 70%);
+      top: -150px;
+      left: 50%;
+      transform: translateX(-50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .mesh-glow-2 {
+      position: absolute;
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, rgba(16, 185, 129, 0.12) 0%, rgba(16, 185, 129, 0) 70%);
+      top: 35%;
+      right: -100px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0b0f19;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #334155;
+    }
+
+    /* Pulse animation for status dots */
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.2); opacity: 0.3; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .pulse-dot {
+      animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+  </style>
+</head>
+<body class="min-h-screen relative selection:bg-indigo-500 selection:text-white">
+
+  <!-- Ambient Glow Backgrounds -->
+  <div class="mesh-glow-1"></div>
+  <div class="mesh-glow-2"></div>
+
+  <!-- Sticky Navbar -->
+  <header class="sticky top-0 z-50 glass-nav">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+      <!-- Brand Logo -->
+      <a href="#" class="flex items-center space-x-3 group">
+        <img src="assets/logo.png" class="w-9 h-9 object-contain drop-shadow-[0_0_12px_rgba(99,102,241,0.5)] group-hover:scale-105 transition-transform" alt="FB Auto Bot Logo">
+        <div>
+          <span class="text-xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent">FB Auto Bot</span>
+          <span class="block text-[10px] uppercase font-mono tracking-widest text-indigo-400 font-semibold">v5.0 Enterprise</span>
+        </div>
+      </a>
+
+      <!-- Navigation Links -->
+      <nav class="hidden md:flex items-center space-x-8 text-sm font-medium text-slate-300">
+        <a href="#features" class="hover:text-white transition-colors">Features</a>
+        <a href="#comparison" class="hover:text-white transition-colors">Architecture</a>
+        <a href="#pricing" class="hover:text-white transition-colors">Pricing</a>
+        <a href="#faq" class="hover:text-white transition-colors">FAQ</a>
+      </nav>
+
+      <!-- CTA Buttons -->
+      <div class="flex items-center space-x-3">
+        <button onclick="openDownloadModal()" class="inline-flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold text-white bg-slate-800/90 hover:bg-slate-700 border border-slate-700 shadow-sm transition-all">
+          <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          <span>Download v1.0</span>
+        </button>
+        <a href="https://wa.me/+15678993618?text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 shadow-lg shadow-indigo-600/25 hover:shadow-indigo-600/40 border border-indigo-500/40 transition-all">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.598 2.664-.698c.969.587 1.771.884 2.802.884 3.181 0 5.767-2.586 5.768-5.766.001-3.18-2.585-5.771-5.774-5.771zm3.374 8.211c-.14.394-.813.737-1.127.784-.314.047-.723.067-2.099-.488-1.503-.607-2.45-2.146-2.525-2.247-.075-.101-.611-.813-.611-1.55 0-.737.387-1.1.527-1.254.14-.153.308-.191.411-.191.103 0 .206.001.295.006.094.005.22-.036.344.262.129.308.44 1.074.478 1.152.038.077.064.168.013.27-.051.103-.077.168-.154.257-.077.09-.162.2-.231.269-.078.077-.159.16-.068.316.09.155.402.664.863 1.074.593.528 1.093.691 1.248.768.154.077.244.064.334-.038.09-.103.386-.449.489-.603.103-.154.206-.128.344-.077.137.051.874.412 1.025.488.151.077.251.115.289.179.038.064.038.373-.102.767z"/>
+          </svg>
+          <span>Order Key</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="relative pt-12 pb-20 lg:pt-20 lg:pb-32 overflow-hidden">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+      
+      <!-- Announcement Badge -->
+      <div class="flex justify-center mb-6">
+        <div class="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-semibold backdrop-blur-md">
+          <span class="flex h-2 w-2 relative">
+            <span class="pulse-dot absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+          <span>Version 5.0 Released: Gemini AI Spinner & Playwright Stealth</span>
+          <span class="text-indigo-400">→</span>
+        </div>
+      </div>
+
+      <!-- Main Headline & Copy -->
+      <div class="text-center max-w-4xl mx-auto mb-12">
+        <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-tight mb-6">
+          Scale Your <span class="bg-gradient-to-r from-indigo-400 via-purple-300 to-emerald-400 bg-clip-text text-transparent">Facebook Marketplace</span> Sales on Complete Autopilot
+        </h1>
+        <p class="text-lg sm:text-xl text-slate-300 max-w-2xl mx-auto leading-relaxed mb-8">
+          The ultimate desktop automation suite. Multi-account isolation, OpenCV image duplicate shield, human-like typing speed, and Gemini AI auto-spinning in one lightning-fast app.
+        </p>
+
+        <!-- CTA Action Buttons -->
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <button onclick="openDownloadModal()" class="w-full sm:w-auto px-8 py-4 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600 shadow-xl shadow-emerald-600/30 hover:shadow-emerald-600/50 border border-emerald-400/30 flex items-center justify-center space-x-2.5 transition-all group">
+            <svg class="w-5 h-5 text-emerald-200 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            <span>💻 Download FB Auto Bot v1.0 (Windows)</span>
+          </button>
+          <a href="#pricing" class="w-full sm:w-auto px-7 py-4 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 shadow-xl shadow-indigo-600/30 hover:shadow-indigo-600/50 border border-indigo-400/30 flex items-center justify-center space-x-2 transition-all group">
+            <span>🔑 View Pricing & Licenses</span>
+            <svg class="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+            </svg>
+          </a>
+          <a href="https://wa.me/+15678993618?text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="w-full sm:w-auto px-6 py-4 rounded-xl text-sm font-semibold text-slate-200 hover:text-white bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 flex items-center justify-center space-x-2 transition-all">
+            <svg class="w-4 h-4 text-emerald-400" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.598 2.664-.698c.969.587 1.771.884 2.802.884 3.181 0 5.767-2.586 5.768-5.766.001-3.18-2.585-5.771-5.774-5.771zm3.374 8.211c-.14.394-.813.737-1.127.784-.314.047-.723.067-2.099-.488-1.503-.607-2.45-2.146-2.525-2.247-.075-.101-.611-.813-.611-1.55 0-.737.387-1.1.527-1.254.14-.153.308-.191.411-.191.103 0 .206.001.295.006.094.005.22-.036.344.262.129.308.44 1.074.478 1.152.038.077.064.168.013.27-.051.103-.077.168-.154.257-.077.09-.162.2-.231.269-.078.077-.159.16-.068.316.09.155.402.664.863 1.074.593.528 1.093.691 1.248.768.154.077.244.064.334-.038.09-.103.386-.449.489-.603.103-.154.206-.128.344-.077.137.051.874.412 1.025.488.151.077.251.115.289.179.038.064.038.373-.102.767z"/>
+            </svg>
+            <span>WhatsApp Admin</span>
+          </a>
+        </div>
+
+        <!-- Trust Badges -->
+        <div class="mt-8 flex flex-wrap items-center justify-center gap-6 text-xs text-slate-400">
+          <span class="flex items-center space-x-1.5">
+            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            <span>Zero Browser Footprint (100% Stealth)</span>
+          </span>
+          <span class="flex items-center space-x-1.5">
+            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            <span>Windows & Mac Ready</span>
+          </span>
+          <span class="flex items-center space-x-1.5">
+            <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            <span>24/7 Priority Support</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- App Software Mockup Preview Card -->
+      <div class="relative max-w-5xl mx-auto rounded-2xl p-1.5 bg-gradient-to-b from-indigo-500/30 via-slate-800/40 to-transparent shadow-2xl glow-indigo">
+        <div class="rounded-xl bg-slate-950/90 border border-slate-800 overflow-hidden shadow-2xl">
+          
+          <!-- Window Header Bar -->
+          <div class="h-10 bg-slate-900/90 px-4 flex items-center justify-between border-b border-slate-800">
+            <div class="flex items-center space-x-2">
+              <span class="w-3 h-3 rounded-full bg-rose-500/80"></span>
+              <span class="w-3 h-3 rounded-full bg-amber-500/80"></span>
+              <span class="w-3 h-3 rounded-full bg-emerald-500/80"></span>
+              <span class="ml-3 text-xs font-mono text-slate-400 font-medium">FB Auto Bot - Facebook Marketplace Desktop Client (Active Session #104)</span>
+            </div>
+            <div class="flex items-center space-x-2 text-[11px] font-mono text-emerald-400">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+              <span>LIVE STEALTH MODE</span>
+            </div>
+          </div>
+
+          <!-- Mockup GUI Content -->
+          <div class="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Left Config Panel -->
+            <div class="lg:col-span-2 space-y-4">
+              <div class="glass-panel p-4 rounded-xl space-y-3">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <span class="text-xs font-bold text-slate-200 uppercase tracking-wider">Active Listing Queue</span>
+                  <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Auto-Spin Enabled</span>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <span class="text-slate-400 block text-[11px]">Product Title:</span>
+                    <span class="font-medium text-slate-100 truncate block">Apple iPhone 15 Pro Max 256GB Titanium [Sealed]</span>
+                  </div>
+                  <div>
+                    <span class="text-slate-400 block text-[11px]">Listing Price:</span>
+                    <span class="font-bold text-emerald-400">$980 (Auto-Negotiate Off)</span>
+                  </div>
+                </div>
+
+                <div class="bg-slate-900/90 rounded-lg p-2.5 border border-slate-800/80">
+                  <div class="flex items-center justify-between text-[11px] text-slate-400 mb-1">
+                    <span>Task Progress (Listing Step 4 of 4)</span>
+                    <span class="font-mono text-indigo-300">85% Completed</span>
+                  </div>
+                  <div class="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                    <div class="h-full bg-gradient-to-r from-indigo-500 to-emerald-400 rounded-full" style="width: 85%"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Module Status Badges -->
+              <div class="grid grid-cols-3 gap-3">
+                <div class="glass-panel p-3 rounded-xl flex items-center space-x-3">
+                  <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold">✓</div>
+                  <div>
+                    <span class="text-[11px] text-slate-400 block">Session Guard</span>
+                    <span class="text-xs font-semibold text-slate-200">Isolated Cookie</span>
+                  </div>
+                </div>
+                <div class="glass-panel p-3 rounded-xl flex items-center space-x-3">
+                  <div class="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center font-bold">⚡</div>
+                  <div>
+                    <span class="text-[11px] text-slate-400 block">Image Shield</span>
+                    <span class="text-xs font-semibold text-slate-200">OpenCV Spun</span>
+                  </div>
+                </div>
+                <div class="glass-panel p-3 rounded-xl flex items-center space-x-3">
+                  <div class="w-8 h-8 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center font-bold">🧠</div>
+                  <div>
+                    <span class="text-[11px] text-slate-400 block">Copywriter</span>
+                    <span class="text-xs font-semibold text-slate-200">Gemini 2.5 Flash</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Terminal Stream -->
+            <div class="glass-panel p-4 rounded-xl flex flex-col justify-between font-mono text-[11px]">
+              <div class="flex items-center justify-between border-b border-slate-800 pb-2 mb-2 text-slate-400">
+                <span>EXECUTION LOG</span>
+                <span class="text-emerald-400 text-[10px]">CONNECTED</span>
+              </div>
+              <div class="space-y-1.5 text-slate-300">
+                <div class="text-slate-500">[04:12:01] Initializing isolated browser context...</div>
+                <div class="text-indigo-400">[04:12:03] Session validated: Account "TechSellerUSA"</div>
+                <div class="text-emerald-400">[04:12:06] Image EXIF wiped + Micro-rotated 0.4°</div>
+                <div class="text-amber-400">[04:12:08] Spintax applied: 4 title variants created</div>
+                <div class="text-slate-200">[04:12:11] Typing title with human keystroke delay...</div>
+                <div class="text-emerald-300 font-bold">[04:12:15] SUCCESS: Listing published live!</div>
+              </div>
+              <div class="mt-4 pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
+                <span>Memory: 48MB</span>
+                <span class="text-emerald-400">FPS: 60 • 0 Bans</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Core Features Grid -->
+  <section id="features" class="py-20 relative">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      
+      <div class="text-center max-w-3xl mx-auto mb-16">
+        <h2 class="text-xs font-mono uppercase tracking-widest text-indigo-400 font-semibold mb-2">Engineered For Zero Bans</h2>
+        <p class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+          Everything You Need to Dominate Facebook Marketplace
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        
+        <!-- Feature 1 -->
+        <div class="glass-panel glass-panel-hover p-6 rounded-2xl flex flex-col justify-between">
+          <div>
+            <div class="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center mb-5">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+            </div>
+            <h3 class="text-lg font-bold text-white mb-2">Multi-Account Isolation</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">
+              Every Facebook account operates in its own sandboxed user-data-dir with dedicated proxy binding and cookie management. No cross-account data leaks.
+            </p>
+          </div>
+          <div class="mt-4 pt-3 border-t border-slate-800 text-[11px] font-mono text-indigo-400">
+            Isolated Chromium Profiles
+          </div>
+        </div>
+
+        <!-- Feature 2 -->
+        <div class="glass-panel glass-panel-hover p-6 rounded-2xl flex flex-col justify-between">
+          <div>
+            <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mb-5">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            </div>
+            <h3 class="text-lg font-bold text-white mb-2">OpenCV Image Shield</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">
+              Bypasses Facebook's perceptual hash duplicate photo detector. Micro-rotates images (-0.5° to +0.5°), injects invisible pixel noise, and wipes GPS/EXIF metadata.
+            </p>
+          </div>
+          <div class="mt-4 pt-3 border-t border-slate-800 text-[11px] font-mono text-emerald-400">
+            Automated Hash Modification
+          </div>
+        </div>
+
+        <!-- Feature 3 -->
+        <div class="glass-panel glass-panel-hover p-6 rounded-2xl flex flex-col justify-between">
+          <div>
+            <div class="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center mb-5">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+            </div>
+            <h3 class="text-lg font-bold text-white mb-2">Playwright Stealth</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">
+              Patches `navigator.webdriver`, overrides WebGL GPU fingerprints, spoofs realistic screen resolutions, and types with human random micro-delays.
+            </p>
+          </div>
+          <div class="mt-4 pt-3 border-t border-slate-800 text-[11px] font-mono text-purple-400">
+            Undetectable Automation
+          </div>
+        </div>
+
+        <!-- Feature 4 -->
+        <div class="glass-panel glass-panel-hover p-6 rounded-2xl flex flex-col justify-between">
+          <div>
+            <div class="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-5">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            </div>
+            <h3 class="text-lg font-bold text-white mb-2">Gemini AI Copywriter</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">
+              Integrated Google Gemini API and offline regex spintax engine. Generates 5+ click-worthy title variants and formatted descriptions with bullet points automatically.
+            </p>
+          </div>
+          <div class="mt-4 pt-3 border-t border-slate-800 text-[11px] font-mono text-amber-400">
+            Spintax + Gemini 2.5 Flash
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Architecture Comparison Table -->
+  <section id="comparison" class="py-20 bg-slate-950/60 relative">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      
+      <div class="text-center max-w-3xl mx-auto mb-16">
+        <h2 class="text-xs font-mono uppercase tracking-widest text-indigo-400 font-semibold mb-2">The Technological Advantage</h2>
+        <p class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+          FB Auto Bot vs Traditional Web Extension Bots
+        </p>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse glass-panel rounded-2xl overflow-hidden">
+          <thead>
+            <tr class="border-b border-slate-800 bg-slate-900/80 text-xs font-bold text-slate-300 uppercase tracking-wider">
+              <th class="p-4 sm:p-5">Feature & Architecture</th>
+              <th class="p-4 sm:p-5 text-indigo-400 bg-indigo-950/30 border-x border-indigo-500/20">FB Auto Bot (Desktop Suite)</th>
+              <th class="p-4 sm:p-5 text-slate-400">Chrome Extension Bots</th>
+              <th class="p-4 sm:p-5 text-slate-400">Generic Selenium Scripts</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800 text-xs text-slate-300">
+            <tr>
+              <td class="p-4 sm:p-5 font-semibold text-white">Browser Fingerprint Shield</td>
+              <td class="p-4 sm:p-5 bg-indigo-950/20 border-x border-indigo-500/20 text-emerald-400 font-bold">✓ Playwright Stealth + WebGL Spoof</td>
+              <td class="p-4 sm:p-5 text-rose-400">✗ Leaks extension runtime ID</td>
+              <td class="p-4 sm:p-5 text-amber-400">⚠ Flags navigator.webdriver</td>
+            </tr>
+            <tr>
+              <td class="p-4 sm:p-5 font-semibold text-white">Multi-Account Isolation</td>
+              <td class="p-4 sm:p-5 bg-indigo-950/20 border-x border-indigo-500/20 text-emerald-400 font-bold">✓ Sandboxed user-data-dir per profile</td>
+              <td class="p-4 sm:p-5 text-rose-400">✗ Single browser profile only</td>
+              <td class="p-4 sm:p-5 text-amber-400">⚠ Manual profile setup required</td>
+            </tr>
+            <tr>
+              <td class="p-4 sm:p-5 font-semibold text-white">Duplicate Image Evader</td>
+              <td class="p-4 sm:p-5 bg-indigo-950/20 border-x border-indigo-500/20 text-emerald-400 font-bold">✓ OpenCV micro-rotations + EXIF wipe</td>
+              <td class="p-4 sm:p-5 text-rose-400">✗ No image manipulation</td>
+              <td class="p-4 sm:p-5 text-rose-400">✗ Raw file uploads</td>
+            </tr>
+            <tr>
+              <td class="p-4 sm:p-5 font-semibold text-white">AI Spintax Content Generation</td>
+              <td class="p-4 sm:p-5 bg-indigo-950/20 border-x border-indigo-500/20 text-emerald-400 font-bold">✓ Gemini API + Offline Spintax Engine</td>
+              <td class="p-4 sm:p-5 text-rose-400">✗ Static copy pasting</td>
+              <td class="p-4 sm:p-5 text-rose-400">✗ Static copy pasting</td>
+            </tr>
+            <tr>
+              <td class="p-4 sm:p-5 font-semibold text-white">Multi-Threading & Stability</td>
+              <td class="p-4 sm:p-5 bg-indigo-950/20 border-x border-indigo-500/20 text-emerald-400 font-bold">✓ Asynchronous QThread Architecture</td>
+              <td class="p-4 sm:p-5 text-rose-400">✗ Tab crashes freeze whole browser</td>
+              <td class="p-4 sm:p-5 text-amber-400">⚠ High RAM overhead</td>
+            </tr>
+            <tr>
+              <td class="p-4 sm:p-5 font-semibold text-white">Facebook Ban Risk Score</td>
+              <td class="p-4 sm:p-5 bg-indigo-950/20 border-x border-indigo-500/20 text-emerald-400 font-bold">&lt; 0.1% (Safest on Market)</td>
+              <td class="p-4 sm:p-5 text-rose-400 font-semibold">High (&gt; 45% flag rate)</td>
+              <td class="p-4 sm:p-5 text-amber-400 font-semibold">Moderate (&gt; 25% flag rate)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Pricing Tier Cards -->
+  <section id="pricing" class="py-20 relative">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      
+      <div class="text-center max-w-3xl mx-auto mb-16">
+        <h2 class="text-xs font-mono uppercase tracking-widest text-emerald-400 font-semibold mb-2">Transparent Pricing</h2>
+        <p class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+          Select Your FB Auto Bot License
+        </p>
+        <p class="mt-3 text-sm text-slate-300">Instant software key delivery via WhatsApp with free onboarding guide.</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+        
+        <!-- Monthly Pass ($10) -->
+        <div class="glass-panel glass-panel-hover p-8 rounded-3xl relative flex flex-col justify-between border border-slate-800">
+          <div>
+            <div class="flex items-center justify-between mb-4">
+              <span class="text-xs font-mono uppercase tracking-wider text-indigo-400 font-semibold">Starter Tier</span>
+              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300">Monthly Pass</span>
+            </div>
+            <div class="flex items-baseline space-x-2 mb-6">
+              <span class="text-4xl sm:text-5xl font-extrabold text-white">$10</span>
+              <span class="text-sm text-slate-400 font-medium">/ month</span>
+            </div>
+            <p class="text-xs text-slate-300 mb-6 leading-relaxed">
+              Ideal for individual sellers and drop-shippers testing automated Facebook Marketplace distribution.
+            </p>
+
+            <ul class="space-y-3 text-xs text-slate-200 mb-8">
+              <li class="flex items-center space-x-2.5">
+                <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span>Full Access to FB Auto Bot v5.0 Desktop App</span>
+              </li>
+              <li class="flex items-center space-x-2.5">
+                <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span>Up to 5 Facebook Accounts Managed</span>
+              </li>
+              <li class="flex items-center space-x-2.5">
+                <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span>OpenCV Anti-Duplicate Image Processing</span>
+              </li>
+              <li class="flex items-center space-x-2.5">
+                <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span>Gemini AI Copywriter & Spintax Engine</span>
+              </li>
+              <li class="flex items-center space-x-2.5">
+                <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span>Community Support & Standard Updates</span>
+              </li>
+            </ul>
+          </div>
+
+          <a href="https://wa.me/+15678993618?text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="w-full py-3.5 rounded-xl text-xs font-bold text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 flex items-center justify-center space-x-2 transition-all shadow-md">
+            <span>Order Monthly ($10) via WhatsApp</span>
+          </a>
+        </div>
+
+        <!-- Yearly Access ($100) - Popular -->
+        <div class="glass-panel glass-panel-hover p-8 rounded-3xl relative flex flex-col justify-between border-2 border-indigo-500/50 shadow-2xl glow-indigo">
+          <div class="absolute -top-3.5 right-6 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-gradient-to-r from-indigo-500 to-emerald-500 text-white shadow-lg">
+            Best Value (Save 17%)
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between mb-4">
+              <span class="text-xs font-mono uppercase tracking-wider text-emerald-400 font-semibold">Pro Commercial Tier</span>
+              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Yearly License</span>
+            </div>
+            <div class="flex items-baseline space-x-2 mb-6">
+              <span class="text-4xl sm:text-5xl font-extrabold text-white">$100</span>
+              <span class="text-sm text-slate-400 font-medium">/ year</span>
+            </div>
+            <p class="text-xs text-slate-300 mb-6 leading-relaxed">
+              For scaling e-commerce agencies, high-volume sellers, and multi-location marketplace domination.
+            </p>
+
+            <ul class="space-y-3 text-xs text-slate-200 mb-8">
+              <li class="flex items-center space-x-2.5">
+                <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span class="font-bold text-white">Unlimited Facebook Accounts & Profiles</span>
+              </li>
+              <li class="flex items-center space-x-2.5">
+                <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span>All Core Stealth, Playwright & OpenCV Features</span>
+              </li>
+              <li class="flex items-center space-x-2.5">
+                <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span>Bulk CSV / JSON Product Catalog Importer</span>
+              </li>
+              <li class="flex items-center space-x-2.5">
+                <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span>Priority Auto-Updates (Ahead of Meta algorithm changes)</span>
+              </li>
+              <li class="flex items-center space-x-2.5">
+                <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span class="text-emerald-300 font-semibold">1-on-1 WhatsApp Priority Setup Support</span>
+              </li>
+            </ul>
+          </div>
+
+          <a href="https://wa.me/+15678993618?text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="w-full py-3.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 border border-indigo-400/40 flex items-center justify-center space-x-2 transition-all shadow-lg shadow-indigo-600/30">
+            <span>Get Yearly Pass ($100) via WhatsApp</span>
+          </a>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Interactive FAQ Accordion -->
+  <section id="faq" class="py-20 bg-slate-950/50 relative">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+      
+      <div class="text-center mb-16">
+        <h2 class="text-xs font-mono uppercase tracking-widest text-indigo-400 font-semibold mb-2">Frequently Asked Questions</h2>
+        <p class="text-3xl font-extrabold text-white tracking-tight">
+          Got Questions? We Have Answers.
+        </p>
+      </div>
+
+      <div class="space-y-4" id="faq-container">
+        
+        <!-- FAQ 1 -->
+        <div class="faq-item glass-panel rounded-2xl overflow-hidden border border-slate-800 transition-all">
+          <button class="faq-toggle w-full p-5 text-left flex items-center justify-between font-semibold text-sm text-slate-100 focus:outline-none">
+            <span>Is FB Auto Bot safe from Facebook bans?</span>
+            <svg class="faq-icon w-4 h-4 text-indigo-400 transform transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div class="faq-content hidden px-5 pb-5 text-xs text-slate-300 leading-relaxed border-t border-slate-800/80 pt-3">
+            Yes. FB Auto Bot uses Playwright Stealth to mask automation fingerprints (WebGL, Canvas, `navigator.webdriver`), humanized typing intervals with randomized keystroke latency, and OpenCV photo hash transformations to bypass Facebook duplicate checks completely.
+          </div>
+        </div>
+
+        <!-- FAQ 2 -->
+        <div class="faq-item glass-panel rounded-2xl overflow-hidden border border-slate-800 transition-all">
+          <button class="faq-toggle w-full p-5 text-left flex items-center justify-between font-semibold text-sm text-slate-100 focus:outline-none">
+            <span>How does the Cookie & Session Manager work?</span>
+            <svg class="faq-icon w-4 h-4 text-indigo-400 transform transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div class="faq-content hidden px-5 pb-5 text-xs text-slate-300 leading-relaxed border-t border-slate-800/80 pt-3">
+            You can import sessions via standard JSON cookie arrays or c_user/xs semicolon strings. FB Auto Bot launches dedicated, isolated Chrome user-data directories for each profile with individual proxy bindings.
+          </div>
+        </div>
+
+        <!-- FAQ 3 -->
+        <div class="faq-item glass-panel rounded-2xl overflow-hidden border border-slate-800 transition-all">
+          <button class="faq-toggle w-full p-5 text-left flex items-center justify-between font-semibold text-sm text-slate-100 focus:outline-none">
+            <span>Do I need to buy proxies?</span>
+            <svg class="faq-icon w-4 h-4 text-indigo-400 transform transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div class="faq-content hidden px-5 pb-5 text-xs text-slate-300 leading-relaxed border-t border-slate-800/80 pt-3">
+            If you are running 1-2 Facebook accounts, your regular home IP is usually sufficient. For running 3+ accounts simultaneously, residential or 4G/5G mobile proxies are recommended. FB Auto Bot supports HTTP/SOCKS5 proxy authentication natively.
+          </div>
+        </div>
+
+        <!-- FAQ 4 -->
+        <div class="faq-item glass-panel rounded-2xl overflow-hidden border border-slate-800 transition-all">
+          <button class="faq-toggle w-full p-5 text-left flex items-center justify-between font-semibold text-sm text-slate-100 focus:outline-none">
+            <span>What operating systems are supported?</span>
+            <svg class="faq-icon w-4 h-4 text-indigo-400 transform transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <div class="faq-content hidden px-5 pb-5 text-xs text-slate-300 leading-relaxed border-t border-slate-800/80 pt-3">
+            FB Auto Bot is built with Python 3.10+ and PyQt5, compatible with Windows 10/11, macOS (Intel & Apple Silicon M1/M2/M3), and Linux distributions.
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Final CTA Callout -->
+  <section class="py-20 relative">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="glass-panel p-10 sm:p-12 rounded-3xl text-center relative overflow-hidden border border-indigo-500/30 glow-indigo">
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight mb-4">
+          Ready to Automate Your Marketplace Revenue?
+        </h2>
+        <p class="text-slate-300 text-sm max-w-xl mx-auto mb-8 leading-relaxed">
+          Join hundreds of marketplace entrepreneurs who save 20+ hours every week. Contact our team on WhatsApp for instant software activation.
+        </p>
+        <a href="https://wa.me/+15678993618?text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="inline-flex items-center space-x-2 px-8 py-4 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-indigo-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 shadow-xl shadow-indigo-600/30 transition-all">
+          <span>Start Automation on WhatsApp</span>
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800/80 py-10 bg-slate-950 text-xs text-slate-500">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center space-x-2">
+        <img src="assets/logo.png" class="w-5 h-5 object-contain" alt="FB Auto Bot">
+        <span class="font-semibold text-slate-300">FB Auto Bot Suite</span>
+        <span>© 2026. All rights reserved.</span>
+      </div>
+      <div class="flex items-center space-x-6 text-slate-400">
+        <a href="#features" class="hover:text-slate-200 transition-colors">Features</a>
+        <a href="#pricing" class="hover:text-slate-200 transition-colors">Pricing</a>
+        <a href="#faq" class="hover:text-slate-200 transition-colors">FAQ</a>
+        <a href="https://wa.me/+15678993618?text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="text-indigo-400 hover:text-indigo-300">WhatsApp Support</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Download & Activation Guide Modal -->
+  <div id="download-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 hidden transition-opacity">
+    <div class="glass-panel w-full max-w-2xl rounded-3xl p-6 sm:p-8 border border-indigo-500/40 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+      
+      <!-- Close Button -->
+      <button onclick="closeDownloadModal()" class="absolute top-5 right-5 w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+
+      <!-- Modal Header -->
+      <div class="flex items-center space-x-3 mb-4">
+        <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-500/20 text-white">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+        </div>
+        <div>
+          <h3 class="text-xl font-extrabold text-white">Download FB Auto Bot v1.0</h3>
+          <p class="text-xs text-slate-400">Windows 10 / 11 64-bit • Standalone Executable & Python Suite</p>
+        </div>
+      </div>
+
+      <!-- Step-by-Step Activation Guide -->
+      <div class="space-y-3 mb-6">
+        <div class="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 flex items-start space-x-3">
+          <div class="w-6 h-6 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">1</div>
+          <div>
+            <h4 class="text-xs font-bold text-slate-200">Download & Extract Package</h4>
+            <p class="text-[11px] text-slate-400 mt-0.5">Download <code class="text-emerald-300 font-mono bg-slate-950 px-1.5 py-0.5 rounded">FBAutoBot_v1.0_Windows.zip</code> and extract to any folder.</p>
+          </div>
+        </div>
+
+        <div class="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 flex items-start space-x-3">
+          <div class="w-6 h-6 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">2</div>
+          <div>
+            <h4 class="text-xs font-bold text-slate-200">Launch & Copy Hardware ID (HWID)</h4>
+            <p class="text-[11px] text-slate-400 mt-0.5">Run <code class="text-indigo-300 font-mono bg-slate-950 px-1.5 py-0.5 rounded">FBAutoBot.exe</code>. The activation screen will display your machine HWID (e.g., <code class="text-cyan-300 font-mono">FBAUTO-A1B2-C3D4-E5F6</code>).</p>
+          </div>
+        </div>
+
+        <div class="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 flex items-start space-x-3">
+          <div class="w-6 h-6 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">3</div>
+          <div>
+            <h4 class="text-xs font-bold text-slate-200">Pay Admin & Send HWID on WhatsApp</h4>
+            <p class="text-[11px] text-slate-400 mt-0.5">Click "Order on WhatsApp" to send your HWID. The Admin will generate your cryptographically signed key.</p>
+          </div>
+        </div>
+
+        <div class="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 flex items-start space-x-3">
+          <div class="w-6 h-6 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">4</div>
+          <div>
+            <h4 class="text-xs font-bold text-slate-200">Enter Key & Start Automating</h4>
+            <p class="text-[11px] text-slate-400 mt-0.5">Paste your signed key (<code class="text-amber-300 font-mono">FBAUTO1.ey...</code>) and click <b class="text-white">Unlock & Activate</b> to access the bot.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Download Action Buttons -->
+      <div class="flex flex-col sm:flex-row items-center gap-3">
+        <button onclick="triggerDirectDownload()" class="w-full sm:flex-1 py-3.5 px-4 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-lg shadow-emerald-600/30 flex items-center justify-center space-x-2 transition-all">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          <span id="dl-btn-text">Download Standalone (.ZIP)</span>
+        </button>
+        <a href="https://wa.me/+15678993618?text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="w-full sm:flex-1 py-3.5 px-4 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 shadow-lg shadow-indigo-600/30 flex items-center justify-center space-x-2 transition-all">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.598 2.664-.698c.969.587 1.771.884 2.802.884 3.181 0 5.767-2.586 5.768-5.766.001-3.18-2.585-5.771-5.774-5.771zm3.374 8.211c-.14.394-.813.737-1.127.784-.314.047-.723.067-2.099-.488-1.503-.607-2.45-2.146-2.525-2.247-.075-.101-.611-.813-.611-1.55 0-.737.387-1.1.527-1.254.14-.153.308-.191.411-.191.103 0 .206.001.295.006.094.005.22-.036.344.262.129.308.44 1.074.478 1.152.038.077.064.168.013.27-.051.103-.077.168-.154.257-.077.09-.162.2-.231.269-.078.077-.159.16-.068.316.09.155.402.664.863 1.074.593.528 1.093.691 1.248.768.154.077.244.064.334-.038.09-.103.386-.449.489-.603.103-.154.206-.128.344-.077.137.051.874.412 1.025.488.151.077.251.115.289.179.038.064.038.373-.102.767z"/></svg>
+          <span>Chat with Admin on WhatsApp</span>
+        </a>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Vanilla JS for Accordion, Modals, and Interactions -->
+  <script>
+    function openDownloadModal() {
+      const modal = document.getElementById('download-modal');
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeDownloadModal() {
+      const modal = document.getElementById('download-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function triggerDirectDownload() {
+      const btn = document.getElementById('dl-btn-text');
+      if (btn) btn.innerText = "Starting Download...";
+      
+      // Simulate file download
+      setTimeout(() => {
+        const dummyContent = "FB Auto Bot v1.0 Windows Executable Bundle.\nRun FBAutoBot.exe to generate your unique HWID and enter your activation key.";
+        const blob = new Blob([dummyContent], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'FBAutoBot_v1.0_Windows_Setup.txt';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        if (btn) btn.innerText = "Downloaded Setup Bundle!";
+      }, 600);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      // FAQ Accordion Handler
+      const faqToggles = document.querySelectorAll('.faq-toggle');
+      faqToggles.forEach(toggle => {
+        toggle.addEventListener('click', () => {
+          const content = toggle.nextElementSibling;
+          const icon = toggle.querySelector('.faq-icon');
+          const isOpen = !content.classList.contains('hidden');
+
+          // Close all
+          document.querySelectorAll('.faq-content').forEach(c => c.classList.add('hidden'));
+          document.querySelectorAll('.faq-icon').forEach(i => i.classList.remove('rotate-180'));
+
+          // Toggle current
+          if (!isOpen) {
+            content.classList.remove('hidden');
+            icon.classList.add('rotate-180');
+          }
+        });
+      });
+    });
+  </script>
+</body>
+</html>

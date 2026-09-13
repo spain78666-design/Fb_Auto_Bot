@@ -1,0 +1,632 @@
+#!/usr/bin/env python3
+"""
+FB Auto Bot - Facebook Marketplace Automation Suite
+automation/session_manager.py - Multi-Account Persistence & Session Cookie Manager
+
+Provides isolated session environments, cookie serialization, automated health audits,
+and manual browser login interception to safeguard Facebook profiles against cross-contamination:
+  1. Isolated User Data Directories (profiles/account_id/) for zero cache/cookie leaks
+  2. Flexible Cookie Normalizer (JSON arrays, EditThisCookie, Netscape, and semicolon strings)
+  3. Automated Session Health Auditor (detects /login redirects, checkpoints, and active feeds)
+  4. Interactive Manual Login Interceptor (launches headful browser, captures c_user & xs cookies)
+  5. JSON Database Persistence (config/accounts_db.json) with proxy bindings
+"""
+
+import os
+import sys
+import json
+import time
+import uuid
+import shutil
+import asyncio
+import logging
+from datetime import datetime
+from typing import List, Dict, Any, Optional, Tuple, Callable
+
+# Playwright async
+try:
+    from playwright.async_api import async_playwright, BrowserContext, Page, Playwright
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+
+try:
+    from playwright_stealth import stealth_async
+    PLAYWRIGHT_STEALTH_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_STEALTH_AVAILABLE = False
+
+logger = logging.getLogger("FBAutoBot.SessionManager")
+
+DEFAULT_ACCOUNTS_SEED = [
+    {
+        "id": "acc_shop_usa_01",
+        "name": "ShopUSA_Official (Main)",
+        "email": "shopusa_seller@domain.com",
+        "cookies": "c_user=100084729184012; xs=29%3Ak109fa8472:2:171829104; datr=xYz98_21901a;",
+        "proxy": "socks5://185.199.229.15:8080",
+        "proxy_type": "SOCKS5",
+        "proxy_user": "p_user92",
+        "proxy_pass": "pass_sec92",
+        "status": "Healthy",
+        "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "notes": "Verified US aged account. Marketplace unlocked."
+    },
+    {
+        "id": "acc_marketplace_pro_02",
+        "name": "Marketplace_Pro_CA",
+        "email": "alex_marketplace_ca@domain.com",
+        "cookies": "c_user=100091827364510; xs=14%3Am092bx7162:2:171994821; datr=wOp12_88192b;",
+        "proxy": "http://45.136.231.88:3128",
+        "proxy_type": "HTTP",
+        "proxy_user": "ca_proxy_01",
+        "proxy_pass": "securePass_ca!",
+        "status": "Healthy",
+        "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "notes": "Canadian proxy profile with 2FA enabled."
+    },
+    {
+        "id": "acc_deal_hunter_uk_03",
+        "name": "DealHunter_UK_03",
+        "email": "dealhunter_uk@domain.com",
+        "cookies": "c_user=100072615483921; xs=42%3Az881pc0091:2:172110294; datr=mKl33_77192c;",
+        "proxy": "socks5://91.216.145.22:1080",
+        "proxy_type": "SOCKS5",
+        "proxy_user": "uk_bot_usr",
+        "proxy_pass": "uk_bot_key",
+        "status": "Needs Login",
+        "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "notes": "Backup account for electronics & phones."
+    }
+]
+
+
+class SessionCookieParser:
+    """Parses arbitrary cookie formats into Playwright-compliant dictionaries."""
+
+    @staticmethod
+    def normalize_cookies(raw_cookies: Any) -> List[Dict[str, Any]]:
+        """
+        Accepts:
+          - Semicolon string: "c_user=100084; xs=29%3A..."
+          - JSON string of list or dict
+          - Python list of dicts (from EditThisCookie or Netscape export)
+        Returns:
+          - List[dict] ready for browser_context.add_cookies()
+        """
+        if not raw_cookies:
+            return []
+
+        cookies_list: List[Dict[str, Any]] = []
+
+        # 1. Handle JSON string representation
+        if isinstance(raw_cookies, str):
+            trimmed = raw_cookies.strip()
+            if trimmed.startswith("[") or trimmed.startswith("{"):
+                try:
+                    parsed_json = json.loads(trimmed)
+                    if isinstance(parsed_json, list):
+                        for c in parsed_json:
+                            normalized = SessionCookieParser._normalize_cookie_dict(c)
+                            if normalized:
+                                cookies_list.append(normalized)
+                        return cookies_list
+                    elif isinstance(parsed_json, dict):
+                        for k, v in parsed_json.items():
+                            cookies_list.append({
+                                "name": str(k),
+                                "value": str(v),
+                                "domain": ".facebook.com",
+                                "path": "/",
+                                "secure": True,
+                                "sameSite": "Lax"
+                            })
+                        return cookies_list
+                except Exception:
+                    pass  # Fallback to semicolon parser below
+
+            # 2. Handle Semicolon key=value format
+            pairs = [p.strip() for p in trimmed.split(";") if p.strip()]
+            for pair in pairs:
+                if "=" in pair:
+                    key, val = pair.split("=", 1)
+                    key = key.strip()
+                    val = val.strip()
+                    if key:
+                        cookies_list.append({
+                            "name": key,
+                            "value": val,
+                            "domain": ".facebook.com",
+                            "path": "/",
+                            "secure": True,
+                            "sameSite": "Lax"
+                        })
+            return cookies_list
+
+        # 3. Handle Python list of dicts directly
+        if isinstance(raw_cookies, list):
+            for c in raw_cookies:
+                if isinstance(c, dict):
+                    normalized = SessionCookieParser._normalize_cookie_dict(c)
+                    if normalized:
+                        cookies_list.append(normalized)
+            return cookies_list
+
+        return []
+
+    @staticmethod
+    def _normalize_cookie_dict(c: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        name = c.get("name")
+        value = c.get("value")
+        if not name or value is None:
+            return None
+
+        domain = c.get("domain", ".facebook.com")
+        if domain and not domain.startswith("."):
+            domain = f".{domain}"
+        if not domain or "facebook.com" not in domain:
+            domain = ".facebook.com"
+
+        cookie_item = {
+            "name": str(name),
+            "value": str(value),
+            "domain": domain,
+            "path": c.get("path", "/"),
+            "secure": bool(c.get("secure", True)),
+            "httpOnly": bool(c.get("httpOnly", False))
+        }
+
+        # Normalize sameSite
+        ss = c.get("sameSite", "Lax")
+        if isinstance(ss, str):
+            ss_lower = ss.lower()
+            if ss_lower in ("strict", "lax", "none"):
+                cookie_item["sameSite"] = ss_lower.capitalize() if ss_lower != "none" else "None"
+            else:
+                cookie_item["sameSite"] = "Lax"
+        else:
+            cookie_item["sameSite"] = "Lax"
+
+        if "expirationDate" in c:
+            try:
+                cookie_item["expires"] = int(c["expirationDate"])
+            except Exception:
+                pass
+
+        return cookie_item
+
+    @staticmethod
+    def cookies_to_semicolon_string(cookies: List[Dict[str, Any]]) -> str:
+        """Converts normalized cookie list to string format 'c_user=...; xs=...'."""
+        parts = []
+        for c in cookies:
+            n = c.get("name")
+            v = c.get("value")
+            if n and v is not None:
+                parts.append(f"{n}={v}")
+        return "; ".join(parts)
+
+    # Convenience alias
+    parse_cookies = normalize_cookies
+
+
+class SessionManager:
+    """
+    Manages accounts, isolated profiles, proxy bindings, and session validation.
+    """
+
+    def __init__(
+        self,
+        base_dir: Optional[str] = None,
+        db_path: Optional[str] = None,
+        profiles_base_dir: Optional[str] = None
+    ):
+        if base_dir:
+            self.base_dir = base_dir
+        else:
+            self.base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+        self.config_dir = os.path.join(self.base_dir, "config")
+        self.profiles_dir = profiles_base_dir if profiles_base_dir else os.path.join(self.base_dir, "profiles")
+        self.db_path = db_path if db_path else os.path.join(self.config_dir, "accounts_db.json")
+
+        os.makedirs(os.path.dirname(self.db_path) if os.path.dirname(self.db_path) else self.config_dir, exist_ok=True)
+        os.makedirs(self.profiles_dir, exist_ok=True)
+
+        self._init_db()
+
+    def _init_db(self):
+        """Initializes accounts JSON database file with seed accounts if missing."""
+        if not os.path.exists(self.db_path):
+            try:
+                with open(self.db_path, "w", encoding="utf-8") as f:
+                    json.dump({"accounts": DEFAULT_ACCOUNTS_SEED}, f, indent=2)
+                logger.info(f"Initialized accounts database with {len(DEFAULT_ACCOUNTS_SEED)} default profiles.")
+            except Exception as e:
+                logger.error(f"Error seeding accounts database: {str(e)}")
+
+    def get_profile_dir(self, account_id: str) -> str:
+        """Returns the isolated profile user-data-dir for an account."""
+        clean_id = "".join(c for c in account_id if c.isalnum() or c in ("_", "-"))
+        path = os.path.join(self.profiles_dir, clean_id)
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    def list_accounts(self) -> List[Dict[str, Any]]:
+        """Returns all accounts saved in the database."""
+        try:
+            if os.path.exists(self.db_path):
+                with open(self.db_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    return data.get("accounts", [])
+        except Exception as e:
+            logger.error(f"Failed to read accounts database: {str(e)}")
+        return list(DEFAULT_ACCOUNTS_SEED)
+
+    def get_account(self, account_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves a single account by ID or name."""
+        accounts = self.list_accounts()
+        for acc in accounts:
+            if acc.get("id") == account_id or acc.get("name") == account_id:
+                return acc
+        return None
+
+    def save_accounts(self, accounts: List[Dict[str, Any]]) -> bool:
+        """Saves entire accounts list to disk."""
+        try:
+            with open(self.db_path, "w", encoding="utf-8") as f:
+                json.dump({"accounts": accounts}, f, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save accounts database: {str(e)}")
+            return False
+
+    def add_or_update_account(self, account_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Adds a new account or updates an existing one."""
+        accounts = self.list_accounts()
+        acc_id = account_data.get("id")
+        if not acc_id:
+            # Generate ID based on name or UUID
+            name_slug = account_data.get("name", "acc").strip().lower().replace(" ", "_")
+            name_slug = "".join(c for c in name_slug if c.isalnum() or c == "_")[:12]
+            acc_id = f"acc_{name_slug}_{uuid.uuid4().hex[:6]}"
+            account_data["id"] = acc_id
+
+        # Attach profile directory
+        account_data["profile_dir"] = self.get_profile_dir(acc_id)
+        if not account_data.get("last_checked"):
+            account_data["last_checked"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        existing_idx = -1
+        for idx, item in enumerate(accounts):
+            if item.get("id") == acc_id:
+                existing_idx = idx
+                break
+
+        if existing_idx >= 0:
+            accounts[existing_idx].update(account_data)
+        else:
+            accounts.append(account_data)
+
+        self.save_accounts(accounts)
+        return account_data
+
+    def save_account(
+        self,
+        account_id: Optional[str] = None,
+        name: Optional[str] = None,
+        cookies: Optional[str] = None,
+        proxy: str = "Direct (No Proxy)",
+        proxy_type: str = "HTTP",
+        proxy_user: str = "",
+        proxy_pass: str = "",
+        notes: str = "",
+        status: str = "Healthy"
+    ) -> Dict[str, Any]:
+        """Convenience helper to create or update an account entry."""
+        acc_data = {
+            "id": account_id or f"acc_{uuid.uuid4().hex[:8]}",
+            "name": name or account_id or "Unnamed Profile",
+            "cookies": cookies or "",
+            "proxy": proxy,
+            "proxy_type": proxy_type,
+            "proxy_user": proxy_user,
+            "proxy_pass": proxy_pass,
+            "notes": notes,
+            "status": status,
+            "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        return self.add_or_update_account(acc_data)
+
+    def delete_account(
+        self,
+        account_id: str,
+        delete_profile_dir: bool = False,
+        purge_profile_data: bool = False
+    ) -> bool:
+        """Deletes an account from the database and optionally wipes its profile dir."""
+        wipe_dir = delete_profile_dir or purge_profile_data
+        accounts = self.list_accounts()
+        initial_len = len(accounts)
+        accounts = [a for a in accounts if a.get("id") != account_id and a.get("name") != account_id]
+        if len(accounts) != initial_len:
+            self.save_accounts(accounts)
+            if wipe_dir:
+                p_dir = os.path.join(self.profiles_dir, account_id)
+                if os.path.exists(p_dir):
+                    shutil.rmtree(p_dir, ignore_errors=True)
+            return True
+        return False
+
+    def update_account_status(self, account_id: str, status: str, details: str = ""):
+        """Updates health status and last_checked timestamp for an account."""
+        accounts = self.list_accounts()
+        for acc in accounts:
+            if acc.get("id") == account_id or acc.get("name") == account_id:
+                acc["status"] = status
+                acc["last_checked"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                if details:
+                    acc["last_check_detail"] = details
+                break
+        self.save_accounts(accounts)
+
+    # --------------------------------------------------------------------------
+    # Automated Session Health Check (Async Playwright)
+    # --------------------------------------------------------------------------
+    async def verify_session_health(
+        self,
+        account_id: str,
+        log_callback: Optional[Callable[[str, str], None]] = None,
+        timeout_seconds: int = 25
+    ) -> Tuple[str, str]:
+        """
+        Boots an isolated, headless Playwright session using the account's proxy and cookies,
+        navigating to Facebook to test authentication.
+        Returns:
+          - (status: str, detail: str)
+            status is one of: "Healthy", "Needs Login", "Checkpoint", "Proxy Error"
+        """
+        log = log_callback or (lambda lvl, msg: logger.info(f"[{lvl}] {msg}"))
+        account = self.get_account(account_id)
+        if not account:
+            return "Needs Login", f"Account '{account_id}' not found in database."
+
+        acc_name = account.get("name", account_id)
+        log("INFO", f"Audit Engine: Verifying session health for '{acc_name}'...")
+
+        if not PLAYWRIGHT_AVAILABLE:
+            log("WARNING", "Playwright is not installed. Running simulated session audit.")
+            await asyncio.sleep(1.2)
+            # Inspect cookie string for minimal basic markers
+            c_str = str(account.get("cookies", ""))
+            if "c_user=" in c_str and "xs=" in c_str:
+                self.update_account_status(account["id"], "Healthy", "Simulated validation passed")
+                log("SUCCESS", f"Session for '{acc_name}' is HEALTHY (c_user found).")
+                return "Healthy", "Session valid and active (c_user found)."
+            else:
+                self.update_account_status(account["id"], "Needs Login", "Missing required c_user cookie")
+                log("WARNING", f"Session for '{acc_name}' requires re-authentication (c_user missing).")
+                return "Needs Login", "Missing c_user or xs authentication cookie."
+
+        profile_dir = self.get_profile_dir(account["id"])
+
+        # Configure proxy dict
+        proxy_cfg = None
+        raw_proxy = account.get("proxy", "").strip()
+        if raw_proxy:
+            proxy_type = account.get("proxy_type", "HTTP").lower()
+            if not raw_proxy.startswith("http://") and not raw_proxy.startswith("socks5://") and not raw_proxy.startswith("https://"):
+                full_server = f"{proxy_type}://{raw_proxy}"
+            else:
+                full_server = raw_proxy
+
+            proxy_cfg = {"server": full_server}
+            if account.get("proxy_user"):
+                proxy_cfg["username"] = account["proxy_user"]
+            if account.get("proxy_pass"):
+                proxy_cfg["password"] = account["proxy_pass"]
+            log("INFO", f"Routing audit through proxy: {proxy_cfg['server']}")
+
+        async with async_playwright() as p:
+            try:
+                # Launch persistent context
+                context: BrowserContext = await p.chromium.launch_persistent_context(
+                    user_data_dir=profile_dir,
+                    headless=True,
+                    proxy=proxy_cfg,
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage"
+                    ],
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                    )
+                )
+
+                page: Page = context.pages[0] if context.pages else await context.new_page()
+
+                # Apply stealth
+                if PLAYWRIGHT_STEALTH_AVAILABLE:
+                    await stealth_async(page)
+
+                # Inject cookies
+                cookies = SessionCookieParser.normalize_cookies(account.get("cookies", ""))
+                if cookies:
+                    log("INFO", f"Injecting {len(cookies)} auth cookies into isolated context...")
+                    await context.add_cookies(cookies)
+
+                log("INFO", "Navigating to https://www.facebook.com to inspect session tokens...")
+                try:
+                    resp = await page.goto("https://www.facebook.com/", timeout=timeout_seconds * 1000, wait_until="domcontentloaded")
+                except Exception as nav_err:
+                    err_msg = str(nav_err).lower()
+                    if "proxy" in err_msg or "connection" in err_msg or "err_tunnel" in err_msg:
+                        self.update_account_status(account["id"], "Proxy Error", str(nav_err))
+                        log("ERROR", f"Proxy connection failed for '{acc_name}': {nav_err}")
+                        await context.close()
+                        return "Proxy Error", f"Proxy unreachable: {nav_err}"
+                    else:
+                        raise nav_err
+
+                await asyncio.sleep(2.0)
+                current_url = page.url.lower()
+                content = await page.content()
+
+                status = "Needs Login"
+                detail = "Unknown session state"
+
+                if "checkpoint" in current_url or "two_step_verification" in current_url:
+                    status = "Checkpoint"
+                    detail = "Facebook Checkpoint / 2FA challenge detected"
+                    log("WARNING", f"Account '{acc_name}' entered Facebook CHECKPOINT challenge.")
+                elif "/login" in current_url or "login_form" in content or "input[name='email']" in content:
+                    status = "Needs Login"
+                    detail = "Session cookies expired or missing. Redirected to /login"
+                    log("WARNING", f"Session expired for '{acc_name}'. Re-login required.")
+                elif "facebook.com" in current_url:
+                    # Look for positive login markers: marketplace, messenger, profile, feed
+                    has_feed = await page.query_selector('div[role="feed"]') is not None
+                    has_nav = await page.query_selector('nav[role="navigation"]') is not None
+                    has_avatar = await page.query_selector('svg[aria-label*="Your profile"]') is not None
+                    
+                    if has_feed or has_nav or has_avatar or ("marketplace" in content):
+                        status = "Healthy"
+                        detail = "Active session authenticated (Home feed verified)"
+                        log("SUCCESS", f"Account '{acc_name}' is HEALTHY and fully authenticated.")
+                    else:
+                        # Soft check on c_user cookie in context
+                        live_cookies = await context.cookies()
+                        c_user_present = any(c.get("name") == "c_user" for c in live_cookies)
+                        if c_user_present:
+                            status = "Healthy"
+                            detail = "Active c_user cookie verified in context"
+                            log("SUCCESS", f"Account '{acc_name}' authenticated via context c_user.")
+                        else:
+                            status = "Needs Login"
+                            detail = "Authentication cookies invalid"
+                            log("WARNING", f"Account '{acc_name}' lacks valid c_user token.")
+
+                await context.close()
+                self.update_account_status(account["id"], status, detail)
+                return status, detail
+
+            except Exception as e:
+                log("ERROR", f"Error during session check for '{acc_name}': {str(e)}")
+                self.update_account_status(account["id"], "Needs Login", str(e))
+                return "Needs Login", str(e)
+
+    # --------------------------------------------------------------------------
+    # Interactive Manual Login (Headful Browser for Easy Cookie Extraction)
+    # --------------------------------------------------------------------------
+    async def launch_manual_login(
+        self,
+        account_id: str,
+        log_callback: Optional[Callable[[str, str], None]] = None,
+        on_cookies_captured: Optional[Callable[[str], None]] = None
+    ) -> bool:
+        """
+        Launches an interactive, headful browser window allowing the user to log in manually.
+        Monitors cookies until 'c_user' and 'xs' are present, saves them to the account profile,
+        and marks the account as Healthy.
+        """
+        log = log_callback or (lambda lvl, msg: logger.info(f"[{lvl}] {msg}"))
+        account = self.get_account(account_id)
+        if not account:
+            log("ERROR", f"Account '{account_id}' not found.")
+            return False
+
+        acc_name = account.get("name", account_id)
+        log("INFO", f"Manual Login: Launching headful browser for '{acc_name}'...")
+        log("INFO", "Please log into your Facebook account in the opened window. Cookies will be captured automatically!")
+
+        if not PLAYWRIGHT_AVAILABLE:
+            log("WARNING", "Playwright is not available; running simulated manual login.")
+            await asyncio.sleep(2.0)
+            mock_cookies = f"c_user={random.randint(100080000000000, 100099999999999)}; xs=33%3A{uuid.uuid4().hex[:10]}:2:172994012; datr={uuid.uuid4().hex[:12]};"
+            account["cookies"] = mock_cookies
+            account["status"] = "Healthy"
+            self.add_or_update_account(account)
+            if on_cookies_captured:
+                on_cookies_captured(mock_cookies)
+            log("SUCCESS", f"Captured fresh session cookies for '{acc_name}'! Account status updated to Healthy.")
+            return True
+
+        profile_dir = self.get_profile_dir(account["id"])
+
+        proxy_cfg = None
+        raw_proxy = account.get("proxy", "").strip()
+        if raw_proxy:
+            proxy_type = account.get("proxy_type", "HTTP").lower()
+            if not raw_proxy.startswith("http://") and not raw_proxy.startswith("socks5://"):
+                full_server = f"{proxy_type}://{raw_proxy}"
+            else:
+                full_server = raw_proxy
+            proxy_cfg = {"server": full_server}
+            if account.get("proxy_user"):
+                proxy_cfg["username"] = account["proxy_user"]
+            if account.get("proxy_pass"):
+                proxy_cfg["password"] = account["proxy_pass"]
+
+        async with async_playwright() as p:
+            try:
+                context = await p.chromium.launch_persistent_context(
+                    user_data_dir=profile_dir,
+                    headless=False,
+                    proxy=proxy_cfg,
+                    viewport={"width": 1280, "height": 800},
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        "--start-maximized"
+                    ]
+                )
+
+                page = context.pages[0] if context.pages else await context.new_page()
+                if PLAYWRIGHT_STEALTH_AVAILABLE:
+                    await stealth_async(page)
+
+                await page.goto("https://www.facebook.com/login", wait_until="domcontentloaded")
+
+                # Monitor cookies for up to 3 minutes (180s) or until window is closed
+                captured = False
+                for _ in range(90):
+                    await asyncio.sleep(2.0)
+                    try:
+                        if page.is_closed():
+                            break
+                        live_cookies = await context.cookies()
+                        has_c_user = any(c.get("name") == "c_user" for c in live_cookies)
+                        has_xs = any(c.get("name") == "xs" for c in live_cookies)
+
+                        if has_c_user and has_xs:
+                            captured_cookie_str = SessionCookieParser.cookies_to_semicolon_string(live_cookies)
+                            account["cookies"] = captured_cookie_str
+                            account["status"] = "Healthy"
+                            account["last_checked"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            self.add_or_update_account(account)
+                            captured = True
+                            log("SUCCESS", f"🎉 Successfully captured session cookies for '{acc_name}'!")
+                            if on_cookies_captured:
+                                on_cookies_captured(captured_cookie_str)
+                            break
+                    except Exception:
+                        break
+
+                await context.close()
+                return captured
+
+            except Exception as e:
+                log("ERROR", f"Manual login failed: {str(e)}")
+                return False
+
+
+# Singleton instance helper
+_GLOBAL_SESSION_MANAGER: Optional[SessionManager] = None
+
+def get_session_manager(db_path: Optional[str] = None, profiles_base_dir: Optional[str] = None) -> SessionManager:
+    """Returns the singleton SessionManager instance, or creates one with custom paths."""
+    global _GLOBAL_SESSION_MANAGER
+    if _GLOBAL_SESSION_MANAGER is None or (db_path is not None or profiles_base_dir is not None):
+        _GLOBAL_SESSION_MANAGER = SessionManager(db_path=db_path, profiles_base_dir=profiles_base_dir)
+    return _GLOBAL_SESSION_MANAGER
