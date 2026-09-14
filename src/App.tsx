@@ -26,12 +26,12 @@ import {
   Zap,
   Cloud
 } from 'lucide-react';
-import { browserBotCodeSnippet, appPyCodeSnippet, imageProcessorSnippet, sessionManagerSnippet, aiSpinnerSnippet, requirementsSnippet, landingPageSnippet } from './data/codeSnippets';
+import { browserBotCodeSnippet, appPyCodeSnippet, imageProcessorSnippet, sessionManagerSnippet, aiSpinnerSnippet, requirementsSnippet, landingPageSnippet, installerSetupSnippet, buildInstallerSnippet } from './data/codeSnippets';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'desktop-sim' | 'landing-page' | 'code-viewer' | 'roadmap'>('landing-page');
   const [simActivePage, setSimActivePage] = useState<'dashboard' | 'accounts' | 'automation' | 'ai' | 'settings'>('ai');
-  const [selectedFile, setSelectedFile] = useState<'landing_page/index.html' | 'ai_spinner.py' | 'session_manager.py' | 'browser_bot.py' | 'image_processor.py' | 'app.py' | 'requirements.txt'>('landing_page/index.html');
+  const [selectedFile, setSelectedFile] = useState<'installer_setup.iss' | 'build_installer.py' | 'landing_page/index.html' | 'ai_spinner.py' | 'session_manager.py' | 'browser_bot.py' | 'image_processor.py' | 'app.py' | 'requirements.txt'>('installer_setup.iss');
   const [copiedCode, setCopiedCode] = useState(false);
 
   // Simulated GUI State
@@ -1179,7 +1179,11 @@ export default function App() {
               <button
                 id="btn-copy-code"
                 onClick={() => {
-                  const code = selectedFile === 'landing_page/index.html'
+                  const code = selectedFile === 'installer_setup.iss'
+                    ? installerSetupSnippet
+                    : selectedFile === 'build_installer.py'
+                    ? buildInstallerSnippet
+                    : selectedFile === 'landing_page/index.html'
                     ? landingPageSnippet
                     : selectedFile === 'ai_spinner.py'
                     ? aiSpinnerSnippet
@@ -1203,6 +1207,30 @@ export default function App() {
 
             {/* File Switcher Header */}
             <div className="flex flex-wrap items-center gap-2 bg-slate-900/90 p-1.5 rounded-xl border border-slate-800">
+              <button
+                onClick={() => setSelectedFile('installer_setup.iss')}
+                className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-mono font-medium transition-all ${
+                  selectedFile === 'installer_setup.iss'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                }`}
+              >
+                <ShieldCheck className="h-3.5 w-3.5 text-amber-400" />
+                <span>installer_setup.iss</span>
+                <span className="px-1.5 py-0.2 text-[10px] bg-amber-500/20 text-amber-300 rounded font-sans">Setup .EXE</span>
+              </button>
+              <button
+                onClick={() => setSelectedFile('build_installer.py')}
+                className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-mono font-medium transition-all ${
+                  selectedFile === 'build_installer.py'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                }`}
+              >
+                <Zap className="h-3.5 w-3.5 text-yellow-300" />
+                <span>build_installer.py</span>
+                <span className="px-1.5 py-0.2 text-[10px] bg-yellow-500/20 text-yellow-300 rounded font-sans">Builder</span>
+              </button>
               <button
                 onClick={() => setSelectedFile('landing_page/index.html')}
                 className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-mono font-medium transition-all ${
@@ -1297,6 +1325,8 @@ export default function App() {
                 </div>
                 <div className="space-y-1 text-slate-300">
                   <div className="text-slate-100 font-bold">desktop_app/</div>
+                  <div className="pl-4 text-amber-400 font-bold">├── installer_setup.iss <span className="text-[10px] text-amber-300 font-normal">(Inno Setup)</span></div>
+                  <div className="pl-4 text-yellow-400 font-bold">├── build_installer.py <span className="text-[10px] text-yellow-300 font-normal">(Auto Compiler)</span></div>
                   <div className="pl-4 text-emerald-400">├── app.py <span className="text-[10px] text-slate-500">(PyQt5 + AI Workers)</span></div>
                   <div className="pl-4 text-indigo-300">├── automation/</div>
                   <div className="pl-8 text-purple-400 font-bold">├── session_manager.py <span className="text-[10px] text-purple-300 font-normal">(Phase 4)</span></div>
@@ -1315,19 +1345,19 @@ export default function App() {
               <div className="md:col-span-2 bg-slate-900/80 border border-slate-800 rounded-xl p-4 text-xs space-y-3">
                 <div className="flex items-center space-x-2 text-emerald-400 font-bold pb-2 border-b border-slate-800">
                   <Terminal className="h-4 w-4" />
-                  <span>How to Run Locally</span>
+                  <span>Build Windows Setup Wizard (.exe)</span>
                 </div>
                 <div className="space-y-2">
-                  <p className="text-slate-300">1. Setup Python virtual environment & install dependencies:</p>
+                  <p className="text-slate-300">1. Run the one-click build script to generate Setup Wizard:</p>
                   <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 font-mono text-[11px] text-indigo-300 space-y-1">
-                    <div>python -m venv venv</div>
-                    <div>source venv/bin/activate  # Or `venv\Scripts\activate` on Windows</div>
-                    <div>pip install -r desktop_app/requirements.txt</div>
-                    <div className="text-emerald-400">playwright install chromium</div>
+                    <div>cd desktop_app</div>
+                    <div className="text-yellow-300">python build_installer.py</div>
+                    <div className="text-slate-500"># Or simply double click: build_installer.bat</div>
                   </div>
-                  <p className="text-slate-300">2. Launch the desktop GUI:</p>
-                  <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 font-mono text-[11px] text-emerald-400">
-                    python desktop_app/app.py
+                  <p className="text-slate-300">2. Resulting professional setup files in <code className="text-amber-300">dist_installer/</code>:</p>
+                  <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 font-mono text-[11px] text-emerald-400 space-y-1">
+                    <div>FBAutoBot_Setup_v5.0.exe (Windows Setup Wizard with Desktop Shortcut)</div>
+                    <div className="text-slate-400">FBAutoBot_v5.0_Windows_Portable.zip (Portable Zip)</div>
                   </div>
                 </div>
               </div>
@@ -1339,6 +1369,8 @@ export default function App() {
                 <div className="flex items-center space-x-2">
                   <FileCode className="h-4 w-4 text-indigo-400" />
                   <span className="text-xs font-mono font-medium text-slate-200">
+                    {selectedFile === 'installer_setup.iss' && 'desktop_app/installer_setup.iss (Inno Setup 6 Wizard Configuration)'}
+                    {selectedFile === 'build_installer.py' && 'desktop_app/build_installer.py (PyInstaller + Inno Setup Automation)'}
                     {selectedFile === 'landing_page/index.html' && 'landing_page/index.html (Single-File Tailwind CDN & FAQ Accordion)'}
                     {selectedFile === 'ai_spinner.py' && 'desktop_app/utils/ai_spinner.py (Gemini 2.5 API & Spintax Engine)'}
                     {selectedFile === 'session_manager.py' && 'desktop_app/automation/session_manager.py (Isolated Profiles & Session Health)'}
@@ -1349,11 +1381,13 @@ export default function App() {
                   </span>
                 </div>
                 <span className="text-[11px] text-slate-500 font-mono">
-                  {selectedFile === 'landing_page/index.html' ? 'HTML5 • Tailwind CDN • Vanilla JS • Glassmorphism' : selectedFile === 'ai_spinner.py' ? 'Google GenAI SDK • Prompt Engineering • Offline Regex Spintax' : selectedFile === 'session_manager.py' ? 'Isolated Profiles • Cookie Normalizer • Health Auditor' : selectedFile === 'image_processor.py' ? 'OpenCV • Pillow • Piexif' : selectedFile === 'browser_bot.py' ? 'Python AsyncIO • Playwright Stealth' : selectedFile === 'app.py' ? 'PyQt5 • QSS Dark Theme' : 'PIP Manifest'}
+                  {selectedFile === 'installer_setup.iss' ? 'Inno Setup Script • Windows Wizard • Uninstaller' : selectedFile === 'build_installer.py' ? 'PyInstaller --onedir • Inno ISCC Automation' : selectedFile === 'landing_page/index.html' ? 'HTML5 • Tailwind CDN • Vanilla JS • Glassmorphism' : selectedFile === 'ai_spinner.py' ? 'Google GenAI SDK • Prompt Engineering • Offline Regex Spintax' : selectedFile === 'session_manager.py' ? 'Isolated Profiles • Cookie Normalizer • Health Auditor' : selectedFile === 'image_processor.py' ? 'OpenCV • Pillow • Piexif' : selectedFile === 'browser_bot.py' ? 'Python AsyncIO • Playwright Stealth' : selectedFile === 'app.py' ? 'PyQt5 • QSS Dark Theme' : 'PIP Manifest'}
                 </span>
               </div>
               <pre className="p-4 text-xs font-mono text-slate-300 overflow-x-auto max-h-[480px] leading-relaxed">
                 <code>
+                  {selectedFile === 'installer_setup.iss' && installerSetupSnippet}
+                  {selectedFile === 'build_installer.py' && buildInstallerSnippet}
                   {selectedFile === 'landing_page/index.html' && landingPageSnippet}
                   {selectedFile === 'ai_spinner.py' && aiSpinnerSnippet}
                   {selectedFile === 'session_manager.py' && sessionManagerSnippet}
@@ -1414,10 +1448,17 @@ export default function App() {
                 },
                 {
                   phase: 'Phase 6 (Completed)',
-                  title: 'Modern Glassmorphic Landing Sales Page',
+                  title: 'VIP High-Converting Landing Sales Page',
                   status: 'Completed',
                   statusColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-                  desc: 'Built modern dark-themed glassmorphic sales page with Hero, features grid, comparison table, pricing tiers ($10/mo & $100/yr), interactive FAQ accordion, and WhatsApp order CTAs.'
+                  desc: 'Redesigned landing page with VIP glassmorphism, mobile slide-out drawer, smart CTA conversions, comparison matrix, pricing tiers, and interactive FAQ accordion.'
+                },
+                {
+                  phase: 'Phase 7 (Completed)',
+                  title: 'Professional Windows Setup Wizard & Inno Packager',
+                  status: 'Completed',
+                  statusColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+                  desc: 'Built Inno Setup script (installer_setup.iss) and automated build_installer.py to compile FBAutoBot_Setup_v5.0.exe with desktop shortcuts, persistent license configs, and uninstaller.'
                 }
               ].map((step, idx) => (
                 <div key={idx} className="bg-slate-900/80 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between space-y-3">

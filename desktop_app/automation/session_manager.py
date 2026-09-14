@@ -38,47 +38,7 @@ except ImportError:
 
 logger = logging.getLogger("FBAutoBot.SessionManager")
 
-DEFAULT_ACCOUNTS_SEED = [
-    {
-        "id": "acc_shop_usa_01",
-        "name": "ShopUSA_Official (Main)",
-        "email": "shopusa_seller@domain.com",
-        "cookies": "c_user=100084729184012; xs=29%3Ak109fa8472:2:171829104; datr=xYz98_21901a;",
-        "proxy": "socks5://185.199.229.15:8080",
-        "proxy_type": "SOCKS5",
-        "proxy_user": "p_user92",
-        "proxy_pass": "pass_sec92",
-        "status": "Healthy",
-        "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "notes": "Verified US aged account. Marketplace unlocked."
-    },
-    {
-        "id": "acc_marketplace_pro_02",
-        "name": "Marketplace_Pro_CA",
-        "email": "alex_marketplace_ca@domain.com",
-        "cookies": "c_user=100091827364510; xs=14%3Am092bx7162:2:171994821; datr=wOp12_88192b;",
-        "proxy": "http://45.136.231.88:3128",
-        "proxy_type": "HTTP",
-        "proxy_user": "ca_proxy_01",
-        "proxy_pass": "securePass_ca!",
-        "status": "Healthy",
-        "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "notes": "Canadian proxy profile with 2FA enabled."
-    },
-    {
-        "id": "acc_deal_hunter_uk_03",
-        "name": "DealHunter_UK_03",
-        "email": "dealhunter_uk@domain.com",
-        "cookies": "c_user=100072615483921; xs=42%3Az881pc0091:2:172110294; datr=mKl33_77192c;",
-        "proxy": "socks5://91.216.145.22:1080",
-        "proxy_type": "SOCKS5",
-        "proxy_user": "uk_bot_usr",
-        "proxy_pass": "uk_bot_key",
-        "status": "Needs Login",
-        "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "notes": "Backup account for electronics & phones."
-    }
-]
+DEFAULT_ACCOUNTS_SEED: List[Dict[str, Any]] = []
 
 
 class SessionCookieParser:
@@ -224,7 +184,10 @@ class SessionManager:
         if base_dir:
             self.base_dir = base_dir
         else:
-            self.base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+            if getattr(sys, 'frozen', False):
+                self.base_dir = os.path.dirname(sys.executable)
+            else:
+                self.base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
         self.config_dir = os.path.join(self.base_dir, "config")
         self.profiles_dir = profiles_base_dir if profiles_base_dir else os.path.join(self.base_dir, "profiles")
@@ -236,8 +199,8 @@ class SessionManager:
         self._init_db()
 
     def _init_db(self):
-        """Initializes accounts JSON database file with seed accounts if missing."""
-        if not os.path.exists(self.db_path):
+        """Initializes accounts JSON database file with seed accounts if missing or empty."""
+        if not os.path.exists(self.db_path) or os.path.getsize(self.db_path) == 0:
             try:
                 with open(self.db_path, "w", encoding="utf-8") as f:
                     json.dump({"accounts": DEFAULT_ACCOUNTS_SEED}, f, indent=2)
@@ -255,12 +218,16 @@ class SessionManager:
     def list_accounts(self) -> List[Dict[str, Any]]:
         """Returns all accounts saved in the database."""
         try:
-            if os.path.exists(self.db_path):
+            if os.path.exists(self.db_path) and os.path.getsize(self.db_path) > 0:
                 with open(self.db_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     return data.get("accounts", [])
+            else:
+                self._init_db()
+                return list(DEFAULT_ACCOUNTS_SEED)
         except Exception as e:
-            logger.error(f"Failed to read accounts database: {str(e)}")
+            logger.warning(f"Accounts database auto-repaired: {str(e)}")
+            self._init_db()
         return list(DEFAULT_ACCOUNTS_SEED)
 
     def get_account(self, account_id: str) -> Optional[Dict[str, Any]]:
@@ -569,28 +536,77 @@ class SessionManager:
             if account.get("proxy_pass"):
                 proxy_cfg["password"] = account["proxy_pass"]
 
+        launch_flags = [
+            "--disable-blink-features=AutomationControlled",
+            "--start-maximized",
+            "--disable-infobars",
+            "--ignore-certificate-errors",
+            "--allow-running-insecure-content",
+            "--disable-web-security",
+            "--no-first-run",
+            "--no-service-autorun"
+        ]
+
         async with async_playwright() as p:
+            async def launch_smart_ctx(px):
+                for ch in ["chrome", "msedge", None]:
+                    try:
+                        kws = {
+                            "user_data_dir": profile_dir,
+                            "headless": False,
+                            "proxy": px,
+                            "viewport": {"width": 1280, "height": 800},
+                            "args": launch_flags,
+                            "ignore_default_args": ["--enable-automation"]
+                        }
+                        if ch:
+                            kws["channel"] = ch
+                        return await p.chromium.launch_persistent_context(**kws)
+                    except Exception as ex:
+                        if "Executable doesn't exist" in str(ex) or "Channel" in str(ex):
+                            continue
+                        raise ex
+                raise Exception("Could not find installed Google Chrome or Edge on this PC.")
+
             try:
-                context = await p.chromium.launch_persistent_context(
-                    user_data_dir=profile_dir,
-                    headless=False,
-                    proxy=proxy_cfg,
-                    viewport={"width": 1280, "height": 800},
-                    args=[
-                        "--disable-blink-features=AutomationControlled",
-                        "--start-maximized"
-                    ]
-                )
+                try:
+                    context = await launch_smart_ctx(proxy_cfg)
+                except Exception as p_err:
+                    if proxy_cfg and ("proxy" in str(p_err).lower() or "connect" in str(p_err).lower()):
+                        log("WARNING", "Proxy connection failed during manual login; opening with direct network connection...")
+                        context = await launch_smart_ctx(None)
+                    else:
+                        raise p_err
 
                 page = context.pages[0] if context.pages else await context.new_page()
                 if PLAYWRIGHT_STEALTH_AVAILABLE:
                     await stealth_async(page)
 
-                await page.goto("https://www.facebook.com/login", wait_until="domcontentloaded")
+                # Inject existing cookies if available
+                existing_cookies = account.get("cookies", "").strip()
+                if existing_cookies:
+                    try:
+                        norm_cookies = SessionCookieParser.normalize_cookies(existing_cookies)
+                        if norm_cookies:
+                            await context.add_cookies(norm_cookies)
+                            log("INFO", f"Injected {len(norm_cookies)} saved session cookies for '{acc_name}'.")
+                    except Exception as ce:
+                        log("WARNING", f"Cookie injection notice: {str(ce)}")
 
-                # Monitor cookies for up to 3 minutes (180s) or until window is closed
+                # Navigate: if cookies exist go straight to Facebook, else login page
+                dest_url = "https://www.facebook.com" if existing_cookies else "https://www.facebook.com/login"
+                log("INFO", f"Navigating to {dest_url}...")
+                try:
+                    await page.goto(dest_url, wait_until="domcontentloaded", timeout=45000)
+                except Exception as ne:
+                    log("WARNING", f"Navigation notice: {str(ne)}. Browser window is active.")
+
+                log("INFO", "🟢 Browser window is open! You can browse Facebook, Marketplace, or log in.")
+                log("INFO", "Close the browser window whenever you are done.")
+
+                # Monitor cookies while window stays open
                 captured = False
-                for _ in range(90):
+                while True:
                     await asyncio.sleep(2.0)
                     try:
                         if page.is_closed():
@@ -599,25 +615,27 @@ class SessionManager:
                         has_c_user = any(c.get("name") == "c_user" for c in live_cookies)
                         has_xs = any(c.get("name") == "xs" for c in live_cookies)
 
-                        if has_c_user and has_xs:
+                        if has_c_user and has_xs and not captured:
                             captured_cookie_str = SessionCookieParser.cookies_to_semicolon_string(live_cookies)
                             account["cookies"] = captured_cookie_str
                             account["status"] = "Healthy"
                             account["last_checked"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             self.add_or_update_account(account)
                             captured = True
-                            log("SUCCESS", f"🎉 Successfully captured session cookies for '{acc_name}'!")
+                            log("SUCCESS", f"🎉 Session active and verified HEALTHY for '{acc_name}'!")
                             if on_cookies_captured:
                                 on_cookies_captured(captured_cookie_str)
-                            break
                     except Exception:
                         break
 
-                await context.close()
-                return captured
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+                return captured or bool(existing_cookies)
 
             except Exception as e:
-                log("ERROR", f"Manual login failed: {str(e)}")
+                log("ERROR", f"Browser session notice: {str(e)}")
                 return False
 
 

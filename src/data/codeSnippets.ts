@@ -514,6 +514,118 @@ class GeminiAISpinner:
         ...
 `;
 
+export const installerSetupSnippet = `; ==============================================================================
+; FB Auto Bot - Inno Setup Script
+; Creates a professional Windows Setup Wizard (FBAutoBot_Setup_v5.0.exe)
+; Installs into: {localappdata}\\Programs\\FBAutoBot (No Admin UAC popup needed)
+; ==============================================================================
+
+#define MyAppName "FB Auto Bot"
+#define MyAppVersion "5.0.0"
+#define MyAppPublisher "FB Auto Bot Enterprise"
+#define MyAppURL "https://fbautobot.vercel.app/"
+#define MyAppExeName "FBAutoBot.exe"
+
+[Setup]
+AppId={{E8B7F92A-4D31-4A56-B1C8-92F73DAE84B0}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppVerName={#MyAppName} v{#MyAppVersion}
+AppPublisher={#MyAppPublisher}
+AppPublisherURL={#MyAppURL}
+AppSupportURL={#MyAppURL}
+AppUpdatesURL={#MyAppURL}
+DefaultDirName={localappdata}\\Programs\\FBAutoBot
+DisableProgramGroupPage=yes
+DefaultGroupName={#MyAppName}
+OutputDir=dist_installer
+OutputBaseFilename=FBAutoBot_Setup_v5.0
+Compression=lzma2/ultra64
+SolidCompression=yes
+WizardStyle=modern
+ArchitecturesInstallIn64BitMode=x64
+PrivilegesRequired=lowest
+UninstallDisplayIcon={app}\\{#MyAppExeName}
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+
+[Files]
+Source: "dist\\FBAutoBot\\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Dirs]
+Name: "{app}\\config"; Flags: uninsneveruninstall
+Name: "{app}\\profiles"; Flags: uninsneveruninstall
+
+[Icons]
+Name: "{group}\\{#MyAppName}"; Filename: "{app}\\{#MyAppExeName}"
+Name: "{group}\\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\\{#MyAppName}"; Filename: "{app}\\{#MyAppExeName}"; Tasks: desktopicon
+
+[Run]
+Filename: "{app}\\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+`;
+
+export const buildInstallerSnippet = `#!/usr/bin/env python3
+"""
+FB Auto Bot - Complete Automated Windows Installer & Package Builder
+Runs PyInstaller and compiles with Inno Setup to create:
+1. dist_installer/FBAutoBot_Setup_v5.0.exe (The Setup Wizard)
+2. dist_installer/FBAutoBot_v5.0_Windows_Portable.zip (Portable Zip package)
+"""
+
+import os
+import sys
+import shutil
+import subprocess
+import zipfile
+
+def find_inno_setup_compiler():
+    """Locates the Inno Setup ISCC.exe compiler on Windows."""
+    possible_paths = [
+        r"C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe",
+        r"C:\\Program Files\\Inno Setup 6\\ISCC.exe",
+        r"C:\\Program Files (x86)\\Inno Setup 5\\ISCC.exe",
+        r"C:\\Program Files\\Inno Setup 5\\ISCC.exe",
+        shutil.which("iscc"),
+        shutil.which("ISCC.exe")
+    ]
+    for path in possible_paths:
+        if path and os.path.exists(path):
+            return path
+    return None
+
+def main():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(base_dir)
+
+    print("🚀 FB Auto Bot - Windows Setup Installer Builder")
+
+    # Step 1: PyInstaller --onedir build
+    print("[1/3] Compiling Python codebase with PyInstaller...")
+    subprocess.run([
+        sys.executable, "-m", "PyInstaller",
+        "--noconsole", "--onedir", "--name", "FBAutoBot",
+        "--collect-all", "playwright",
+        "--collect-all", "playwright_stealth",
+        "--collect-all", "PIL",
+        "--collect-all", "PyQt5",
+        "app.py"
+    ])
+
+    # Step 2: Compile Inno Setup Script
+    print("[2/3] Compiling Windows Setup Wizard (.exe)...")
+    iscc = find_inno_setup_compiler()
+    if iscc:
+        subprocess.run([iscc, os.path.join(base_dir, "installer_setup.iss")])
+        print("🎉 SUCCESS! Generated: dist_installer/FBAutoBot_Setup_v5.0.exe")
+    else:
+        print("👉 Download free Inno Setup (3MB) from: https://jrsoftware.org/isdl.php")
+
+if __name__ == "__main__":
+    main()
+`;
+
 export const requirementsSnippet = `# FB Auto Bot - Dependencies
 PyQt5>=5.15.9
 playwright>=1.41.0
@@ -527,47 +639,20 @@ requests>=2.31.0
 `;
 
 export const landingPageSnippet = `<!-- 
-  FB Auto Bot - High-Converting Glassmorphic Landing Page
-  Single-file HTML with Tailwind CSS (CDN) + Vanilla JS Accordion
-  Host for free on Cloudflare Pages or Vercel
+  FB Auto Bot - High-Converting Glassmorphic Landing Page v5.0
+  Single-file HTML with Tailwind CSS (CDN) + Vanilla JS Mobile Drawer & Accordion
+  Host for free on Vercel or Cloudflare Pages
 -->
 <!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FB Auto Bot - AI-Powered Facebook Marketplace Automation Software</title>
-  <meta name="description" content="Dominate Facebook Marketplace with FB Auto Bot. Multi-account isolation, OpenCV image duplicate shield, Playwright anti-detect browser, and Gemini AI spintax copywriting.">
-  
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"><\/script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
-            mono: ['"JetBrains Mono"', 'monospace']
-          },
-          colors: {
-            dark: { 950: '#070a12', 900: '#0b0f19', 850: '#0f172a', 800: '#131d33', 700: '#1e293b' }
-          }
-        }
-      }
-    }
-  <\/script>
-
-  <style>
-    body { background-color: #0b0f19; color: #f1f5f9; font-family: 'Plus Jakarta Sans', sans-serif; overflow-x: hidden; }
-    .glass-panel { background: rgba(17, 24, 39, 0.75); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); }
-    .glass-panel-hover:hover { background: rgba(22, 30, 49, 0.85); border-color: rgba(99, 102, 241, 0.35); transform: translateY(-3px); }
-    .glass-nav { background: rgba(11, 15, 25, 0.85); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
-    .glow-indigo { box-shadow: 0 0 50px -10px rgba(99, 102, 241, 0.3); }
-  </style>
+  <title>FB Auto Bot - AI-Powered Facebook Marketplace Automation Suite</title>
 </head>
-<body class="min-h-screen relative selection:bg-indigo-500 selection:text-white">
-  <!-- Sticky Navbar, Hero Section, Features Grid, Architecture Comparison, Pricing, FAQ Accordion & WhatsApp CTAs -->
-  <!-- See full index.html file in /landing_page/index.html -->
+<body class="min-h-screen relative selection:bg-indigo-600 selection:text-white pb-20 md:pb-0">
+  <!-- See full live template in /landing_page/index.html -->
 </body>
 </html>
 `;
+

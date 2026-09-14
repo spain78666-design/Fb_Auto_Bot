@@ -77,6 +77,13 @@ def get_machine_hwid() -> str:
     return hwid
 
 
+def get_base_dir() -> str:
+    """Returns absolute path to persistent app base directory across PyInstaller exe and dev modes."""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
 def verify_license_key(hwid: str, license_key: str) -> Tuple[bool, str, Dict[str, Any]]:
     """Convenience helper function to verify a key for a given HWID."""
     return LicenseManager.verify_key(license_key, expected_hwid=hwid)
@@ -85,7 +92,30 @@ def verify_license_key(hwid: str, license_key: str) -> Tuple[bool, str, Dict[str
 class LicenseManager:
     """Handles verification, storage, and validation of cryptographic license keys."""
 
-    LICENSE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "license.dat")
+    @classmethod
+    def get_license_file_path(cls) -> str:
+        base_dir = get_base_dir()
+        config_dir = os.path.join(base_dir, "config")
+        os.makedirs(config_dir, exist_ok=True)
+        return os.path.join(config_dir, "license.dat")
+
+    @classmethod
+    def generate_key(cls, hwid: str, customer: str = "Valued Client", tier: str = "Lifetime Pro", expiry_days: int = 0) -> str:
+        """
+        Generates a signed, HWID-locked cryptographic license key.
+        Set expiry_days=0 for lifetime unlimited access.
+        """
+        payload = {
+            "hwid": hwid.strip().upper(),
+            "customer": customer.strip(),
+            "tier": tier.strip(),
+            "expiry": int(time.time() + expiry_days * 86400) if expiry_days > 0 else 0,
+            "created": int(time.time())
+        }
+        payload_json = json.dumps(payload, separators=(',', ':'))
+        payload_b64 = base64.urlsafe_b64encode(payload_json.encode('utf-8')).decode('utf-8').rstrip('=')
+        signature_hex = hmac.new(MASTER_SECRET_SALT, payload_b64.encode('utf-8'), hashlib.sha256).hexdigest()[:16].upper()
+        return f"FBAUTO1.{payload_b64}.{signature_hex}"
 
     @classmethod
     def verify_key(cls, license_key: str, expected_hwid: Optional[str] = None) -> Tuple[bool, str, Dict[str, Any]]:
@@ -145,9 +175,10 @@ class LicenseManager:
     def save_license(cls, license_key: str) -> bool:
         """Stores the validated license key encrypted/obfuscated in config/license.dat."""
         try:
-            os.makedirs(os.path.dirname(cls.LICENSE_FILE), exist_ok=True)
+            lic_path = cls.get_license_file_path()
+            os.makedirs(os.path.dirname(lic_path), exist_ok=True)
             encoded = base64.b64encode(license_key.strip().encode('utf-8')).decode('utf-8')
-            with open(cls.LICENSE_FILE, "w", encoding="utf-8") as f:
+            with open(lic_path, "w", encoding="utf-8") as f:
                 json.dump({"v": 1, "k": encoded, "ts": int(time.time())}, f, indent=2)
             return True
         except Exception:
@@ -156,10 +187,11 @@ class LicenseManager:
     @classmethod
     def load_saved_license(cls) -> Optional[str]:
         """Loads and decodes the locally stored license key."""
-        if not os.path.exists(cls.LICENSE_FILE):
+        lic_path = cls.get_license_file_path()
+        if not os.path.exists(lic_path):
             return None
         try:
-            with open(cls.LICENSE_FILE, "r", encoding="utf-8") as f:
+            with open(lic_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 raw_k = data.get("k", "")
                 return base64.b64decode(raw_k.encode('utf-8')).decode('utf-8')

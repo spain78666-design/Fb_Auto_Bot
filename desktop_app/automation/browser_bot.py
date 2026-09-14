@@ -6,6 +6,7 @@ Phase 2: Asynchronous Anti-Detect Automation for Facebook Marketplace
 import os
 import json
 import random
+import socket
 import asyncio
 from typing import List, Dict, Any, Optional, Callable
 from urllib.parse import urlparse
@@ -197,11 +198,24 @@ def parse_cookie_payload(raw_cookies: str) -> List[Dict[str, Any]]:
     return formatted
 
 
+def test_proxy_connectivity(host: str, port: int, timeout: float = 2.5) -> bool:
+    """Quick socket probe to check if proxy is alive before launching browser."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect((host, port))
+        sock.close()
+        return True
+    except Exception:
+        return False
+
+
 def parse_proxy_payload(
     proxy_str: str,
     protocol: str = "http",
     user: Optional[str] = None,
-    password: Optional[str] = None
+    password: Optional[str] = None,
+    verify_live: bool = True
 ) -> Optional[Dict[str, str]]:
     """
     Constructs a Playwright proxy dictionary from raw inputs.
@@ -209,32 +223,48 @@ def parse_proxy_payload(
       - '185.199.229.15:8080'
       - 'http://user:pass@host:port'
       - 'socks5://host:port'
+    If verify_live is True and proxy is unreachable/invalid, returns None (safe direct fallback).
     """
     if not proxy_str or "Direct" in proxy_str:
         return None
 
     raw = proxy_str.strip()
+    if not raw:
+        return None
+
     if "://" not in raw:
         proto = protocol.lower() if protocol else "http"
         server_str = f"{proto}://{raw}"
     else:
         server_str = raw
 
-    parsed = urlparse(server_str)
-    proxy_config = {
-        "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
-    }
+    try:
+        parsed = urlparse(server_str)
+        if not parsed.hostname or not parsed.port:
+            return None
 
-    # Extract credentials from parsed URL or separate parameters
-    final_user = parsed.username or user
-    final_pass = parsed.password or password
+        # Verify proxy is reachable to avoid ERR_PROXY_CONNECTION_FAILED
+        if verify_live:
+            is_live = test_proxy_connectivity(parsed.hostname, parsed.port, timeout=2.0)
+            if not is_live:
+                return None
 
-    if final_user:
-        proxy_config["username"] = final_user
-    if final_pass:
-        proxy_config["password"] = final_pass
+        proxy_config = {
+            "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
+        }
 
-    return proxy_config
+        # Extract credentials from parsed URL or separate parameters
+        final_user = parsed.username or user
+        final_pass = parsed.password or password
+
+        if final_user:
+            proxy_config["username"] = final_user
+        if final_pass:
+            proxy_config["password"] = final_pass
+
+        return proxy_config
+    except Exception:
+        return None
 
 
 # ==============================================================================
@@ -356,55 +386,120 @@ class FacebookMarketplaceBot:
 
         launch_args = [
             "--disable-blink-features=AutomationControlled",
+            "--start-maximized",
             "--disable-infobars",
             "--disable-features=IsolateOrigins,site-per-process",
             "--no-default-browser-check",
             "--disable-dev-shm-usage",
-            "--lang=en-US,en"
+            "--lang=en-US,en",
+            "--ignore-certificate-errors",
+            "--allow-running-insecure-content",
+            "--disable-web-security",
+            "--disable-notifications",
+            "--password-store=basic",
+            "--no-first-run",
+            "--no-service-autorun"
         ]
 
-        viewport_w = random.choice([1366, 1440, 1920])
-        viewport_h = random.choice([768, 900, 1080])
+        # Ignore automation banner
+        ignore_default_args = ["--enable-automation"]
+
+        async def launch_context_smart():
+            for ch in ["chrome", "msedge", None]:
+                try:
+                    kwargs = {
+                        "user_data_dir": user_data_dir,
+                        "headless": self.headless,
+                        "args": launch_args,
+                        "ignore_default_args": ignore_default_args,
+                        "proxy": proxy_config,
+                        "user_agent": ua,
+                        "no_viewport": True,
+                        "locale": "en-US",
+                        "timezone_id": "America/New_York",
+                        "permissions": ["geolocation", "notifications"]
+                    }
+                    if ch:
+                        kwargs["channel"] = ch
+                    ctx = await self.playwright.chromium.launch_persistent_context(**kwargs)
+                    self.log("INFO", f"Launched full-screen browser using: {ch.upper() if ch else 'Chromium'}")
+                    return ctx
+                except Exception as ex:
+                    if "Executable doesn't exist" in str(ex) or "Channel" in str(ex):
+                        continue
+                    raise ex
+            raise MarketplaceBotError("Could not find Google Chrome, Edge, or Chromium on this PC. Please install Google Chrome.")
+
+        async def launch_browser_smart():
+            for ch in ["chrome", "msedge", None]:
+                try:
+                    kwargs = {
+                        "headless": self.headless,
+                        "args": launch_args,
+                        "ignore_default_args": ignore_default_args,
+                        "proxy": proxy_config
+                    }
+                    if ch:
+                        kwargs["channel"] = ch
+                    b = await self.playwright.chromium.launch(**kwargs)
+                    self.log("INFO", f"Launched full-screen browser using: {ch.upper() if ch else 'Chromium'}")
+                    return b
+                except Exception as ex:
+                    if "Executable doesn't exist" in str(ex) or "Channel" in str(ex):
+                        continue
+                    raise ex
+            raise MarketplaceBotError("Could not find Google Chrome, Edge, or Chromium on this PC. Please install Google Chrome.")
 
         try:
             if user_data_dir:
                 self.log("INFO", f"Using isolated browser profile dir: {os.path.basename(user_data_dir)}")
-                self.context = await self.playwright.chromium.launch_persistent_context(
-                    user_data_dir=user_data_dir,
-                    headless=self.headless,
-                    args=launch_args,
-                    proxy=proxy_config,
-                    user_agent=ua,
-                    viewport={"width": viewport_w, "height": viewport_h},
-                    locale="en-US",
-                    timezone_id="America/New_York",
-                    has_touch=False,
-                    is_mobile=False,
-                    device_scale_factor=1,
-                    permissions=["geolocation", "notifications"]
-                )
+                self.context = await launch_context_smart()
                 self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
             else:
-                self.browser = await self.playwright.chromium.launch(
-                    headless=self.headless,
-                    args=launch_args,
-                    proxy=proxy_config
-                )
+                self.browser = await launch_browser_smart()
                 self.context = await self.browser.new_context(
                     user_agent=ua,
-                    viewport={"width": viewport_w, "height": viewport_h},
+                    no_viewport=True,
                     locale="en-US",
                     timezone_id="America/New_York",
-                    has_touch=False,
-                    is_mobile=False,
-                    device_scale_factor=1,
                     permissions=["geolocation", "notifications"]
                 )
                 self.page = await self.context.new_page()
         except Exception as e:
-            if "proxy" in str(e).lower() or "connection" in str(e).lower():
-                raise ProxyConnectionError(f"Failed to connect to proxy {proxy_config}: {str(e)}")
-            raise MarketplaceBotError(f"Failed to launch browser: {str(e)}")
+            # If failed due to proxy connection, retry immediately without proxy as a failsafe
+            if proxy_config and ("proxy" in str(e).lower() or "connect" in str(e).lower() or "net::" in str(e).lower()):
+                self.log("WARNING", f"Proxy {proxy_config.get('server')} failed; falling back to direct connection...")
+                if user_data_dir:
+                    self.context = await self.playwright.chromium.launch_persistent_context(
+                        user_data_dir=user_data_dir,
+                        headless=self.headless,
+                        args=launch_args,
+                        ignore_default_args=ignore_default_args,
+                        proxy=None,
+                        user_agent=ua,
+                        no_viewport=True,
+                        locale="en-US",
+                        timezone_id="America/New_York",
+                        permissions=["geolocation", "notifications"]
+                    )
+                    self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+                else:
+                    self.browser = await self.playwright.chromium.launch(
+                        headless=self.headless,
+                        args=launch_args,
+                        ignore_default_args=ignore_default_args,
+                        proxy=None
+                    )
+                    self.context = await self.browser.new_context(
+                        user_agent=ua,
+                        no_viewport=True,
+                        locale="en-US",
+                        timezone_id="America/New_York",
+                        permissions=["geolocation", "notifications"]
+                    )
+                    self.page = await self.context.new_page()
+            else:
+                raise MarketplaceBotError(f"Failed to launch browser: {str(e)}")
 
         # Apply stealth scripts
         if HAS_PLAYWRIGHT_STEALTH:
@@ -476,15 +571,22 @@ class FacebookMarketplaceBot:
         description = payload.get("description", "")
         images = payload.get("images", [])
 
-        self.log("INFO", f"Navigating to Marketplace creation portal...")
+        ad_type = payload.get("listing_type", payload.get("ad_type", "item")).lower()
+        if "vehicle" in ad_type or "car" in ad_type or "auto" in ad_type:
+            create_url = "https://www.facebook.com/marketplace/create/vehicle"
+        elif "rent" in ad_type or "home" in ad_type or "property" in ad_type or "house" in ad_type:
+            create_url = "https://www.facebook.com/marketplace/create/rental"
+        else:
+            create_url = "https://www.facebook.com/marketplace/create/item"
+
+        self.log("INFO", f"Navigating to Marketplace creation portal ({create_url})...")
         self.set_progress(40)
 
-        create_url = "https://www.facebook.com/marketplace/create/item"
         try:
-            await self.page.goto(create_url, wait_until="networkidle", timeout=40000)
+            await self.page.goto(create_url, wait_until="domcontentloaded", timeout=40000)
             await self.sleep(random.uniform(2.5, 4.0))
         except PlaywrightTimeoutError:
-            self.log("WARNING", "Network idle timed out; falling back to DOM interactive state.")
+            self.log("WARNING", "DOM interactive timed out; attempting fallback...")
             await self.sleep(2.0)
 
         # Secondary checkpoint verification on Marketplace URL
