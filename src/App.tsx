@@ -35,11 +35,12 @@ export default function App() {
   const [copiedCode, setCopiedCode] = useState(false);
 
   // Simulated GUI State
-  const [simTitle, setSimTitle] = useState('Apple iPhone 15 Pro Max 256GB Titanium');
-  const [simPrice, setSimPrice] = useState('950');
-  const [simCategory, setSimCategory] = useState('Electronics & Computers');
-  const [simLocation, setSimLocation] = useState('Los Angeles, CA');
-  const [simDescription, setSimDescription] = useState('Brand new sealed box, never opened. Direct factory unlocked. Available for immediate pickup or same-day dropoff.');
+  const [simTitle, setSimTitle] = useState('Household Living Room Set / Auto Parts Replacement Unit');
+  const [simPrice, setSimPrice] = useState('150');
+  const [simCategory, setSimCategory] = useState('Household');
+  const [simTabsCount, setSimTabsCount] = useState<number>(10);
+  const [simLocation, setSimLocation] = useState('Los Angeles, CA, New York, NY, Chicago, IL, Houston, TX, Miami, FL, Phoenix, AZ, Philadelphia, PA, San Antonio, TX, San Diego, CA, Dallas, TX');
+  const [simDescription, setSimDescription] = useState('High quality item in excellent condition. Available for immediate pickup or same-day local dropoff. Cash or digital payment accepted.');
   const [simSpeed, setSimSpeed] = useState('Normal (15-30s)');
   const [antiDupShield, setAntiDupShield] = useState(true);
   const [antiDupRotate, setAntiDupRotate] = useState(true);
@@ -87,57 +88,59 @@ export default function App() {
     };
 
     addLog('INFO', `[Playwright] Booting Chromium in stealth mode (Speed: ${simSpeed})...`);
+    addLog('INFO', `📑 Multi-Tab Engine: Spawning ${simTabsCount} parallel listing tabs for current Facebook ID...`);
 
     setTimeout(() => {
       setSimProgress(15);
-      addLog('INFO', `Injected 2 auth cookies (c_user=100084..., xs=29%3A...) via browser_context.add_cookies()`);
-      addLog('INFO', `Routing traffic through SOCKS5 proxy: socks5://185.199.229.15:8080`);
-    }, 700);
+      addLog('INFO', `Injected auth cookies (c_user=100084..., xs=29%3A...) into isolated Chrome context`);
+      addLog('INFO', `Routing traffic through residential proxy: socks5://185.199.229.15:8080`);
+    }, 600);
 
     setTimeout(() => {
       setSimProgress(30);
       addLog('SUCCESS', `Session Health Check passed: Facebook profile authenticated without checkpoints.`);
-    }, 1500);
+      addLog('INFO', `Initializing pool: 50+ Location Targets & 50+ Product Images Pool loaded.`);
+    }, 1200);
 
     // Phase 3: Anti-Duplicate Image Engine processing
     setTimeout(() => {
       setSimProgress(45);
       if (antiDupShield) {
-        addLog('INFO', '🛡️ Anti-Duplicate Image Shield ACTIVE: Initializing OpenCV & Pillow pipeline...');
-        addLog('INFO', 'Processing image 1/2: iphone_front.jpg [Micro-rotated: +0.38°, 2% contrast jitter]');
-        addLog('SUCCESS', ' -> EXIF & GPS metadata purged. 1px border padding added.');
-        addLog('SUCCESS', ' -> iphone_front.jpg: Old MD5 4f81c9a... -> New MD5 a2b79e1... (100% Unique Fingerprint)');
-        addLog('INFO', 'Processing image 2/2: iphone_back.jpg [Micro-rotated: -0.29°, 2% brightness jitter]');
-        addLog('SUCCESS', ' -> iphone_back.jpg: Old MD5 e102b4d... -> New MD5 9c34d8f... (100% Unique Fingerprint)');
-        addLog('SUCCESS', 'Batch complete: 2 unique images saved to temp_uploads/ -> Ready for Marketplace injection');
-      } else {
-        addLog('INFO', 'Anti-duplicate shield bypassed: using original source images.');
+        addLog('INFO', '🛡️ Anti-Duplicate Image Shield ACTIVE: Processing randomized image pool...');
+        addLog('SUCCESS', ' -> EXIF metadata stripped. Micro-rotation (±0.4°), subtle noise & MD5 hash mutated for all pool items.');
       }
-    }, 2400);
+    }, 1800);
 
     setTimeout(() => {
-      setSimProgress(65);
-      addLog('INFO', `Navigating stealthily to https://www.facebook.com/marketplace/create/item...`);
-      addLog('INFO', `Uploading 2 unique image files via page.set_input_files() [temp_uploads/fbv_*.jpg]`);
-    }, 3800);
+      setSimProgress(60);
+      addLog('INFO', `🚀 Multi-Tab Workflow: Concurrently opening ${simTabsCount} tabs at https://www.facebook.com/marketplace/create/item`);
+      addLog('INFO', `Tab #1: Selected random location "Los Angeles, CA" | Random image "item_pool_img_03.jpg"`);
+      addLog('INFO', `Tab #2: Selected random location "Houston, TX" | Random image "item_pool_img_17.jpg"`);
+      if (simTabsCount > 2) {
+        addLog('INFO', `Tabs #3 to #${simTabsCount}: Allocated distinct randomized locations & image slices.`);
+      }
+    }, 2800);
 
     setTimeout(() => {
-      setSimProgress(80);
-      addLog('INFO', `Emulating human keystrokes (80-220ms per char) for Title: "${simTitle}"`);
-      addLog('INFO', `Setting Price: $${simPrice} | Category: ${simCategory} | Condition: New`);
-    }, 4900);
+      setSimProgress(75);
+      addLog('INFO', `Precise Field Injector: Typing Title ("${simTitle}") strictly into [aria-label="Title"] input.`);
+      addLog('INFO', `Precise Field Injector: Typing Price ("$${simPrice}") strictly into [aria-label="Price"] input.`);
+      addLog('INFO', `Precise Field Injector: Category mapped to "${simCategory}" -> Selected item.`);
+      addLog('INFO', `Precise Field Injector: Typing Description strictly into textarea.`);
+    }, 4000);
 
     setTimeout(() => {
-      setSimProgress(92);
-      addLog('INFO', `Configuring Location: "${simLocation}". Selected dropdown via ArrowDown + Enter.`);
-      addLog('INFO', `Advancing through Next -> Clicking Publish button.`);
-    }, 5900);
+      setSimProgress(90);
+      addLog('INFO', `Configuring dynamic locations per tab: Typing location -> ArrowDown -> Enter.`);
+      addLog('INFO', `Advancing Next -> Clicking Publish across ${simTabsCount} tabs simultaneously.`);
+    }, 5200);
 
     setTimeout(() => {
       setSimProgress(100);
-      addLog('SUCCESS', `Facebook Marketplace listing "${simTitle}" published successfully with unique image fingerprints!`);
+      addLog('SUCCESS', `🎉 Batch Completed: ${simTabsCount} ads published across ${simTabsCount} tabs with unique locations & images!`);
+      addLog('INFO', `Closed Chrome instance cleanly. Ready for next Facebook ID in queue.`);
       setIsSimulating(false);
-    }, 6900);
+    }, 6200);
   };
 
   const clearLogs = () => {
@@ -331,7 +334,7 @@ export default function App() {
 
                       {/* Main Form Box */}
                       <div className="bg-slate-950/70 border border-slate-800/90 rounded-xl p-4 space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
                             <label className="block text-xs font-semibold text-slate-300 mb-1.5">Target Facebook Account Profile</label>
                             <select
@@ -349,14 +352,34 @@ export default function App() {
                               id="input-sim-category"
                               value={simCategory}
                               onChange={e => setSimCategory(e.target.value)}
-                              className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500 font-medium text-emerald-400"
                             >
-                              <option>Electronics & Computers</option>
-                              <option>Home & Kitchen</option>
-                              <option>Tools & Appliances</option>
-                              <option>Vehicles & Parts</option>
-                              <option>Furniture & Decor</option>
+                              <option value="Household">🏠 Household (ہاؤس ہولڈ)</option>
+                              <option value="Appliances">🔌 Appliances (اپلائنسز)</option>
+                              <option value="Auto Parts">🚗 Auto Parts (آٹو پارٹس)</option>
+                              <option value="Electronics & Computers">Electronics & Computers</option>
+                              <option value="Home & Kitchen">Home & Kitchen</option>
+                              <option value="Tools & Appliances">Tools & Appliances</option>
+                              <option value="Vehicles & Parts">Vehicles & Parts</option>
+                              <option value="Furniture & Decor">Furniture & Decor</option>
+                              <option value="Apparel & Accessories">Apparel & Accessories</option>
+                              <option value="Mobile Phones & Tablets">Mobile Phones & Tablets</option>
                             </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">📑 Tabs / Posts per ID (ملٹی ٹیب)</label>
+                            <div className="flex items-center space-x-2">
+                              <input
+                                id="input-sim-tabs-count"
+                                type="number"
+                                min={1}
+                                max={100}
+                                value={simTabsCount}
+                                onChange={e => setSimTabsCount(Math.max(1, parseInt(e.target.value) || 1))}
+                                className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-sky-400 font-bold focus:outline-none focus:border-indigo-500 font-mono"
+                              />
+                              <span className="text-[11px] text-slate-400 whitespace-nowrap">Tabs/Post per ID</span>
+                            </div>
                           </div>
                         </div>
 
@@ -411,14 +434,14 @@ export default function App() {
                         </div>
 
                         <div>
-                          <label className="block text-xs font-semibold text-slate-300 mb-1.5">Target Location / City (Postal Code / Radius)</label>
+                          <label className="block text-xs font-semibold text-slate-300 mb-1.5">Target Locations Pool (Randomized 1 per Tab/Ad)</label>
                           <input
                             id="input-sim-location"
                             type="text"
                             value={simLocation}
                             onChange={e => setSimLocation(e.target.value)}
                             className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
-                            placeholder="e.g. Los Angeles, CA or 90210"
+                            placeholder="e.g. Los Angeles, CA, New York, NY, Chicago, IL, Miami, FL, Houston, TX (Enter 50+ locations)"
                           />
                         </div>
 

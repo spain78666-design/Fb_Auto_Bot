@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QComboBox, QSpinBox, QCheckBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QFileDialog, QProgressBar, QFrame, QSplitter,
     QMessageBox, QScrollArea, QSizePolicy, QInputDialog,
-    QListWidget, QListWidgetItem
+    QListWidget, QListWidgetItem, QTabWidget
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
 from PyQt5.QtGui import QFont, QColor, QIcon, QTextCursor, QPixmap
@@ -118,7 +118,9 @@ try:
     from automation.macro_recorder import (
         MacroMethodManager,
         MacroRecorderSession,
-        MacroMethodPlayer
+        MacroMethodPlayer,
+        GroupMethodManager,
+        GroupMacroRecorderSession
     )
     HAS_MACRO_RECORDER = True
 except ImportError:
@@ -126,11 +128,32 @@ except ImportError:
         from desktop_app.automation.macro_recorder import (
             MacroMethodManager,
             MacroRecorderSession,
-            MacroMethodPlayer
+            MacroMethodPlayer,
+            GroupMethodManager,
+            GroupMacroRecorderSession
         )
         HAS_MACRO_RECORDER = True
     except ImportError:
         HAS_MACRO_RECORDER = False
+
+# Phase 7: Facebook Group Automation & FEWFEED Extension Engine
+try:
+    from automation.group_bot import (
+        FacebookGroupBot,
+        parse_group_codes,
+        parse_multiline_links
+    )
+    HAS_GROUP_BOT = True
+except ImportError:
+    try:
+        from desktop_app.automation.group_bot import (
+            FacebookGroupBot,
+            parse_group_codes,
+            parse_multiline_links
+        )
+        HAS_GROUP_BOT = True
+    except ImportError:
+        HAS_GROUP_BOT = False
 
 # Licensing Subsystem & Anti-Tamper Protection
 try:
@@ -708,6 +731,226 @@ class MacroRecordWorker(QThread):
 
 
 # ------------------------------------------------------------------------------
+# Asynchronous FB Group Macro Record Worker Thread (Isolated Group Recording)
+# ------------------------------------------------------------------------------
+class GroupMacroRecordWorker(QThread):
+    log_signal = pyqtSignal(str, str)
+    finished_signal = pyqtSignal(bool, str)
+
+    def __init__(self, method_name: str, account_data: Optional[Dict[str, Any]] = None, target_group_url: Optional[str] = None):
+        super().__init__()
+        self.method_name = method_name
+        self.account_data = account_data or {}
+        self.target_group_url = target_group_url or "https://www.facebook.com/groups/feed/"
+
+    def _log_bridge(self, level: str, msg: str):
+        self.log_signal.emit(level, msg)
+
+    def run(self):
+        setup_windows_asyncio()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            if HAS_MACRO_RECORDER:
+                session = GroupMacroRecorderSession(
+                    self.method_name,
+                    account_data=self.account_data,
+                    target_group_url=self.target_group_url,
+                    log_callback=self._log_bridge
+                )
+                success = loop.run_until_complete(session.start_recording())
+                self.finished_signal.emit(success, self.method_name)
+            else:
+                self.log_signal.emit("ERROR", "FB Group Macro Recorder module not available.")
+                self.finished_signal.emit(False, self.method_name)
+        except Exception as e:
+            self.log_signal.emit("ERROR", f"FB Group Recorder error: {str(e)}")
+            self.finished_signal.emit(False, str(e))
+        finally:
+            try:
+                loop.close()
+            except Exception:
+                pass
+
+
+# ------------------------------------------------------------------------------
+# Phase 7: Facebook Group Automation Worker Thread
+# ------------------------------------------------------------------------------
+class GroupAutomationWorker(QThread):
+    """
+    Asynchronous background worker that executes multi-threaded Facebook Group Joining & Posting
+    across concurrent Chrome browser instances with strict mobile device emulation and the FEWFEED extension.
+    """
+    log_signal = pyqtSignal(str, str)
+    progress_signal = pyqtSignal(int)
+    finished_signal = pyqtSignal(bool, str)
+
+    def __init__(self, task_type: str, payload: Dict[str, Any]):
+        super().__init__()
+        self.task_type = task_type  # "posting" or "joining"
+        self.payload = payload
+        self.active_bots: List[FacebookGroupBot] = []
+        self.loop = None
+        self._is_running = True
+
+    def _log_bridge(self, level: str, message: str):
+        self.log_signal.emit(level, message)
+
+    def _progress_bridge(self, percent: int):
+        self.progress_signal.emit(percent)
+
+    def stop(self):
+        self._is_running = False
+        self.log_signal.emit("WARNING", "🛑 Stop command received for FB Group Automation...")
+        for bot in list(self.active_bots):
+            try:
+                bot.cancel()
+            except Exception:
+                pass
+        self.finished_signal.emit(False, "Group automation stopped by user.")
+
+    def run(self):
+        setup_windows_asyncio()
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        try:
+            self.loop.run_until_complete(self._execute_task())
+        except Exception as e:
+            if self._is_running:
+                self.log_signal.emit("ERROR", f"Group Automation encountered error: {str(e)}")
+                self.finished_signal.emit(False, str(e))
+        finally:
+            try:
+                self.loop.close()
+            except Exception:
+                pass
+
+    async def _execute_task(self):
+        if not HAS_GROUP_BOT:
+            self.log_signal.emit("ERROR", "Group Automation Engine module not available.")
+            self.finished_signal.emit(False, "Group Bot module missing.")
+            return
+
+        accounts = self.payload.get("accounts", [])
+        if not accounts:
+            self.log_signal.emit("ERROR", "No target Facebook accounts selected.")
+            self.finished_signal.emit(False, "No accounts selected.")
+            return
+
+        group_codes = self.payload.get("group_codes", [])
+        if not group_codes:
+            self.log_signal.emit("ERROR", "No Group Codes provided.")
+            self.finished_signal.emit(False, "No group codes specified.")
+            return
+
+        delay = int(self.payload.get("delay", 25))
+        threads = max(1, int(self.payload.get("threads", 1)))
+
+        self.log_signal.emit("INFO", f"==================================================")
+        self.log_signal.emit("INFO", f"🚀 Launching Multi-Threaded FB Group {self.task_type.upper()} Workflow...")
+        self.log_signal.emit("INFO", f"👥 Accounts: {len(accounts)} | 📋 Target Groups: {len(group_codes)}")
+        self.log_signal.emit("INFO", f"🧵 Concurrent Browsers (Threads): {threads} | ⏳ Action Delay: {delay}s")
+        self.log_signal.emit("INFO", f"📱 Mobile Device Emulation Enforced: deviceMetrics={{width: 393, height: 851, pixelRatio: 3.0}}")
+        self.log_signal.emit("INFO", f"🧩 Chrome Extension: FEWFEED pre-loaded across all {threads} concurrent browser instance(s).")
+
+        tasks = []
+        semaphore = asyncio.Semaphore(threads)
+
+        if len(accounts) >= threads:
+            for thread_idx, acc in enumerate(accounts, 1):
+                tasks.append(self._run_single_browser_instance(
+                    thread_id=thread_idx,
+                    total_threads=threads,
+                    account=acc,
+                    group_codes=group_codes,
+                    delay=delay,
+                    semaphore=semaphore
+                ))
+        else:
+            chunk_size = max(1, (len(group_codes) + threads - 1) // threads)
+            group_chunks = [group_codes[i:i + chunk_size] for i in range(0, len(group_codes), chunk_size)]
+            
+            for thread_idx in range(threads):
+                chunk = group_chunks[thread_idx] if thread_idx < len(group_chunks) else []
+                if not chunk:
+                    continue
+                acc = accounts[thread_idx % len(accounts)]
+                acc_copy = dict(acc)
+                if acc.get("id"):
+                    acc_copy["id"] = f"{acc['id']}_thread_{thread_idx + 1}"
+                
+                tasks.append(self._run_single_browser_instance(
+                    thread_id=thread_idx + 1,
+                    total_threads=len(group_chunks),
+                    account=acc_copy,
+                    group_codes=chunk,
+                    delay=delay,
+                    semaphore=semaphore
+                ))
+
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        if self._is_running:
+            self.log_signal.emit("SUCCESS", f"🏁 Multi-Threaded FB Group {self.task_type.title()} pipeline completed across all instances!")
+            self.finished_signal.emit(True, f"Group {self.task_type.title()} tasks completed successfully.")
+
+    async def _run_single_browser_instance(
+        self,
+        thread_id: int,
+        total_threads: int,
+        account: Dict[str, Any],
+        group_codes: List[str],
+        delay: int,
+        semaphore: asyncio.Semaphore
+    ):
+        async with semaphore:
+            if not self._is_running:
+                return
+
+            acc_name = account.get("name", f"Account_{thread_id}")
+            tag = f"[Thread {thread_id}/{total_threads} - {acc_name}]"
+            self.log_signal.emit("INFO", f"--------------------------------------------------")
+            self.log_signal.emit("INFO", f"🚀 {tag} Launching mobile Chrome browser instance with FEWFEED...")
+
+            def logger(level, msg):
+                self._log_bridge(level, f"{tag} {msg}")
+
+            bot = FacebookGroupBot(
+                account_data=account,
+                log_callback=logger,
+                progress_callback=self._progress_bridge,
+                headless=False
+            )
+
+            self.active_bots.append(bot)
+
+            try:
+                await bot.initialize_browser()
+                await bot.authenticate_session()
+
+                if self.task_type == "joining":
+                    await bot.run_group_joining(group_codes=group_codes, delay_seconds=delay)
+                elif self.task_type == "posting":
+                    links = self.payload.get("links", [])
+                    descriptions = self.payload.get("descriptions", [])
+                    posting_mode = self.payload.get("mode", "Random")
+                    await bot.run_group_posting(
+                        group_codes=group_codes,
+                        links=links,
+                        descriptions=descriptions,
+                        posting_mode=posting_mode,
+                        delay_seconds=delay
+                    )
+
+            except Exception as ex:
+                self.log_signal.emit("ERROR", f"{tag} Instance notice: {str(ex)}")
+            finally:
+                if bot in self.active_bots:
+                    self.active_bots.remove(bot)
+                await bot.close()
+
+
+# ------------------------------------------------------------------------------
 # Asynchronous Automation Worker Thread (Phase 2: Playwright Engine)
 # ------------------------------------------------------------------------------
 class AutomationWorker(QThread):
@@ -1026,6 +1269,7 @@ class FBAutoBotMainWindow(QMainWindow):
             self.accounts_list = []
         self.selected_images = []
         self.worker = None
+        self.group_worker = None
         self.health_worker = None
         self.manual_worker = None
         self.ai_worker = None
@@ -1056,15 +1300,17 @@ class FBAutoBotMainWindow(QMainWindow):
         self.page_accounts = self.create_accounts_page()
         self.page_methods = self.create_methods_page()
         self.page_automation = self.create_automation_page()
+        self.page_group_posting = self.create_group_automation_page()
         self.page_ai = self.create_ai_page()
         self.page_settings = self.create_settings_page()
 
-        self.pages_stack.addWidget(self.page_dashboard)   # Index 0
-        self.pages_stack.addWidget(self.page_accounts)    # Index 1
-        self.pages_stack.addWidget(self.page_methods)     # Index 2
-        self.pages_stack.addWidget(self.page_automation)  # Index 3
-        self.pages_stack.addWidget(self.page_ai)          # Index 4
-        self.pages_stack.addWidget(self.page_settings)    # Index 5
+        self.pages_stack.addWidget(self.page_dashboard)       # Index 0
+        self.pages_stack.addWidget(self.page_accounts)        # Index 1
+        self.pages_stack.addWidget(self.page_methods)         # Index 2
+        self.pages_stack.addWidget(self.page_automation)      # Index 3
+        self.pages_stack.addWidget(self.page_group_posting)   # Index 4
+        self.pages_stack.addWidget(self.page_ai)              # Index 5
+        self.pages_stack.addWidget(self.page_settings)        # Index 6
 
         content_layout.addWidget(self.pages_stack, stretch=7)
 
@@ -1123,8 +1369,9 @@ class FBAutoBotMainWindow(QMainWindow):
             ("👥 Accounts Manager", 1),
             ("🎯 Methods Manager", 2),
             ("⚡ Automation Engine", 3),
-            ("🧠 AI Content Spinner", 4),
-            ("⚙️ Settings & Stealth", 5),
+            ("📢 FB Group Posting", 4),
+            ("🧠 AI Content Spinner", 5),
+            ("⚙️ Settings & Stealth", 6),
         ]
 
         for text, index in nav_items:
@@ -1703,27 +1950,64 @@ class FBAutoBotMainWindow(QMainWindow):
         layout.setSpacing(14)
 
         # Title
-        title = QLabel("Learned Methods & Custom Workflows")
+        title = QLabel("Learned Methods & Custom Workflows Vault")
         title.setProperty("class", "pageTitle")
-        sub = QLabel("Record, manage, and inspect custom Facebook Marketplace listing click patterns and flows.")
+        sub = QLabel("Record, manage, and inspect separate workflows for Facebook Marketplace Listings and Facebook Group Automation.")
         sub.setProperty("class", "pageSubtitle")
         layout.addWidget(title)
         layout.addWidget(sub)
 
-        # Top Action Bar
+        # Sub-tabs: Marketplace Methods vs FB Group Methods
+        self.methods_subtabs = QTabWidget()
+        self.methods_subtabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                background: rgba(15, 23, 42, 0.4);
+                border-radius: 10px;
+                padding: 12px;
+            }
+            QTabBar::tab {
+                background: rgba(30, 41, 59, 0.6);
+                color: #94a3b8;
+                font-weight: 700;
+                font-size: 13px;
+                padding: 10px 20px;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                margin-right: 4px;
+            }
+            QTabBar::tab:selected {
+                background: #1e293b;
+                color: #38bdf8;
+                border-bottom: 2px solid #38bdf8;
+            }
+            QTabBar::tab:hover:!selected {
+                background: rgba(51, 65, 85, 0.8);
+                color: #f8fafc;
+            }
+        """)
+
+        # ----------------------------------------------------------------------
+        # Subtab 1: Marketplace Methods (config/methods/)
+        # ----------------------------------------------------------------------
+        mkt_tab = QWidget()
+        mkt_layout = QVBoxLayout(mkt_tab)
+        mkt_layout.setContentsMargins(0, 0, 0, 0)
+        mkt_layout.setSpacing(12)
+
         top_bar = QFrame()
         top_bar.setProperty("class", "glassCard")
         tb_layout = QHBoxLayout(top_bar)
         tb_layout.setContentsMargins(12, 10, 12, 10)
 
-        self.btn_record_new_method_top = QPushButton("🔴 Record New Method (Open Chrome)")
+        self.btn_record_new_method_top = QPushButton("🔴 Record Marketplace Method (Open Chrome)")
         self.btn_record_new_method_top.setStyleSheet("background-color: #dc2626; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 8px 18px;")
         self.btn_record_new_method_top.setCursor(Qt.PointingHandCursor)
-        self.btn_record_new_method_top.setToolTip("Opens Chrome full-screen so you can manually click through listing steps. All clicks and inputs are learned automatically!")
+        self.btn_record_new_method_top.setToolTip("Opens Chrome full-screen to record Marketplace listing steps. Saved in config/methods/.")
         self.btn_record_new_method_top.clicked.connect(self.record_new_macro_method)
         tb_layout.addWidget(self.btn_record_new_method_top)
 
-        self.btn_refresh_methods = QPushButton("🔄 Refresh Methods List")
+        self.btn_refresh_methods = QPushButton("🔄 Refresh Marketplace Methods")
         self.btn_refresh_methods.setProperty("class", "secondaryBtn")
         self.btn_refresh_methods.setCursor(Qt.PointingHandCursor)
         self.btn_refresh_methods.clicked.connect(self.refresh_methods_table)
@@ -1731,19 +2015,19 @@ class FBAutoBotMainWindow(QMainWindow):
 
         tb_layout.addStretch()
 
-        methods_count_hint = QLabel("💡 Saved methods can be selected in Automation Engine for 1-by-1 multi-account replay")
+        methods_count_hint = QLabel("💡 Stored in config/methods/ • Selected in Marketplace Automation Engine")
         methods_count_hint.setStyleSheet("color: #94a3b8; font-size: 11px;")
         tb_layout.addWidget(methods_count_hint)
 
-        layout.addWidget(top_bar)
+        mkt_layout.addWidget(top_bar)
 
-        # Methods Table Card
+        # Marketplace Table Card
         table_card = QFrame()
         table_card.setProperty("class", "glassCard")
         t_layout = QVBoxLayout(table_card)
         t_layout.setSpacing(10)
 
-        t_title = QLabel("Saved Listing Methods & Action Sequences")
+        t_title = QLabel("🛒 Saved Facebook Marketplace Listing Methods")
         t_title.setStyleSheet("font-size: 14px; font-weight: 700; color: #ffffff;")
         t_layout.addWidget(t_title)
 
@@ -1760,44 +2044,137 @@ class FBAutoBotMainWindow(QMainWindow):
         self.methods_table.verticalHeader().setVisible(False)
         self.methods_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.methods_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.methods_table.setMinimumHeight(240)
+        self.methods_table.setMinimumHeight(220)
 
         t_layout.addWidget(self.methods_table)
-        layout.addWidget(table_card)
+        mkt_layout.addWidget(table_card)
 
-        # Workflow Guide Card
+        # Marketplace Guide Card
         guide_card = QFrame()
         guide_card.setStyleSheet("background-color: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 14px;")
         g_layout = QVBoxLayout(guide_card)
         g_layout.setSpacing(6)
 
-        g_title = QLabel("📖 How Macro Method Recording & Playback Works:")
+        g_title = QLabel("📖 How Marketplace Method Recording Works:")
         g_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #38bdf8;")
         g_layout.addWidget(g_title)
 
         steps_text = (
-            "1. Click 'Record New Method' and give your workflow a name (e.g., 'Vehicle_Posting', 'Home_Rental', 'Standard_Item').\n"
-            "2. Chrome opens in full-screen mode. Perform your exact clicks, category navigation, and fill in sample data.\n"
-            "3. Close the Chrome browser when finished — your steps and smart CSS/XPath selectors are saved automatically.\n"
-            "4. Go to 'Automation Engine', pick your saved method, customize dynamic parameters (title, price, category), and run across all accounts sequentially!"
+            "1. Click 'Record Marketplace Method' and give your workflow a name (e.g., 'Vehicle_Posting', 'Home_Rental', 'Standard_Item').\n"
+            "2. Chrome opens in full-screen mode. Perform your exact listing clicks, categories, and sample data.\n"
+            "3. Close the Chrome browser when finished — steps are saved in config/methods/ automatically.\n"
+            "4. Go to 'Automation Engine' to pick your saved Marketplace method and execute across accounts!"
         )
         g_lbl = QLabel(steps_text)
         g_lbl.setStyleSheet("color: #cbd5e1; font-size: 12px; line-height: 1.5;")
         g_layout.addWidget(g_lbl)
+        mkt_layout.addWidget(guide_card)
 
-        layout.addWidget(guide_card)
+        # ----------------------------------------------------------------------
+        # Subtab 2: FB Group Methods (config/group_methods/)
+        # ----------------------------------------------------------------------
+        grp_tab = QWidget()
+        grp_layout = QVBoxLayout(grp_tab)
+        grp_layout.setContentsMargins(0, 0, 0, 0)
+        grp_layout.setSpacing(12)
+
+        grp_top_bar = QFrame()
+        grp_top_bar.setProperty("class", "glassCard")
+        gtb_layout = QHBoxLayout(grp_top_bar)
+        gtb_layout.setContentsMargins(12, 10, 12, 10)
+
+        self.btn_record_new_grp_method_top = QPushButton("🔴 Record FB Group Method (Open Chrome)")
+        self.btn_record_new_grp_method_top.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 8px 18px;")
+        self.btn_record_new_grp_method_top.setCursor(Qt.PointingHandCursor)
+        self.btn_record_new_grp_method_top.setToolTip("Opens Chrome full-screen to record FB Group posting steps. Stored strictly in config/group_methods/.")
+        self.btn_record_new_grp_method_top.clicked.connect(self.record_new_group_macro_method)
+        gtb_layout.addWidget(self.btn_record_new_grp_method_top)
+
+        self.btn_refresh_grp_methods = QPushButton("🔄 Refresh FB Group Methods")
+        self.btn_refresh_grp_methods.setProperty("class", "secondaryBtn")
+        self.btn_refresh_grp_methods.setCursor(Qt.PointingHandCursor)
+        self.btn_refresh_grp_methods.clicked.connect(self.refresh_group_methods_table)
+        gtb_layout.addWidget(self.btn_refresh_grp_methods)
+
+        gtb_layout.addStretch()
+
+        grp_methods_hint = QLabel("💡 Stored in config/group_methods/ • Completely isolated from Marketplace")
+        grp_methods_hint.setStyleSheet("color: #38bdf8; font-size: 11px;")
+        gtb_layout.addWidget(grp_methods_hint)
+
+        grp_layout.addWidget(grp_top_bar)
+
+        # Group Methods Table Card
+        grp_table_card = QFrame()
+        grp_table_card.setProperty("class", "glassCard")
+        gt_layout = QVBoxLayout(grp_table_card)
+        gt_layout.setSpacing(10)
+
+        gt_title = QLabel("📢 Saved Facebook Group Posting Methods")
+        gt_title.setStyleSheet("font-size: 14px; font-weight: 700; color: #ffffff;")
+        gt_layout.addWidget(gt_title)
+
+        self.group_methods_table = QTableWidget()
+        self.group_methods_table.setColumnCount(5)
+        self.group_methods_table.setHorizontalHeaderLabels([
+            "Group Method Name", "Total Steps", "Created Date", "Description", "Actions"
+        ])
+        self.group_methods_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.group_methods_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.group_methods_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.group_methods_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.group_methods_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self.group_methods_table.verticalHeader().setVisible(False)
+        self.group_methods_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.group_methods_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.group_methods_table.setMinimumHeight(220)
+
+        gt_layout.addWidget(self.group_methods_table)
+        grp_layout.addWidget(grp_table_card)
+
+        # Group Guide Card
+        grp_guide_card = QFrame()
+        grp_guide_card.setStyleSheet("background-color: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 14px;")
+        gg_layout = QVBoxLayout(grp_guide_card)
+        gg_layout.setSpacing(6)
+        gg_title = QLabel("📖 How FB Group Method Recording Works (Separated from Marketplace):")
+        gg_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #10b981;")
+        gg_layout.addWidget(gg_title)
+        grp_steps_text = (
+            "1. Click 'Record FB Group Method' and enter a method name (e.g., 'Feed_Direct_Post', 'Discussion_Photo_Share', 'Anonymous_Post').\n"
+            "2. Chrome opens in full-screen on Facebook Groups feed. Perform your exact posting clicks, composer triggers, and sample text.\n"
+            "3. Close the Chrome browser when finished — steps are saved separately in config/group_methods/.\n"
+            "4. Go to 'FB Group Posting' tab to pick your saved Group method without interfering with Marketplace methods!"
+        )
+        gg_lbl = QLabel(grp_steps_text)
+        gg_lbl.setStyleSheet("color: #cbd5e1; font-size: 12px; line-height: 1.5;")
+        gg_layout.addWidget(gg_lbl)
+        grp_layout.addWidget(grp_guide_card)
+
+        # Add both subtabs
+        self.methods_subtabs.addTab(mkt_tab, "🛒 Marketplace Listing Methods")
+        self.methods_subtabs.addTab(grp_tab, "📢 FB Group Automation Methods")
+
+        layout.addWidget(self.methods_subtabs)
 
         scroll.setWidget(container)
         outer_layout = QVBoxLayout(page)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.addWidget(scroll)
 
-        # Initial populate
+        # Initial populate both
         self.refresh_methods_table()
+        self.refresh_group_methods_table()
         return page
 
+    def switch_to_group_methods(self):
+        """Switches to Methods Manager and opens the FB Group Methods sub-tab."""
+        self.switch_tab(2)
+        if hasattr(self, 'methods_subtabs'):
+            self.methods_subtabs.setCurrentIndex(1)
+
     def refresh_methods_table(self):
-        """Populates the methods table with all saved JSON methods."""
+        """Populates the marketplace methods table with saved JSON methods from config/methods/."""
         if not hasattr(self, 'methods_table'):
             return
 
@@ -1849,13 +2226,67 @@ class FBAutoBotMainWindow(QMainWindow):
             self.methods_table.setItem(row, 3, desc_item)
             self.methods_table.setCellWidget(row, 4, actions_widget)
 
-    def inspect_method_steps(self, method_name: str):
-        """Displays a sleek dialog displaying all recorded steps in the method."""
-        data = MacroMethodManager.load_method_data(method_name) if HAS_MACRO_RECORDER else {}
+    def refresh_group_methods_table(self):
+        """Populates the group methods table with saved JSON methods from config/group_methods/."""
+        if not hasattr(self, 'group_methods_table'):
+            return
+
+        methods = GroupMethodManager.list_methods() if HAS_MACRO_RECORDER else ["Standard Group Post (Feed)"]
+        self.group_methods_table.setRowCount(len(methods))
+
+        for row, method_name in enumerate(methods):
+            data = GroupMethodManager.load_method_data(method_name) if HAS_MACRO_RECORDER else {}
+            actions = data.get("actions", [])
+            total_steps = len(actions)
+            created_at = data.get("created_at", "System Default")
+            desc = data.get("description", "Standard Facebook Group posting workflow")
+
+            name_item = QTableWidgetItem(f"📢 {method_name}")
+            name_item.setForeground(QColor("#f8fafc"))
+            name_item.setFont(QFont("Segoe UI", 10, QFont.Bold))
+
+            steps_item = QTableWidgetItem(f"⚡ {total_steps} Actions")
+            steps_item.setForeground(QColor("#38bdf8"))
+
+            date_item = QTableWidgetItem(created_at)
+            date_item.setForeground(QColor("#94a3b8"))
+
+            desc_item = QTableWidgetItem(desc)
+            desc_item.setForeground(QColor("#cbd5e1"))
+
+            # Actions widget with Inspect and Delete buttons
+            actions_widget = QWidget()
+            act_layout = QHBoxLayout(actions_widget)
+            act_layout.setContentsMargins(4, 2, 4, 2)
+            act_layout.setSpacing(6)
+
+            btn_inspect = QPushButton("👁️ Inspect Steps")
+            btn_inspect.setStyleSheet("background-color: #334155; color: #f8fafc; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
+            btn_inspect.setCursor(Qt.PointingHandCursor)
+            btn_inspect.clicked.connect(lambda checked, m=method_name: self.inspect_group_method_steps(m))
+            act_layout.addWidget(btn_inspect)
+
+            if method_name not in ("Standard Group Post (Feed)", "Standard Group Post"):
+                btn_del = QPushButton("🗑️ Delete")
+                btn_del.setStyleSheet("background-color: #ef4444; color: #ffffff; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
+                btn_del.setCursor(Qt.PointingHandCursor)
+                btn_del.clicked.connect(lambda checked, m=method_name: self.delete_selected_group_method(m))
+                act_layout.addWidget(btn_del)
+
+            self.group_methods_table.setItem(row, 0, name_item)
+            self.group_methods_table.setItem(row, 1, steps_item)
+            self.group_methods_table.setItem(row, 2, date_item)
+            self.group_methods_table.setItem(row, 3, desc_item)
+            self.group_methods_table.setCellWidget(row, 4, actions_widget)
+
+    def inspect_group_method_steps(self, method_name: str):
+        """Displays a sleek dialog displaying all recorded steps in the FB Group method."""
+        clean_name = method_name.replace("📢 ", "").replace("📁 ", "").strip()
+        data = GroupMethodManager.load_method_data(clean_name) if HAS_MACRO_RECORDER else {}
         actions = data.get("actions", [])
 
         dialog = QDialog(self)
-        dialog.setWindowTitle(f"Method Inspection: {method_name}")
+        dialog.setWindowTitle(f"FB Group Method Inspection: {clean_name}")
         dialog.resize(650, 480)
         dialog.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', sans-serif;")
 
@@ -1863,7 +2294,7 @@ class FBAutoBotMainWindow(QMainWindow):
         d_layout.setContentsMargins(20, 20, 20, 20)
         d_layout.setSpacing(12)
 
-        header = QLabel(f"🎯 Action Steps for '{method_name}' ({len(actions)} steps):")
+        header = QLabel(f"📢 FB Group Action Steps for '{clean_name}' ({len(actions)} steps):")
         header.setStyleSheet("font-size: 15px; font-weight: 700; color: #38bdf8;")
         d_layout.addWidget(header)
 
@@ -1883,7 +2314,7 @@ class FBAutoBotMainWindow(QMainWindow):
         """)
 
         if not actions:
-            list_widget.addItem("No action steps found in this method.")
+            list_widget.addItem("No action steps found in this group method.")
         else:
             for idx, act in enumerate(actions, 1):
                 act_type = act.get("action_type", "click").upper()
@@ -1914,21 +2345,21 @@ class FBAutoBotMainWindow(QMainWindow):
 
         dialog.exec_()
 
-    def delete_selected_method(self, method_name: str):
-        """Deletes a custom macro method."""
+    def delete_selected_group_method(self, method_name: str):
+        """Deletes a custom FB group macro method from config/group_methods/."""
         reply = QMessageBox.question(
             self,
-            "Delete Method",
-            f"Are you sure you want to permanently delete method '{method_name}'?",
+            "Delete FB Group Method",
+            f"Are you sure you want to permanently delete FB Group method '{method_name}'?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
         if reply == QMessageBox.Yes:
             if HAS_MACRO_RECORDER:
-                MacroMethodManager.delete_method(method_name)
-            self.refresh_methods_table()
-            self.refresh_methods_dropdown()
-            self.log_message("INFO", f"Deleted custom method '{method_name}'.")
+                GroupMethodManager.delete_method(method_name)
+            self.refresh_group_methods_table()
+            self.refresh_group_methods_dropdown()
+            self.log_message("INFO", f"Deleted custom FB Group method '{method_name}'.")
 
     # --------------------------------------------------------------------------
     # Tab 4: Automation Engine (Sequential Multi-Account Batch Posting)
@@ -2037,22 +2468,38 @@ class FBAutoBotMainWindow(QMainWindow):
 
         f_layout.addWidget(acc_box)
 
-        # Row 2: Category & Title
+        # Row 2: Category, Title & Multi-Tab Configuration
         row2 = QHBoxLayout()
+        
+        col_tabs = QVBoxLayout()
+        col_tabs.addWidget(QLabel("📑 Tabs / Posts per ID:"))
+        self.tabs_count_spin = QSpinBox()
+        self.tabs_count_spin.setRange(1, 100)
+        self.tabs_count_spin.setValue(10)
+        self.tabs_count_spin.setToolTip("Number of tabs to open simultaneously in Chrome for this Facebook ID (e.g. 10, 20, 25 tabs)")
+        self.tabs_count_spin.setStyleSheet("font-weight: 700; color: #38bdf8;")
+        col_tabs.addWidget(self.tabs_count_spin)
+        row2.addLayout(col_tabs, stretch=1)
+
         col_cat = QVBoxLayout()
         col_cat.addWidget(QLabel("Marketplace Category:"))
         self.category_select = QComboBox()
         self.category_select.addItems([
+            "Household",
+            "Appliances",
+            "Auto Parts",
             "Electronics & Computers",
             "Home & Kitchen",
             "Tools & Appliances",
-            "Vehicles & Parts",
             "Furniture & Decor",
+            "Vehicles & Parts",
             "Apparel & Accessories",
-            "Mobile Phones & Tablets"
+            "Mobile Phones & Tablets",
+            "Sports & Outdoors",
+            "Toys & Games"
         ])
         col_cat.addWidget(self.category_select)
-        row2.addLayout(col_cat, stretch=1)
+        row2.addLayout(col_cat, stretch=2)
 
         col_t = QVBoxLayout()
         t_header = QHBoxLayout()
@@ -2067,28 +2514,29 @@ class FBAutoBotMainWindow(QMainWindow):
         col_t.addLayout(t_header)
 
         self.title_input = QLineEdit()
-        self.title_input.setPlaceholderText("e.g., Apple iPhone 15 Pro Max 256GB Titanium - Brand New Sealed")
+        self.title_input.setPlaceholderText("e.g., Household Modern Living Room Set / Auto Parts Premium Replacement")
         col_t.addWidget(self.title_input)
-        row2.addLayout(col_t, stretch=2)
+        row2.addLayout(col_t, stretch=3)
 
         f_layout.addLayout(row2)
 
-        # Row 3: Price and Target Location
+        # Row 3: Price and Target Locations Pool
         row3 = QHBoxLayout()
         col_p = QVBoxLayout()
         col_p.addWidget(QLabel("Price ($ USD / Amount):"))
         self.price_input = QLineEdit()
-        self.price_input.setPlaceholderText("950")
+        self.price_input.setPlaceholderText("150")
         col_p.addWidget(self.price_input)
 
         col_loc = QVBoxLayout()
-        col_loc.addWidget(QLabel("Target Location / City (Postal Code / Radius):"))
+        col_loc.addWidget(QLabel("Target Locations / Cities Pool (Randomized per Ad):"))
         self.location_input = QLineEdit()
-        self.location_input.setPlaceholderText("e.g., Los Angeles, CA or New York, NY (within 20 miles)")
+        self.location_input.setPlaceholderText("e.g., Los Angeles, CA, New York, NY, Chicago, IL, Houston, TX, Miami, FL (Separate 50+ cities with commas or newlines)")
+        self.location_input.setToolTip("Enter 50-60 locations separated by commas. The bot randomly selects 1 location for each ad.")
         col_loc.addWidget(self.location_input)
 
         row3.addLayout(col_p, stretch=1)
-        row3.addLayout(col_loc, stretch=2)
+        row3.addLayout(col_loc, stretch=3)
         f_layout.addLayout(row3)
 
         # Row 4: Description
@@ -2337,6 +2785,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
     def update_account_dropdown(self):
         self.populate_accounts_checklist()
+        self.populate_group_accounts_checklist()
         if hasattr(self, 'target_acc_select'):
             self.target_acc_select.clear()
             if not self.accounts_list:
@@ -2401,10 +2850,13 @@ class FBAutoBotMainWindow(QMainWindow):
         is_batch = len(selected_accounts) > 1
         chosen_method = self.method_select.currentText()
 
+        tabs_count = self.tabs_count_spin.value() if hasattr(self, 'tabs_count_spin') else 1
+
         self.log_message("INFO", f"==================================================")
-        self.log_message("INFO", f"🚀 Starting Sequential Posting across {len(selected_accounts)} Account(s)...")
+        self.log_message("INFO", f"🚀 Starting Automation across {len(selected_accounts)} Account(s)...")
+        self.log_message("INFO", f"📑 Multi-Tab Configuration: {tabs_count} Tab(s)/Post(s) per Facebook ID")
         self.log_message("INFO", f"🎯 Active Method: '{chosen_method}'")
-        self.log_message("INFO", f"Sequential Execution: Each account will launch a full-screen browser, execute posting, close cleanly, and move to the next account.")
+        self.log_message("INFO", f"Sequential Execution: Each account will launch Chrome, open {tabs_count} tab(s) with random images & locations, publish, close Chrome, and move to next ID.")
 
         payload = {
             "title": title,
@@ -2412,6 +2864,8 @@ class FBAutoBotMainWindow(QMainWindow):
             "category": self.category_select.currentText(),
             "location": self.location_input.text().strip() or "Local Radius",
             "description": self.desc_input.toPlainText().strip(),
+            "tabs_count": tabs_count,
+            "posts_per_id": tabs_count,
             "method": chosen_method,
             "account": "Batch Runner" if is_batch else selected_accounts[0].get("name", "Account"),
             "account_data": selected_accounts[0],
@@ -2457,6 +2911,426 @@ class FBAutoBotMainWindow(QMainWindow):
             QMessageBox.information(self, "Automation Complete", f"All listing tasks finished successfully!\n\n{message}")
         else:
             QMessageBox.warning(self, "Automation Stopped", f"Automation execution finished:\n\n{message}")
+
+    # --------------------------------------------------------------------------
+    # Tab 4: FB Group Automation (Posting & Group Joining)
+    # --------------------------------------------------------------------------
+    def create_group_automation_page(self):
+        page = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        # Header Title
+        title_box = QVBoxLayout()
+        title = QLabel("Facebook Group Automation Engine")
+        title.setProperty("class", "pageTitle")
+        sub = QLabel("Automate group posting with rotating links & descriptions, join targeted groups, and load the FEWFEED Chrome extension automatically.")
+        sub.setProperty("class", "pageSubtitle")
+        title_box.addWidget(title)
+        title_box.addWidget(sub)
+        layout.addLayout(title_box)
+
+        # Account Selection Panel for Groups
+        acc_card = QFrame()
+        acc_card.setProperty("class", "glassCard")
+        acc_card_layout = QVBoxLayout(acc_card)
+        acc_card_layout.setSpacing(8)
+
+        grp_acc_hdr = QHBoxLayout()
+        grp_acc_hdr.addWidget(QLabel("👥 Target Accounts for Group Operations:"))
+        grp_acc_hdr.addStretch()
+
+        self.btn_grp_select_all = QPushButton("⚡ Select All")
+        self.btn_grp_select_all.setStyleSheet("background-color: #3b82f6; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
+        self.btn_grp_select_all.setCursor(Qt.PointingHandCursor)
+        self.btn_grp_select_all.clicked.connect(self.select_all_group_accounts)
+        grp_acc_hdr.addWidget(self.btn_grp_select_all)
+
+        self.btn_grp_clear_acc = QPushButton("❌ Clear")
+        self.btn_grp_clear_acc.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
+        self.btn_grp_clear_acc.setCursor(Qt.PointingHandCursor)
+        self.btn_grp_clear_acc.clicked.connect(self.clear_all_group_accounts)
+        grp_acc_hdr.addWidget(self.btn_grp_clear_acc)
+        acc_card_layout.addLayout(grp_acc_hdr)
+
+        # Group accounts checklist
+        self.grp_acc_scroll = QScrollArea()
+        self.grp_acc_scroll.setFixedHeight(100)
+        self.grp_acc_scroll.setWidgetResizable(True)
+        self.grp_acc_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.05); background: rgba(15, 23, 42, 0.6); border-radius: 6px; }")
+
+        self.grp_acc_widget = QWidget()
+        self.grp_acc_layout = QVBoxLayout(self.grp_acc_widget)
+        self.grp_acc_layout.setContentsMargins(8, 6, 8, 6)
+        self.grp_acc_layout.setSpacing(6)
+        self.grp_acc_scroll.setWidget(self.grp_acc_widget)
+        acc_card_layout.addWidget(self.grp_acc_scroll)
+
+        self.grp_acc_summary_lbl = QLabel("🎯 0 Accounts Selected")
+        self.grp_acc_summary_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        acc_card_layout.addWidget(self.grp_acc_summary_lbl)
+
+        layout.addWidget(acc_card)
+
+        # Main Splitter: Left Section (Posting Panel) vs Right Section (Group Joining Panel)
+        panels_row = QHBoxLayout()
+        panels_row.setSpacing(14)
+
+        # ----------------------------------------------------------------------
+        # [LEFT SECTION: Posting Panel]
+        # ----------------------------------------------------------------------
+        post_panel = QFrame()
+        post_panel.setProperty("class", "glassCard")
+        p_layout = QVBoxLayout(post_panel)
+        p_layout.setSpacing(12)
+
+        p_header = QLabel("📢 FB Group Posting Panel")
+        p_header.setStyleSheet("font-size: 15px; font-weight: 700; color: #38bdf8; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;")
+        p_layout.addWidget(p_header)
+
+        # Input: Group Codes
+        p_layout.addWidget(QLabel("📋 Target Group Codes / URLs (1 per line or comma-separated):"))
+        self.grp_post_codes_input = QTextEdit()
+        self.grp_post_codes_input.setPlaceholderText("e.g.\n123456789012345\nhttps://www.facebook.com/groups/pakistanbuyandsell/\n987654321098765")
+        self.grp_post_codes_input.setFixedHeight(80)
+        p_layout.addWidget(self.grp_post_codes_input)
+
+        # Input: Multiple Links (to be shared randomly or sequentially)
+        p_links_hdr = QHBoxLayout()
+        p_links_hdr.addWidget(QLabel("🔗 Multiple Links (1 per line):"))
+        p_links_hdr.addStretch()
+        p_links_hdr.addWidget(QLabel("Distribution:"))
+        self.grp_post_mode_select = QComboBox()
+        self.grp_post_mode_select.addItems(["Random Distribution", "Sequential Queue"])
+        self.grp_post_mode_select.setStyleSheet("font-size: 11px; padding: 2px 6px;")
+        p_links_hdr.addWidget(self.grp_post_mode_select)
+        p_layout.addLayout(p_links_hdr)
+
+        self.grp_post_links_input = QTextEdit()
+        self.grp_post_links_input.setPlaceholderText("e.g.\nhttps://facebook.com/marketplace/item/101010101/\nhttps://example.com/product-page\nhttps://facebook.com/marketplace/item/202020202/")
+        self.grp_post_links_input.setFixedHeight(80)
+        p_layout.addWidget(self.grp_post_links_input)
+
+        # Input: Post Descriptions
+        p_layout.addWidget(QLabel("📝 Post Descriptions / Text Content (1 variant per line or multi-line):"))
+        self.grp_post_desc_input = QTextEdit()
+        self.grp_post_desc_input.setPlaceholderText("e.g.\n🔥 Premium Household Appliance for sale! Fast shipping available. Check the link above.\n\n🚗 High-quality Auto Parts available in stock. DM for orders.")
+        self.grp_post_desc_input.setFixedHeight(90)
+        p_layout.addWidget(self.grp_post_desc_input)
+
+        # Settings: Thread & Delay
+        p_settings_row = QHBoxLayout()
+        
+        p_thread_col = QVBoxLayout()
+        p_thread_col.addWidget(QLabel("🧵 Threads (Concurrent Browsers):"))
+        self.grp_post_thread_spin = QSpinBox()
+        self.grp_post_thread_spin.setRange(1, 10)
+        self.grp_post_thread_spin.setValue(1)
+        self.grp_post_thread_spin.setStyleSheet("font-weight: 700; color: #38bdf8;")
+        p_thread_col.addWidget(self.grp_post_thread_spin)
+        p_settings_row.addLayout(p_thread_col)
+
+        p_delay_col = QVBoxLayout()
+        p_delay_col.addWidget(QLabel("⏳ Post Delay Interval (Seconds):"))
+        self.grp_post_delay_spin = QSpinBox()
+        self.grp_post_delay_spin.setRange(5, 600)
+        self.grp_post_delay_spin.setValue(30)
+        self.grp_post_delay_spin.setSuffix(" sec")
+        self.grp_post_delay_spin.setStyleSheet("font-weight: 700; color: #10b981;")
+        p_delay_col.addWidget(self.grp_post_delay_spin)
+        p_settings_row.addLayout(p_delay_col)
+
+        p_layout.addLayout(p_settings_row)
+
+        # Extension notice badge
+        ext_status_box = QLabel("🧩 Chrome Extension 'FEWFEED' will automatically load on every triggered Chrome instance.")
+        ext_status_box.setStyleSheet("background-color: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3); color: #c7d2fe; padding: 6px 10px; border-radius: 6px; font-size: 11px;")
+        p_layout.addWidget(ext_status_box)
+
+        # Action Buttons for Posting
+        p_btn_row = QHBoxLayout()
+        self.btn_start_grp_post = QPushButton("🚀 Start Group Posting")
+        self.btn_start_grp_post.setProperty("class", "primaryBtn")
+        self.btn_start_grp_post.setCursor(Qt.PointingHandCursor)
+        self.btn_start_grp_post.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: 700; font-size: 13px; padding: 10px;")
+        self.btn_start_grp_post.clicked.connect(self.start_group_posting)
+        p_btn_row.addWidget(self.btn_start_grp_post, stretch=2)
+
+        self.btn_stop_grp_post = QPushButton("🛑 Stop")
+        self.btn_stop_grp_post.setProperty("class", "dangerBtn")
+        self.btn_stop_grp_post.setEnabled(False)
+        self.btn_stop_grp_post.setCursor(Qt.PointingHandCursor)
+        self.btn_stop_grp_post.setStyleSheet("font-size: 13px; padding: 10px;")
+        self.btn_stop_grp_post.clicked.connect(self.stop_group_automation)
+        p_btn_row.addWidget(self.btn_stop_grp_post, stretch=1)
+        p_layout.addLayout(p_btn_row)
+
+        panels_row.addWidget(post_panel, stretch=1)
+
+        # ----------------------------------------------------------------------
+        # [RIGHT SECTION: Group Joining Panel]
+        # ----------------------------------------------------------------------
+        join_panel = QFrame()
+        join_panel.setProperty("class", "glassCard")
+        j_layout = QVBoxLayout(join_panel)
+        j_layout.setSpacing(12)
+
+        j_header = QLabel("👥 Facebook Group Joining Panel")
+        j_header.setStyleSheet("font-size: 15px; font-weight: 700; color: #10b981; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;")
+        j_layout.addWidget(j_header)
+
+        # Input: Group Codes for Joining
+        j_layout.addWidget(QLabel("📋 Target Group Codes / URLs to Join (1 per line):"))
+        self.grp_join_codes_input = QTextEdit()
+        self.grp_join_codes_input.setPlaceholderText("e.g.\nhttps://www.facebook.com/groups/112233445566/\nfacebook.com/groups/auto_parts_marketplace\n554433221100998")
+        self.grp_join_codes_input.setFixedHeight(140)
+        j_layout.addWidget(self.grp_join_codes_input)
+
+        # Settings: Thread & Delay for Joining
+        j_settings_row = QHBoxLayout()
+        
+        j_thread_col = QVBoxLayout()
+        j_thread_col.addWidget(QLabel("🧵 Threads (Concurrent Browsers):"))
+        self.grp_join_thread_spin = QSpinBox()
+        self.grp_join_thread_spin.setRange(1, 10)
+        self.grp_join_thread_spin.setValue(1)
+        self.grp_join_thread_spin.setStyleSheet("font-weight: 700; color: #38bdf8;")
+        j_thread_col.addWidget(self.grp_join_thread_spin)
+        j_settings_row.addLayout(j_thread_col)
+
+        j_delay_col = QVBoxLayout()
+        j_delay_col.addWidget(QLabel("⏳ Join Delay Interval (Seconds):"))
+        self.grp_join_delay_spin = QSpinBox()
+        self.grp_join_delay_spin.setRange(5, 600)
+        self.grp_join_delay_spin.setValue(15)
+        self.grp_join_delay_spin.setSuffix(" sec")
+        self.grp_join_delay_spin.setStyleSheet("font-weight: 700; color: #10b981;")
+        j_delay_col.addWidget(self.grp_join_delay_spin)
+        j_settings_row.addLayout(j_delay_col)
+
+        j_layout.addLayout(j_settings_row)
+
+        # Feature bullet summary card
+        j_info_box = QFrame()
+        j_info_box.setStyleSheet("background-color: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 6px; padding: 10px;")
+        j_ib_layout = QVBoxLayout(j_info_box)
+        j_ib_layout.setSpacing(4)
+        j_ib_layout.addWidget(QLabel("<b>Joining Engine Features:</b>"))
+        j_ib_layout.addWidget(QLabel("• Auto-detects Already-Joined & Pending memberships to prevent duplicate requests."))
+        j_ib_layout.addWidget(QLabel("• Submits default membership forms/questions when prompted."))
+        j_ib_layout.addWidget(QLabel("• Applies randomized human jitter between requests for account safety."))
+        j_layout.addWidget(j_info_box)
+
+        j_layout.addStretch()
+
+        # Action Buttons for Group Joining
+        j_btn_row = QHBoxLayout()
+        self.btn_start_grp_join = QPushButton("➕ Start Group Joining")
+        self.btn_start_grp_join.setProperty("class", "primaryBtn")
+        self.btn_start_grp_join.setCursor(Qt.PointingHandCursor)
+        self.btn_start_grp_join.setStyleSheet("background-color: #059669; color: #ffffff; font-weight: 700; font-size: 13px; padding: 10px;")
+        self.btn_start_grp_join.clicked.connect(self.start_group_joining)
+        j_btn_row.addWidget(self.btn_start_grp_join, stretch=2)
+
+        self.btn_stop_grp_join = QPushButton("🛑 Stop")
+        self.btn_stop_grp_join.setProperty("class", "dangerBtn")
+        self.btn_stop_grp_join.setEnabled(False)
+        self.btn_stop_grp_join.setCursor(Qt.PointingHandCursor)
+        self.btn_stop_grp_join.setStyleSheet("font-size: 13px; padding: 10px;")
+        self.btn_stop_grp_join.clicked.connect(self.stop_group_automation)
+        j_btn_row.addWidget(self.btn_stop_grp_join, stretch=1)
+        j_layout.addLayout(j_btn_row)
+
+        panels_row.addWidget(join_panel, stretch=1)
+
+        layout.addLayout(panels_row)
+
+        scroll.setWidget(container)
+
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.addWidget(scroll)
+
+        self.populate_group_accounts_checklist()
+        return page
+
+    def populate_group_accounts_checklist(self):
+        """Populates the multi-account checkbox list for FB Group operations."""
+        if not hasattr(self, 'grp_acc_layout'):
+            return
+
+        while self.grp_acc_layout.count():
+            item = self.grp_acc_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self.grp_acc_checkboxes = []
+
+        if not self.accounts_list:
+            lbl = QLabel("No Facebook accounts configured yet. Add them in 'Accounts Manager'.")
+            lbl.setStyleSheet("color: #94a3b8; font-style: italic; font-size: 11px;")
+            self.grp_acc_layout.addWidget(lbl)
+            self.update_group_account_selection_summary()
+            return
+
+        for acc in self.accounts_list:
+            name = acc.get("name", "Account")
+            status = acc.get("status", "Healthy")
+            proxy = acc.get("proxy", "Direct")
+            icon = "🟢" if status in ("Healthy", "Active") else ("🟡" if status == "Checkpoint" else "🔴")
+
+            chk = QCheckBox(f"{icon} {name}  [{status}]  •  Proxy: {proxy}")
+            chk.setStyleSheet("font-size: 12px; color: #f8fafc; padding: 2px 0;")
+            chk.setProperty("account_data", acc)
+            chk.setChecked(status in ("Healthy", "Active"))
+            chk.stateChanged.connect(self.update_group_account_selection_summary)
+
+            self.grp_acc_layout.addWidget(chk)
+            self.grp_acc_checkboxes.append(chk)
+
+        self.grp_acc_layout.addStretch()
+        self.update_group_account_selection_summary()
+
+    def select_all_group_accounts(self):
+        if hasattr(self, 'grp_acc_checkboxes'):
+            for chk in self.grp_acc_checkboxes:
+                chk.setChecked(True)
+            self.update_group_account_selection_summary()
+
+    def clear_all_group_accounts(self):
+        if hasattr(self, 'grp_acc_checkboxes'):
+            for chk in self.grp_acc_checkboxes:
+                chk.setChecked(False)
+            self.update_group_account_selection_summary()
+
+    def update_group_account_selection_summary(self):
+        if not hasattr(self, 'grp_acc_checkboxes') or not hasattr(self, 'grp_acc_summary_lbl'):
+            return
+        selected_count = sum(1 for chk in self.grp_acc_checkboxes if chk.isChecked())
+        total_count = len(self.grp_acc_checkboxes)
+        self.grp_acc_summary_lbl.setText(
+            f"🎯 {selected_count} of {total_count} Accounts Selected for Group Operations"
+        )
+
+    def get_selected_group_accounts(self) -> List[dict]:
+        selected = []
+        if hasattr(self, 'grp_acc_checkboxes'):
+            for chk in self.grp_acc_checkboxes:
+                if chk.isChecked():
+                    acc_data = chk.property("account_data")
+                    if acc_data:
+                        selected.append(acc_data)
+        return selected
+
+    def start_group_posting(self):
+        """Validates inputs and dispatches GroupAutomationWorker for posting workflow."""
+        accounts = self.get_selected_group_accounts()
+        if not accounts:
+            QMessageBox.warning(self, "No Accounts Selected", "Please select at least one Facebook account profile above.")
+            return
+
+        raw_codes = self.grp_post_codes_input.toPlainText().strip()
+        codes = parse_group_codes(raw_codes)
+        if not codes:
+            QMessageBox.warning(self, "Missing Group Codes", "Please enter at least one target Facebook Group Code or URL.")
+            return
+
+        raw_links = self.grp_post_links_input.toPlainText().strip()
+        links = parse_multiline_links(raw_links)
+
+        raw_desc = self.grp_post_desc_input.toPlainText().strip()
+        descriptions = [d.strip() for d in raw_desc.splitlines() if d.strip()] if raw_desc else []
+
+        if not links and not descriptions:
+            QMessageBox.warning(self, "Missing Content", "Please provide at least one Link or Description to post into the groups.")
+            return
+
+        mode = "Random" if "Random" in self.grp_post_mode_select.currentText() else "Sequential"
+        threads = self.grp_post_thread_spin.value()
+        delay = self.grp_post_delay_spin.value()
+
+        payload = {
+            "accounts": accounts,
+            "group_codes": codes,
+            "links": links,
+            "descriptions": descriptions,
+            "mode": mode,
+            "threads": threads,
+            "delay": delay
+        }
+
+        self.btn_start_grp_post.setEnabled(False)
+        self.btn_stop_grp_post.setEnabled(True)
+        self.btn_start_grp_join.setEnabled(False)
+        self.engine_status_lbl.setText("● FB GROUP POSTING")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #38bdf8;")
+
+        self.group_worker = GroupAutomationWorker(task_type="posting", payload=payload)
+        self.group_worker.log_signal.connect(self.log_message)
+        self.group_worker.progress_signal.connect(self.update_progress)
+        self.group_worker.finished_signal.connect(self.on_group_automation_finished)
+        self.group_worker.start()
+
+    def start_group_joining(self):
+        """Validates inputs and dispatches GroupAutomationWorker for group joining workflow."""
+        accounts = self.get_selected_group_accounts()
+        if not accounts:
+            QMessageBox.warning(self, "No Accounts Selected", "Please select at least one Facebook account profile above.")
+            return
+
+        raw_codes = self.grp_join_codes_input.toPlainText().strip()
+        codes = parse_group_codes(raw_codes)
+        if not codes:
+            QMessageBox.warning(self, "Missing Group Codes", "Please enter at least one target Facebook Group Code or URL to join.")
+            return
+
+        threads = self.grp_join_thread_spin.value()
+        delay = self.grp_join_delay_spin.value()
+
+        payload = {
+            "accounts": accounts,
+            "group_codes": codes,
+            "threads": threads,
+            "delay": delay
+        }
+
+        self.btn_start_grp_join.setEnabled(False)
+        self.btn_stop_grp_join.setEnabled(True)
+        self.btn_start_grp_post.setEnabled(False)
+        self.engine_status_lbl.setText("● FB GROUP JOINING")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
+
+        self.group_worker = GroupAutomationWorker(task_type="joining", payload=payload)
+        self.group_worker.log_signal.connect(self.log_message)
+        self.group_worker.progress_signal.connect(self.update_progress)
+        self.group_worker.finished_signal.connect(self.on_group_automation_finished)
+        self.group_worker.start()
+
+    def stop_group_automation(self):
+        if self.group_worker:
+            self.group_worker.stop()
+            self.btn_stop_grp_post.setEnabled(False)
+            self.btn_stop_grp_join.setEnabled(False)
+
+    def on_group_automation_finished(self, success: bool, message: str):
+        self.btn_start_grp_post.setEnabled(True)
+        self.btn_stop_grp_post.setEnabled(False)
+        self.btn_start_grp_join.setEnabled(True)
+        self.btn_stop_grp_join.setEnabled(False)
+        self.engine_status_lbl.setText("● READY FOR TASKS")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
+
+        if success:
+            self.progress_bar.setValue(100)
+            QMessageBox.information(self, "Group Task Complete", f"Facebook Group task finished!\n\n{message}")
+        else:
+            QMessageBox.warning(self, "Group Task Notice", f"Facebook Group execution notice:\n\n{message}")
 
     # --------------------------------------------------------------------------
     # Tab 4: AI Content Spinner & Title/Description Generator (Phase 5)
@@ -2798,7 +3672,7 @@ class FBAutoBotMainWindow(QMainWindow):
         elif self.ai_base_desc_input.toPlainText().strip():
             self.desc_input.setPlainText(self.ai_base_desc_input.toPlainText().strip())
 
-        self.switch_tab(2)
+        self.switch_tab(3)
         self.log_message("SUCCESS", "Applied generated AI title & description to Automation tab!")
 
     # --------------------------------------------------------------------------

@@ -40,6 +40,20 @@ logger = logging.getLogger("FBAutoBot.SessionManager")
 
 DEFAULT_ACCOUNTS_SEED: List[Dict[str, Any]] = []
 
+def get_fewfeed_extension_path() -> Optional[str]:
+    candidates = [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FEWFEED")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "FEWFEED")),
+        "/desktop_app/FEWFEED",
+        os.path.abspath("FEWFEED"),
+        os.path.abspath("desktop_app/FEWFEED")
+    ]
+    for c in candidates:
+        if os.path.isdir(c) and os.path.exists(os.path.join(c, "manifest.json")):
+            return os.path.abspath(c)
+    return None
+
+
 
 class SessionCookieParser:
     """Parses arbitrary cookie formats into Playwright-compliant dictionaries."""
@@ -536,6 +550,7 @@ class SessionManager:
             if account.get("proxy_pass"):
                 proxy_cfg["password"] = account["proxy_pass"]
 
+        ext_path = get_fewfeed_extension_path()
         launch_flags = [
             "--disable-blink-features=AutomationControlled",
             "--start-maximized",
@@ -546,6 +561,9 @@ class SessionManager:
             "--no-first-run",
             "--no-service-autorun"
         ]
+        if ext_path and os.path.exists(ext_path):
+            launch_flags.append(f"--load-extension={ext_path}")
+            launch_flags.append(f"--disable-extensions-except={ext_path}")
 
         async with async_playwright() as p:
             async def launch_smart_ctx(px):

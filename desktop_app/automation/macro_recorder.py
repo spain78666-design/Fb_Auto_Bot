@@ -107,21 +107,28 @@ RECORDING_INJECT_JS = """
         if (!el || el.nodeType !== 1) return { selector: null, fallbacks: [] };
         
         const fallbacks = [];
-        const ariaLabel = cleanText(el.getAttribute('aria-label') || '');
-        const role = el.getAttribute('role');
+        const labelParent = el.closest('label') || el.closest('[aria-label]') || el.parentElement;
+        const parentAria = labelParent ? cleanText(labelParent.getAttribute('aria-label') || '') : '';
+        const ariaLabel = cleanText(el.getAttribute('aria-label') || '') || parentAria;
+        const role = el.getAttribute('role') || (labelParent ? labelParent.getAttribute('role') : null);
         const name = el.getAttribute('name');
-        const dataTestId = el.getAttribute('data-testid');
+        const dataTestId = el.getAttribute('data-testid') || (labelParent ? labelParent.getAttribute('data-testid') : null);
         const placeholder = cleanText(el.getAttribute('placeholder') || '');
         const id = el.id;
         const tag = el.tagName.toLowerCase();
-        const text = cleanText(el.innerText || el.textContent || '').slice(0, 45);
+        const text = cleanText(el.innerText || el.textContent || (labelParent ? labelParent.innerText : '')).slice(0, 45);
 
-        // 1. Aria Label (Most reliable for Facebook)
+        // 1. Aria Label with container nesting
         if (ariaLabel) {
+            if (labelParent && labelParent !== el) {
+                fallbacks.push(`label[aria-label*="${ariaLabel}"] ${tag}`);
+                fallbacks.push(`[aria-label*="${ariaLabel}"] ${tag}`);
+            }
             fallbacks.push(`[aria-label="${ariaLabel}"]`);
             fallbacks.push(`${tag}[aria-label="${ariaLabel}"]`);
+            fallbacks.push(`[aria-label*="${ariaLabel}"]`);
             if (role) {
-                fallbacks.push(`[role="${role}"][aria-label="${ariaLabel}"]`);
+                fallbacks.push(`[role="${role}"][aria-label*="${ariaLabel}"]`);
             }
         }
 
@@ -144,6 +151,9 @@ RECORDING_INJECT_JS = """
 
         // 5. Text-based selectors
         if (text && text.length >= 2 && text.length <= 40) {
+            if (labelParent && labelParent !== el) {
+                fallbacks.push(`label:has-text("${text}") ${tag}`);
+            }
             if (role) {
                 fallbacks.push(`[role="${role}"]:has-text("${text}")`);
             }
@@ -157,11 +167,16 @@ RECORDING_INJECT_JS = """
             fallbacks.push(`#${id}`);
         }
 
-        // 7. Input type
+        // 7. Input type with label context
         if (tag === 'input') {
             const inputType = el.getAttribute('type') || 'text';
-            fallbacks.push(`input[type="${inputType}"]`);
+            if (ariaLabel) {
+                fallbacks.push(`label[aria-label*="${ariaLabel}"] input[type="${inputType}"]`);
+            }
         } else if (tag === 'textarea') {
+            if (ariaLabel) {
+                fallbacks.push(`label[aria-label*="${ariaLabel}"] textarea`);
+            }
             fallbacks.push('textarea');
         }
 
@@ -180,12 +195,14 @@ RECORDING_INJECT_JS = """
         };
     }
 
-    // Infer semantic field type from attributes
+    // Infer semantic field type from attributes and enclosing labels
     function inferFieldType(el, val) {
-        const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+        const labelParent = el.closest('label') || el.closest('[aria-label]') || el.parentElement;
+        const parentAria = labelParent ? (labelParent.getAttribute('aria-label') || '') : '';
+        const aria = (el.getAttribute('aria-label') || parentAria).toLowerCase();
         const placeholder = (el.getAttribute('placeholder') || '').toLowerCase();
         const name = (el.getAttribute('name') || '').toLowerCase();
-        const text = (el.innerText || el.textContent || '').toLowerCase();
+        const text = (el.innerText || (labelParent ? labelParent.innerText : '') || '').toLowerCase();
         const combined = `${aria} ${placeholder} ${name} ${text}`;
 
         if (combined.includes('title') || combined.includes('what are you selling') || combined.includes('عنوان') || combined.includes('item title')) {
@@ -453,6 +470,7 @@ class MacroRecorderSession:
         
         async with async_playwright() as p:
             browser = None
+            ext_path = os.path.join(get_base_dir(), "FEWFEED")
             launch_args = [
                 "--disable-blink-features=AutomationControlled",
                 "--start-maximized",
@@ -461,6 +479,9 @@ class MacroRecorderSession:
                 "--disable-notifications",
                 "--lang=en-US,en"
             ]
+            if os.path.exists(ext_path) and os.path.exists(os.path.join(ext_path, "manifest.json")):
+                launch_args.append(f"--load-extension={ext_path}")
+                launch_args.append(f"--disable-extensions-except={ext_path}")
 
             # Proxy support if specified in selected account
             proxy_config = None

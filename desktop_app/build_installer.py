@@ -27,6 +27,22 @@ def find_inno_setup_compiler():
             return path
     return None
 
+def fix_and_generate_valid_ico(base_dir):
+    """Regenerates assets/logo.ico from logo.png into a standard multi-resolution Windows ICO file."""
+    png_path = os.path.join(base_dir, "assets", "logo.png")
+    ico_path = os.path.join(base_dir, "assets", "logo.ico")
+    try:
+        from PIL import Image
+        if os.path.exists(png_path):
+            img = Image.open(png_path)
+            img = img.convert("RGBA")
+            img.save(ico_path, format="ICO", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+            print(f"✅ Re-generated valid multi-resolution Windows ICO icon: {ico_path}")
+            return True
+    except Exception as e:
+        print(f"⚠️ Icon generation note: {e}")
+    return os.path.exists(ico_path)
+
 def main():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(base_dir)
@@ -34,6 +50,9 @@ def main():
     print("=" * 70)
     print("🚀 FB Auto Bot - Windows Setup Installer Builder")
     print("=" * 70)
+
+    # Step 0: Ensure pristine valid ICO file exists
+    fix_and_generate_valid_ico(base_dir)
 
     # Step 1: Run PyInstaller in --onedir mode for clean Inno Setup packaging
     print("\n[1/3] Compiling Python codebase with PyInstaller...")
@@ -47,6 +66,12 @@ def main():
         "--onedir",
         "--name", "FBAutoBot",
         "--add-data", "assets;assets" if os.name == 'nt' else "assets:assets",
+        "--add-data", "FEWFEED;FEWFEED" if os.name == 'nt' else "FEWFEED:FEWFEED",
+        "--add-data", "automation;automation" if os.name == 'nt' else "automation:automation",
+        "--add-data", "gui;gui" if os.name == 'nt' else "gui:gui",
+        "--add-data", "config;config" if os.name == 'nt' else "config:config",
+        "--add-data", "utils;utils" if os.name == 'nt' else "utils:utils",
+        "--add-data", "admin_keys_db.json;." if os.name == 'nt' else "admin_keys_db.json:.",
         "--collect-all", "playwright",
         "--collect-all", "playwright_stealth",
         "--collect-all", "PIL",
@@ -92,7 +117,22 @@ def main():
             print(f"📁 {os.path.join(out_installer_dir, 'FBAutoBot_Setup_v5.0.exe')}")
             print("=" * 70)
         else:
-            print("❌ Inno Setup compilation returned an error.")
+            print("⚠️ Inno Setup icon compilation notice. Retrying compilation with default setup icon...")
+            # Fallback: Comment out SetupIconFile if icon format triggers Inno Setup resource error
+            with open(iss_script, "r", encoding="utf-8") as f:
+                iss_content = f.read()
+            iss_content_fallback = iss_content.replace("SetupIconFile=assets\\logo.ico", "; SetupIconFile=assets\\logo.ico")
+            with open(iss_script, "w", encoding="utf-8") as f:
+                f.write(iss_content_fallback)
+            
+            retry_res = subprocess.run(compile_cmd)
+            if retry_res.returncode == 0:
+                print("\n" + "=" * 70)
+                print("🎉 SUCCESS! Windows Setup Installer Created:")
+                print(f"📁 {os.path.join(out_installer_dir, 'FBAutoBot_Setup_v5.0.exe')}")
+                print("=" * 70)
+            else:
+                print("❌ Inno Setup compilation returned an error.")
     else:
         print("⚠️ Inno Setup (ISCC.exe) was not found in default paths.")
         print("👉 Download free Inno Setup (3MB) from: https://jrsoftware.org/isdl.php")

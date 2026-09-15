@@ -33,7 +33,7 @@ DisableDirPage=no
 DisableReadyPage=no
 PrivilegesRequired=lowest
 UninstallDisplayIcon={app}\{#MyAppExeName}
-SetupIconFile=assets\logo.ico
+; SetupIconFile=assets\logo.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

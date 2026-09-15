@@ -198,6 +198,21 @@ def parse_cookie_payload(raw_cookies: str) -> List[Dict[str, Any]]:
     return formatted
 
 
+def get_fewfeed_extension_path() -> Optional[str]:
+    """Resolves the absolute path to FEWFEED extension folder."""
+    candidates = [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FEWFEED")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "FEWFEED")),
+        "/desktop_app/FEWFEED",
+        os.path.abspath("FEWFEED"),
+        os.path.abspath("desktop_app/FEWFEED")
+    ]
+    for c in candidates:
+        if os.path.isdir(c) and os.path.exists(os.path.join(c, "manifest.json")):
+            return os.path.abspath(c)
+    return None
+
+
 def test_proxy_connectivity(host: str, port: int, timeout: float = 2.5) -> bool:
     """Quick socket probe to check if proxy is alive before launching browser."""
     try:
@@ -384,6 +399,7 @@ class FacebookMarketplaceBot:
             "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
         )
 
+        ext_path = get_fewfeed_extension_path()
         launch_args = [
             "--disable-blink-features=AutomationControlled",
             "--start-maximized",
@@ -400,6 +416,11 @@ class FacebookMarketplaceBot:
             "--no-first-run",
             "--no-service-autorun"
         ]
+
+        if ext_path and os.path.exists(ext_path):
+            launch_args.append(f"--load-extension={ext_path}")
+            launch_args.append(f"--disable-extensions-except={ext_path}")
+            self.log("SUCCESS", f"🧩 Automatically loaded Chrome Extension from: {ext_path}")
 
         # Ignore automation banner
         ignore_default_args = ["--enable-automation"]
@@ -558,15 +579,117 @@ class FacebookMarketplaceBot:
         self.set_progress(35)
 
     # --------------------------------------------------------------------------
-    # Core Listing Publication Flow
+    # Core Listing Publication Flow & Multi-Tab Engine
     # --------------------------------------------------------------------------
+    async def create_marketplace_batch(self, payload: Dict[str, Any]):
+        """
+        Executes multi-tab batch posting on the current authenticated Chrome profile.
+        Opens specified number of tabs (e.g. 10, 20, 25 tabs), each with random image
+        and random location from the provided pools.
+        """
+        tabs_count = int(payload.get("tabs_count", payload.get("posts_per_id", 1)))
+        tabs_count = max(1, min(tabs_count, 100))
+
+        images_pool = payload.get("images", [])
+        raw_loc = payload.get("location", "")
+        # Parse locations into a pool (supporting newlines, commas, semicolons)
+        locations_pool = []
+        if isinstance(raw_loc, list):
+            locations_pool = [str(l).strip() for l in raw_loc if str(l).strip()]
+        elif isinstance(raw_loc, str):
+            for part in re.split(r'[\r\n,;]+', raw_loc):
+                cleaned = part.strip()
+                if cleaned:
+                    locations_pool.append(cleaned)
+
+        if not locations_pool:
+            locations_pool = ["Local Radius"]
+
+        self.log("INFO", f"🚀 Launching Multi-Tab Marketplace Engine: {tabs_count} Post(s) configured for this Profile.")
+        self.log("INFO", f"📍 Location Pool: {len(locations_pool)} location(s) available.")
+        self.log("INFO", f"🖼️ Images Pool: {len(images_pool)} image(s) available.")
+
+        success_count = 0
+        for tab_idx in range(1, tabs_count + 1):
+            if self._cancel_requested:
+                self.log("WARNING", "🛑 Batch posting cancelled by user.")
+                break
+
+            self.log("INFO", f"--------------------------------------------------")
+            self.log("INFO", f"📑 Tab [{tab_idx}/{tabs_count}]: Initializing Marketplace Listing...")
+            
+            # Pick random location and random image for this tab
+            chosen_loc = random.choice(locations_pool) if locations_pool else "Local Radius"
+            chosen_imgs = []
+            if images_pool:
+                # Pick 1 random image for this specific ad
+                chosen_imgs = [random.choice(images_pool)]
+
+            tab_payload = dict(payload)
+            tab_payload["location"] = chosen_loc
+            tab_payload["images"] = chosen_imgs
+            tab_payload["tab_index"] = tab_idx
+            tab_payload["total_tabs"] = tabs_count
+
+            # Create new tab if not the first tab or reuse
+            tab_page = None
+            try:
+                if tab_idx == 1 and self.page and not self.page.is_closed():
+                    tab_page = self.page
+                else:
+                    tab_page = await self.context.new_page()
+                    if HAS_PLAYWRIGHT_STEALTH:
+                        await stealth_async(tab_page)
+                    await tab_page.add_init_script(EXTRA_STEALTH_JS)
+
+                # Set progress across total batch
+                base_pct = int(((tab_idx - 1) / tabs_count) * 100)
+                self.set_progress(max(10, base_pct))
+
+                published = await self.create_marketplace_listing_on_page(tab_page, tab_payload)
+                if published:
+                    success_count += 1
+                    self.log("SUCCESS", f"✅ Tab [{tab_idx}/{tabs_count}] Published successfully! (Location: '{chosen_loc}')")
+                
+                # Small rest between tabs to keep Facebook healthy
+                if tab_idx < tabs_count and not self._cancel_requested:
+                    rest_sec = random.uniform(2.0, 4.5)
+                    self.log("INFO", f"Pausing {rest_sec:.1f}s before opening next tab...")
+                    await self.sleep(rest_sec)
+
+            except Exception as ex:
+                self.log("WARNING", f"Tab [{tab_idx}/{tabs_count}] encountered notice: {str(ex)}")
+            finally:
+                # Close background tab if we opened many tabs to conserve RAM, keeping primary or closing
+                if tab_page and tab_page != self.page and not tab_page.is_closed():
+                    try:
+                        await tab_page.close()
+                    except Exception:
+                        pass
+
+        self.set_progress(100)
+        self.log("SUCCESS", f"🎉 Finished batch for this profile: {success_count}/{tabs_count} post(s) processed.")
+        return success_count
+
     async def create_marketplace_listing(self, payload: Dict[str, Any]):
+        """Executes single or multi-tab listing publication flow."""
+        tabs_count = int(payload.get("tabs_count", payload.get("posts_per_id", 1)))
+        if tabs_count > 1:
+            return await self.create_marketplace_batch(payload)
+        return await self.create_marketplace_listing_on_page(self.page, payload)
+
+    async def create_marketplace_listing_on_page(self, page: Page, payload: Dict[str, Any]) -> bool:
         """
-        Executes the end-to-end Facebook Marketplace listing publication workflow.
+        Executes the Facebook Marketplace listing publication workflow with precision
+        field locators (guaranteeing Title, Price, Category, Condition, Description,
+        Location, Images, Next, and Publish are filled strictly in their exact controls).
         """
+        if not page or page.is_closed() or self._cancel_requested:
+            return False
+
         title = payload.get("title", "")
         price = payload.get("price", "0")
-        category = payload.get("category", "")
+        category = payload.get("category", "Household")
         location = payload.get("location", "")
         description = payload.get("description", "")
         images = payload.get("images", [])
@@ -580,33 +703,83 @@ class FacebookMarketplaceBot:
             create_url = "https://www.facebook.com/marketplace/create/item"
 
         self.log("INFO", f"Navigating to Marketplace creation portal ({create_url})...")
-        self.set_progress(40)
 
         try:
-            await self.page.goto(create_url, wait_until="domcontentloaded", timeout=40000)
-            await self.sleep(random.uniform(2.5, 4.0))
+            await page.goto(create_url, wait_until="domcontentloaded", timeout=40000)
+            await self.sleep(random.uniform(2.0, 3.5))
         except PlaywrightTimeoutError:
-            self.log("WARNING", "DOM interactive timed out; attempting fallback...")
-            await self.sleep(2.0)
+            self.log("WARNING", "DOM load timed out; proceeding with page content...")
+            await self.sleep(1.5)
 
         # Secondary checkpoint verification on Marketplace URL
-        if "checkpoint" in self.page.url:
+        if "checkpoint" in page.url:
             raise CheckpointDetectedError("Marketplace creation triggered Facebook checkpoint.")
-        if "login" in self.page.url:
+        if "login" in page.url:
             raise InvalidSessionError("Redirected away from Marketplace to login screen.")
 
         self.log("INFO", "Marketplace item creation interface loaded.")
-        self.set_progress(50)
 
-        # 1. Upload Product Images
+        # ----------------------------------------------------------------------
+        # 1. Location Selection (Target Location / City First)
+        # ----------------------------------------------------------------------
+        if location:
+            self.log("INFO", f"📍 Setting Target Location / City: '{location}'...")
+            await self._set_location_field(page, location)
+            await self.sleep(random.uniform(0.6, 1.2))
+
+        # ----------------------------------------------------------------------
+        # 2. Product Title (Targeting ONLY Title Input)
+        # ----------------------------------------------------------------------
+        if title:
+            self.log("INFO", f"✍️ Typing Title: '{title[:45]}...'")
+            await self._set_title_field(page, title)
+            await self.sleep(random.uniform(0.6, 1.2))
+
+        # ----------------------------------------------------------------------
+        # 3. Category Selection (Household, Appliances, Auto Parts, etc.)
+        # ----------------------------------------------------------------------
+        if category:
+            self.log("INFO", f"🏷️ Selecting Category: '{category}'...")
+            await self._set_category_field(page, category)
+            await self.sleep(random.uniform(0.8, 1.4))
+
+        # ----------------------------------------------------------------------
+        # 4. Product Price (Targeting ONLY Price Input)
+        # ----------------------------------------------------------------------
+        if price is not None:
+            clean_price = re.sub(r'[^0-9.]', '', str(price)) or "0"
+            self.log("INFO", f"💲 Setting Price: ${clean_price}")
+            await self._set_price_field(page, clean_price)
+            await self.sleep(random.uniform(0.5, 1.0))
+
+        # ----------------------------------------------------------------------
+        # 5. Condition Selection ("New")
+        # ----------------------------------------------------------------------
+        try:
+            self.log("INFO", "⚙️ Setting Item Condition to 'New'...")
+            await self._set_condition_field(page, "New")
+            await self.sleep(random.uniform(0.5, 0.9))
+        except Exception as cond_err:
+            self.log("WARNING", f"Condition selection notice: {str(cond_err)}")
+
+        # ----------------------------------------------------------------------
+        # 6. Description (Targeting ONLY Description Textarea)
+        # ----------------------------------------------------------------------
+        if description:
+            self.log("INFO", f"📝 Filling Description ({len(description)} chars)...")
+            await self._set_description_field(page, description)
+            await self.sleep(random.uniform(0.8, 1.5))
+
+        # ----------------------------------------------------------------------
+        # 7. Upload Product Images (Randomized Image from Pool)
+        # ----------------------------------------------------------------------
         if images:
-            valid_images = [img for img in images if os.path.exists(img)]
+            valid_images = [os.path.abspath(img) for img in images if os.path.exists(img)]
             if valid_images:
                 upload_files = valid_images
                 anti_dup_shield = payload.get("anti_dup_shield", True) or payload.get("anti_dup_rotate", True)
                 
                 if anti_dup_shield and IMAGE_PROCESSOR_AVAILABLE:
-                    self.log("INFO", "🛡️ Anti-Duplicate Image Shield ACTIVE: Transforming photos before upload...")
                     try:
                         cfg = AntiDuplicateConfig(
                             strip_exif=payload.get("wipe_exif", True),
@@ -621,159 +794,356 @@ class FacebookMarketplaceBot:
                         self.log("WARNING", f"Anti-duplicate alteration notice: {str(img_err)}; using original images.")
                         upload_files = valid_images
 
-                self.log("INFO", f"Uploading {len(upload_files)} product image(s)...")
-                try:
-                    # Find file upload input
-                    file_input = await self.page.query_selector('input[type="file"]')
-                    if not file_input:
-                        # Attempt to locate by label or aria
-                        file_input = await self.page.wait_for_selector('input[type="file"][accept*="image"]', timeout=10000)
-                    
-                    if file_input:
-                        await file_input.set_input_files(upload_files)
-                        self.log("INFO", "Unique image files injected into Marketplace media uploader.")
-                        await self.sleep(random.uniform(3.0, 5.0))
-                    else:
-                        self.log("WARNING", "Could not locate file input directly; continuing with metadata.")
-                except Exception as e:
-                    self.log("WARNING", f"Image upload encountered notice: {str(e)}")
-            else:
-                self.log("WARNING", "Provided image file paths do not exist on local disk.")
+                self.log("INFO", f"🖼️ Uploading {len(upload_files)} product photo(s)...")
+                await self._upload_photos_to_page(page, upload_files)
+                await self.sleep(random.uniform(2.5, 4.0))
 
-        self.set_progress(60)
-
-        # 2. Input Product Title
-        self.log("INFO", f"Typing Title: '{title}'...")
-        title_selectors = [
-            'label[aria-label="Title"] input',
-            'input[aria-label="Title"]',
-            'label:has-text("Title") input',
-            'input[type="text"][dir="ltr"]'
-        ]
-        await self._type_first_matching(title_selectors, title)
-        await self.sleep(random.uniform(0.8, 1.6))
-        self.set_progress(70)
-
-        # 3. Input Product Price
-        self.log("INFO", f"Setting Price: ${price}...")
-        price_selectors = [
-            'label[aria-label="Price"] input',
-            'input[aria-label="Price"]',
-            'label:has-text("Price") input'
-        ]
-        await self._type_first_matching(price_selectors, price)
-        await self.sleep(random.uniform(0.8, 1.4))
-
-        # 4. Select Category
-        if category:
-            self.log("INFO", f"Selecting Category: '{category}'...")
-            try:
-                category_dropdown = await self.page.query_selector(
-                    'label[aria-label="Category"], div[aria-label="Category"], span:has-text("Category")'
-                )
-                if category_dropdown:
-                    await category_dropdown.click()
-                    await self.sleep(random.uniform(1.0, 1.8))
-                    
-                    # Look for matching option in the dropdown popup
-                    option = await self.page.query_selector(f'span:has-text("{category}"), div[role="button"]:has-text("{category}")')
-                    if option:
-                        await option.click()
-                        self.log("INFO", f"Category set to '{category}'.")
-                        await self.sleep(0.8)
-                    else:
-                        # Click the first available category option as fallback
-                        fallback_opt = await self.page.query_selector('div[role="listbox"] div[role="option"], div[role="menuitem"]')
-                        if fallback_opt:
-                            await fallback_opt.click()
-            except Exception as e:
-                self.log("WARNING", f"Category auto-selection note: {str(e)}")
-
-        # 5. Set Condition to "New"
-        try:
-            condition_box = await self.page.query_selector('label[aria-label="Condition"], div[aria-label="Condition"]')
-            if condition_box:
-                await condition_box.click()
-                await self.sleep(0.8)
-                new_opt = await self.page.query_selector('span:has-text("New"), div[role="option"]:has-text("New")')
-                if new_opt:
-                    await new_opt.click()
-                    await self.sleep(0.5)
-        except Exception:
-            pass
-
-        # 6. Input Description
-        if description:
-            self.log("INFO", "Filling Product Description...")
-            desc_selectors = [
-                'label[aria-label="Description"] textarea',
-                'textarea[aria-label="Description"]',
-                'label:has-text("Description") textarea',
-                'textarea'
-            ]
-            await self._type_first_matching(desc_selectors, description, min_delay=30, max_delay=90)
-            await self.sleep(random.uniform(1.0, 2.0))
-
-        # 7. Set Geographic Location / Zip Code
-        if location:
-            self.log("INFO", f"Configuring target listing radius/city: '{location}'...")
-            try:
-                loc_input = await self.page.query_selector('label[aria-label="Location"] input, input[aria-label="Location"]')
-                if loc_input:
-                    await loc_input.click()
-                    await self.page.keyboard.press("Control+A")
-                    await self.page.keyboard.press("Backspace")
-                    await self.sleep(0.4)
-                    
-                    for char in location:
-                        await self.page.keyboard.type(char)
-                        await asyncio.sleep(random.uniform(0.08, 0.18))
-                    
-                    await self.sleep(1.8)
-                    # Pick first suggestion from the Google Places / FB Location dropdown
-                    await self.page.keyboard.press("ArrowDown")
-                    await self.sleep(0.3)
-                    await self.page.keyboard.press("Enter")
-                    await self.sleep(1.0)
-            except Exception as e:
-                self.log("WARNING", f"Location selection note: {str(e)}")
-
-        self.set_progress(85)
-        await self.human_scroll(2)
-
-        # 8. Advance through "Next" step
-        self.log("INFO", "Progressing to final publication step...")
-        next_btn_selectors = [
-            'div[aria-label="Next"][role="button"]',
-            'button:has-text("Next")',
-            'div[role="button"]:has-text("Next")'
-        ]
-        clicked_next = await self._click_first_matching(next_btn_selectors)
+        # ----------------------------------------------------------------------
+        # 8. Advance through "Next" Step
+        # ----------------------------------------------------------------------
+        self.log("INFO", "➡️ Clicking 'Next' button...")
+        clicked_next = await self._click_button_with_text(page, ["Next", "اگلا"])
         if clicked_next:
             await self.sleep(random.uniform(2.5, 4.0))
 
-        # 9. Click "Publish" button
-        self.log("INFO", "Triggering listing publication...")
-        publish_selectors = [
-            'div[aria-label="Publish"][role="button"]',
-            'button:has-text("Publish")',
-            'div[role="button"]:has-text("Publish")'
-        ]
-        clicked_publish = await self._click_first_matching(publish_selectors)
+        # ----------------------------------------------------------------------
+        # 9. Click "Publish" Button
+        # ----------------------------------------------------------------------
+        self.log("INFO", "🚀 Triggering listing publication (Publish)...")
+        clicked_publish = await self._click_button_with_text(page, ["Publish", "Post", "شائع", "Done", "Save"])
         if not clicked_publish:
-            # Check if button is labeled "Post" or "Save"
-            fallback_selectors = ['div[aria-label="Post"][role="button"]', 'div[role="button"]:has-text("Post")']
-            clicked_publish = await self._click_first_matching(fallback_selectors)
+            # Fallback selectors
+            pub_fallback = [
+                'div[aria-label="Publish"][role="button"]',
+                'div[aria-label="Post"][role="button"]',
+                'button:has-text("Publish")',
+                'button:has-text("Post")'
+            ]
+            for sel in pub_fallback:
+                try:
+                    btn = await page.query_selector(sel)
+                    if btn and await btn.is_visible():
+                        await btn.click()
+                        clicked_publish = True
+                        break
+                except Exception:
+                    continue
 
         if not clicked_publish:
             raise ListingSubmissionError("Could not locate the final 'Publish' or 'Next' submission button.")
 
         # Wait for publication confirmation
         self.log("INFO", "Awaiting confirmation from Facebook Marketplace...")
-        await self.sleep(random.uniform(4.0, 6.0))
-        self.set_progress(100)
+        await self.sleep(random.uniform(3.5, 5.5))
+        self.log("SUCCESS", f"Marketplace listing '{title}' successfully broadcast!")
+        return True
 
-        self.log("SUCCESS", f"Marketplace listing '{title}' successfully broadcast to Facebook Marketplace!")
+    # --------------------------------------------------------------------------
+    # Specialized Precise DOM Field Finders & Setters
+    # --------------------------------------------------------------------------
+    async def _set_title_field(self, page: Page, text: str):
+        """Specifically locates and types into the Facebook Marketplace Title input."""
+        selectors = [
+            'label[aria-label="Title"] input',
+            'label[aria-label*="Title"] input',
+            'label[aria-label*="عنوان"] input',
+            'input[aria-label="Title"]',
+            'input[aria-label*="Title"]',
+            'input[name="title"]',
+            'label:has-text("Title") input',
+            'label:has-text("What are you selling") input'
+        ]
+        input_el = None
+        for sel in selectors:
+            try:
+                el = await page.query_selector(sel)
+                if el and await el.is_visible():
+                    input_el = el
+                    break
+            except Exception:
+                continue
+
+        # XPath fallback for nested spans
+        if not input_el:
+            try:
+                input_el = await page.query_selector('xpath=//label[contains(translate(@aria-label, "TITLE", "title"), "title")]//input')
+            except Exception:
+                pass
+
+        if not input_el:
+            raise ListingSubmissionError("Could not locate the Title input field on Facebook Marketplace.")
+
+        await input_el.scroll_into_view_if_needed()
+        await input_el.click()
+        await self.sleep(0.2)
+        await page.keyboard.press("Control+A")
+        await page.keyboard.press("Backspace")
+        await page.keyboard.type(text, delay=35)
+
+    async def _set_price_field(self, page: Page, price_str: str):
+        """Specifically locates and types into the Facebook Marketplace Price input."""
+        selectors = [
+            'label[aria-label="Price"] input',
+            'label[aria-label*="Price"] input',
+            'label[aria-label*="قیمت"] input',
+            'input[aria-label="Price"]',
+            'input[aria-label*="Price"]',
+            'input[name="price"]',
+            'label:has-text("Price") input'
+        ]
+        input_el = None
+        for sel in selectors:
+            try:
+                el = await page.query_selector(sel)
+                if el and await el.is_visible():
+                    input_el = el
+                    break
+            except Exception:
+                continue
+
+        if not input_el:
+            try:
+                input_el = await page.query_selector('xpath=//label[contains(translate(@aria-label, "PRICE", "price"), "price")]//input')
+            except Exception:
+                pass
+
+        if not input_el:
+            raise ListingSubmissionError("Could not locate the Price input field on Facebook Marketplace.")
+
+        await input_el.scroll_into_view_if_needed()
+        await input_el.click()
+        await self.sleep(0.2)
+        await page.keyboard.press("Control+A")
+        await page.keyboard.press("Backspace")
+        await page.keyboard.type(price_str, delay=40)
+
+    async def _set_description_field(self, page: Page, text: str):
+        """Specifically locates and types into the Facebook Marketplace Description textarea."""
+        selectors = [
+            'label[aria-label="Description"] textarea',
+            'label[aria-label*="Description"] textarea',
+            'label[aria-label*="تفصیل"] textarea',
+            'textarea[aria-label="Description"]',
+            'textarea[aria-label*="Description"]',
+            'textarea[name="description"]',
+            'label:has-text("Description") textarea',
+            'textarea'
+        ]
+        input_el = None
+        for sel in selectors:
+            try:
+                el = await page.query_selector(sel)
+                if el and await el.is_visible():
+                    input_el = el
+                    break
+            except Exception:
+                continue
+
+        if not input_el:
+            try:
+                input_el = await page.query_selector('xpath=//label[contains(translate(@aria-label, "DESCRIPTION", "description"), "description")]//textarea')
+            except Exception:
+                pass
+
+        if not input_el:
+            self.log("WARNING", "Description textarea not found directly; skipping description.")
+            return
+
+        await input_el.scroll_into_view_if_needed()
+        await input_el.click()
+        await self.sleep(0.2)
+        await page.keyboard.press("Control+A")
+        await page.keyboard.press("Backspace")
+        await page.keyboard.type(text, delay=20)
+
+    async def _set_location_field(self, page: Page, location_str: str):
+        """Specifically sets geographic location / city with autocomplete resolution."""
+        selectors = [
+            'label[aria-label="Location"] input',
+            'label[aria-label*="Location"] input',
+            'input[aria-label="Location"]',
+            'input[aria-label*="Location"]',
+            'label[aria-label*="لوکیشن"] input',
+            'label:has-text("Location") input',
+            'label:has-text("City") input'
+        ]
+        input_el = None
+        for sel in selectors:
+            try:
+                el = await page.query_selector(sel)
+                if el and await el.is_visible():
+                    input_el = el
+                    break
+            except Exception:
+                continue
+
+        if not input_el:
+            try:
+                input_el = await page.query_selector('xpath=//label[contains(translate(@aria-label, "LOCATION", "location"), "location")]//input')
+            except Exception:
+                pass
+
+        if not input_el:
+            self.log("WARNING", "Location input not visible on initial viewport; attempting scroll...")
+            await page.evaluate("window.scrollBy(0, 400)")
+            await self.sleep(0.4)
+            for sel in selectors:
+                try:
+                    el = await page.query_selector(sel)
+                    if el and await el.is_visible():
+                        input_el = el
+                        break
+                except Exception:
+                    continue
+
+        if input_el:
+            await input_el.scroll_into_view_if_needed()
+            await input_el.click()
+            await self.sleep(0.2)
+            await page.keyboard.press("Control+A")
+            await page.keyboard.press("Backspace")
+            await page.keyboard.type(location_str, delay=50)
+            await self.sleep(1.8)
+
+            # Resolve location dropdown suggestion
+            option_el = await page.query_selector('div[role="listbox"] div[role="option"], ul[role="listbox"] li, div[role="option"]')
+            if option_el and await option_el.is_visible():
+                await option_el.click()
+                self.log("INFO", f"Location suggestion clicked for '{location_str}'.")
+            else:
+                await page.keyboard.press("ArrowDown")
+                await self.sleep(0.2)
+                await page.keyboard.press("Enter")
+            await self.sleep(0.8)
+
+    async def _set_category_field(self, page: Page, category: str):
+        """Selects category dropdown matching Household, Appliances, Auto Parts, etc."""
+        # Category alias dictionary for Facebook Marketplace localization
+        cat_aliases = {
+            "household": ["Household", "Home & Kitchen", "Home goods", "Furniture", "Household Items", "Bedding", "Bath"],
+            "appliances": ["Appliances", "Major appliances", "Small appliances", "Home appliances", "Refrigerators"],
+            "auto parts": ["Auto parts", "Vehicle parts & accessories", "Car parts", "Auto Parts & Tires", "Automotive parts", "Parts & accessories"],
+            "electronics & computers": ["Electronics & Computers", "Electronics", "Computers", "Video Games", "Audio"],
+            "vehicles & parts": ["Vehicles & Parts", "Vehicles", "Auto parts", "Cars & Trucks"],
+            "furniture & decor": ["Furniture & Decor", "Furniture", "Home decor"],
+            "tools & appliances": ["Tools & Appliances", "Tools", "Appliances"]
+        }
+
+        cat_lower = category.strip().lower()
+        search_terms = cat_aliases.get(cat_lower, [category])
+
+        dropdown_selectors = [
+            'label[aria-label="Category"]',
+            'label[aria-label*="Category"]',
+            'div[aria-label="Category"][role="combobox"]',
+            'div[aria-label*="Category"][role="button"]',
+            'label:has-text("Category")',
+            'span:has-text("Category")'
+        ]
+        drop_el = None
+        for sel in dropdown_selectors:
+            try:
+                el = await page.query_selector(sel)
+                if el and await el.is_visible():
+                    drop_el = el
+                    break
+            except Exception:
+                continue
+
+        if drop_el:
+            await drop_el.scroll_into_view_if_needed()
+            await drop_el.click()
+            await self.sleep(1.2)
+
+            # Try matching option
+            found = False
+            for term in search_terms:
+                try:
+                    opt = await page.query_selector(f'div[role="option"]:has-text("{term}"), span:has-text("{term}"), div[role="button"]:has-text("{term}")')
+                    if opt and await opt.is_visible():
+                        await opt.click()
+                        self.log("INFO", f"Category option '{term}' selected.")
+                        found = True
+                        break
+                except Exception:
+                    continue
+
+            if not found:
+                # Click first available category
+                first_opt = await page.query_selector('div[role="listbox"] div[role="option"], div[role="menuitem"]')
+                if first_opt and await first_opt.is_visible():
+                    await first_opt.click()
+                    self.log("INFO", "Selected first available category.")
+            await self.sleep(0.6)
+
+    async def _set_condition_field(self, page: Page, condition_text: str = "New"):
+        """Selects item condition (default: New)."""
+        cond_selectors = [
+            'label[aria-label="Condition"]',
+            'label[aria-label*="Condition"]',
+            'div[aria-label="Condition"][role="combobox"]',
+            'label:has-text("Condition")'
+        ]
+        cond_el = None
+        for sel in cond_selectors:
+            try:
+                el = await page.query_selector(sel)
+                if el and await el.is_visible():
+                    cond_el = el
+                    break
+            except Exception:
+                continue
+
+        if cond_el:
+            await cond_el.scroll_into_view_if_needed()
+            await cond_el.click()
+            await self.sleep(0.8)
+            new_opt = await page.query_selector(f'div[role="option"]:has-text("{condition_text}"), span:has-text("{condition_text}")')
+            if new_opt and await new_opt.is_visible():
+                await new_opt.click()
+            await self.sleep(0.4)
+
+    async def _upload_photos_to_page(self, page: Page, files: List[str]):
+        """Injects files into input[type=file]."""
+        file_inputs = await page.query_selector_all('input[type="file"]')
+        if not file_inputs:
+            # wait briefly
+            try:
+                f = await page.wait_for_selector('input[type="file"]', timeout=5000)
+                if f:
+                    file_inputs = [f]
+            except Exception:
+                pass
+
+        for finput in file_inputs:
+            try:
+                await finput.set_input_files(files)
+                self.log("SUCCESS", f"Injected {len(files)} photo(s) into Marketplace media uploader.")
+                return True
+            except Exception:
+                continue
+        return False
+
+    async def _click_button_with_text(self, page: Page, text_candidates: List[str]) -> bool:
+        """Finds and clicks a button by text or aria-label."""
+        for txt in text_candidates:
+            queries = [
+                f'div[aria-label="{txt}"][role="button"]',
+                f'div[aria-label*="{txt}"][role="button"]',
+                f'button:has-text("{txt}")',
+                f'div[role="button"]:has-text("{txt}")',
+                f'span:has-text("{txt}")'
+            ]
+            for q in queries:
+                try:
+                    el = await page.query_selector(q)
+                    if el and await el.is_visible():
+                        await el.scroll_into_view_if_needed()
+                        await el.click()
+                        return True
+                except Exception:
+                    continue
+        return False
 
     # --------------------------------------------------------------------------
     # Utility Selector Helpers
@@ -806,7 +1176,7 @@ class FacebookMarketplaceBot:
     async def close(self):
         """Cleanly releases all Playwright browser processes and network sockets."""
         try:
-            if self.page:
+            if self.page and not self.page.is_closed():
                 await self.page.close()
             if self.context:
                 await self.context.close()

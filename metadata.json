@@ -1,6 +1,6 @@
 {
   "name": "FB Auto Bot",
-  "description": "High-performance Facebook Marketplace automation bot, HWID licensing suite, and landing page.",
+  "description": "High-performance Facebook Marketplace & Auto Group Posting, Auto Group Joiner, and FewFeed extension automation suite.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
