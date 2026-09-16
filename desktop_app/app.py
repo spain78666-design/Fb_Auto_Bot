@@ -9,6 +9,9 @@ import os
 import re
 import json
 import time
+import socket
+import platform
+import urllib.request
 import asyncio
 import traceback
 from datetime import datetime
@@ -20,7 +23,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QScrollArea, QSizePolicy, QInputDialog,
     QListWidget, QListWidgetItem, QTabWidget
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize, QTimer
 from PyQt5.QtGui import QFont, QColor, QIcon, QTextCursor, QPixmap
 
 def handle_exception(exc_type, exc_value, exc_traceback):
@@ -50,11 +53,33 @@ try:
         CheckpointDetectedError,
         ProxyConnectionError,
         NavigationTimeoutError,
-        ListingSubmissionError
+        ListingSubmissionError,
+        MethodExecutionFallbackError
     )
     HAS_PLAYWRIGHT_BOT = True
 except ImportError:
     HAS_PLAYWRIGHT_BOT = False
+
+# Resilient Fault Tolerance & Console Logger Engine
+try:
+    from automation.fault_tolerance import (
+        ResilientConsoleLogger,
+        AutomationLogLevel,
+        MethodFallbackManager,
+        UIInputOverridesResolver
+    )
+    HAS_FAULT_TOLERANCE = True
+except ImportError:
+    try:
+        from desktop_app.automation.fault_tolerance import (
+            ResilientConsoleLogger,
+            AutomationLogLevel,
+            MethodFallbackManager,
+            UIInputOverridesResolver
+        )
+        HAS_FAULT_TOLERANCE = True
+    except ImportError:
+        HAS_FAULT_TOLERANCE = False
 
 # Phase 3: OpenCV & Pillow Anti-Duplicate Image Engine Imports
 try:
@@ -262,6 +287,13 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
     border: none;
 }
 
+/* Top Header Bar - Minimalist Dark Glassmorphic Style */
+QFrame#topHeaderBar {
+    background-color: #0b101c;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+}
+
 /* Sidebar - Frosted Glass iOS Style */
 QFrame#sidebarFrame {
     background-color: #0b101c;
@@ -296,6 +328,12 @@ QPushButton.navBtnActive {
 }
 
 /* iOS Glassmorphic Frosted Content Cards */
+QFrame#topHeaderBar {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0b1120, stop:1 #0f172a);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 12px;
+}
+
 QFrame.glassCard {
     background-color: #111827;
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -837,18 +875,19 @@ class GroupAutomationWorker(QThread):
             self.finished_signal.emit(False, "No accounts selected.")
             return
 
+        join_group_codes = self.payload.get("join_group_codes", [])
+        post_group_codes = self.payload.get("post_group_codes", [])
         group_codes = self.payload.get("group_codes", [])
-        if not group_codes:
-            self.log_signal.emit("ERROR", "No Group Codes provided.")
-            self.finished_signal.emit(False, "No group codes specified.")
-            return
+
+        if not group_codes and not join_group_codes and not post_group_codes:
+            self.log_signal.emit("INFO", "Proceeding with FewFeed auto-posting for all joined groups...")
 
         delay = int(self.payload.get("delay", 25))
         threads = max(1, int(self.payload.get("threads", 1)))
 
         self.log_signal.emit("INFO", f"==================================================")
-        self.log_signal.emit("INFO", f"🚀 Launching Multi-Threaded FB Group {self.task_type.upper()} Workflow...")
-        self.log_signal.emit("INFO", f"👥 Accounts: {len(accounts)} | 📋 Target Groups: {len(group_codes)}")
+        self.log_signal.emit("INFO", f"🚀 Launching Multi-Threaded FB Group {self.task_type.upper()} Workflow (FewFeed Extension Automation)...")
+        self.log_signal.emit("INFO", f"👥 Accounts: {len(accounts)} | 📋 Target Join Groups: {len(join_group_codes)} | 📢 Post Groups: {len(post_group_codes)}")
         self.log_signal.emit("INFO", f"🧵 Concurrent Browsers (Threads): {threads} | ⏳ Action Delay: {delay}s")
         self.log_signal.emit("INFO", f"📱 Mobile Device Emulation Enforced: deviceMetrics={{width: 393, height: 851, pixelRatio: 3.0}}")
         self.log_signal.emit("INFO", f"🧩 Chrome Extension: FEWFEED pre-loaded across all {threads} concurrent browser instance(s).")
@@ -856,37 +895,19 @@ class GroupAutomationWorker(QThread):
         tasks = []
         semaphore = asyncio.Semaphore(threads)
 
-        if len(accounts) >= threads:
-            for thread_idx, acc in enumerate(accounts, 1):
-                tasks.append(self._run_single_browser_instance(
-                    thread_id=thread_idx,
-                    total_threads=threads,
-                    account=acc,
-                    group_codes=group_codes,
-                    delay=delay,
-                    semaphore=semaphore
-                ))
-        else:
-            chunk_size = max(1, (len(group_codes) + threads - 1) // threads)
-            group_chunks = [group_codes[i:i + chunk_size] for i in range(0, len(group_codes), chunk_size)]
-            
-            for thread_idx in range(threads):
-                chunk = group_chunks[thread_idx] if thread_idx < len(group_chunks) else []
-                if not chunk:
-                    continue
-                acc = accounts[thread_idx % len(accounts)]
-                acc_copy = dict(acc)
-                if acc.get("id"):
-                    acc_copy["id"] = f"{acc['id']}_thread_{thread_idx + 1}"
-                
-                tasks.append(self._run_single_browser_instance(
-                    thread_id=thread_idx + 1,
-                    total_threads=len(group_chunks),
-                    account=acc_copy,
-                    group_codes=chunk,
-                    delay=delay,
-                    semaphore=semaphore
-                ))
+        for thread_idx, acc in enumerate(accounts, 1):
+            if thread_idx > threads:
+                break
+            tasks.append(self._run_single_browser_instance(
+                thread_id=thread_idx,
+                total_threads=min(len(accounts), threads),
+                account=acc,
+                group_codes=group_codes,
+                join_group_codes=join_group_codes,
+                post_group_codes=post_group_codes,
+                delay=delay,
+                semaphore=semaphore
+            ))
 
         await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -899,11 +920,13 @@ class GroupAutomationWorker(QThread):
         thread_id: int,
         total_threads: int,
         account: Dict[str, Any],
-        group_codes: List[str],
-        delay: int,
-        semaphore: asyncio.Semaphore
+        group_codes: Optional[List[str]] = None,
+        join_group_codes: Optional[List[str]] = None,
+        post_group_codes: Optional[List[str]] = None,
+        delay: int = 25,
+        semaphore: Optional[asyncio.Semaphore] = None
     ):
-        async with semaphore:
+        async with (semaphore or asyncio.Semaphore(1)):
             if not self._is_running:
                 return
 
@@ -925,22 +948,20 @@ class GroupAutomationWorker(QThread):
             self.active_bots.append(bot)
 
             try:
-                await bot.initialize_browser()
-                await bot.authenticate_session()
+                links = self.payload.get("links", [])
+                descriptions = self.payload.get("descriptions", [])
+                posting_mode = self.payload.get("mode", "Random")
 
-                if self.task_type == "joining":
-                    await bot.run_group_joining(group_codes=group_codes, delay_seconds=delay)
-                elif self.task_type == "posting":
-                    links = self.payload.get("links", [])
-                    descriptions = self.payload.get("descriptions", [])
-                    posting_mode = self.payload.get("mode", "Random")
-                    await bot.run_group_posting(
-                        group_codes=group_codes,
-                        links=links,
-                        descriptions=descriptions,
-                        posting_mode=posting_mode,
-                        delay_seconds=delay
-                    )
+                await bot.run_workflow(
+                    task_type=self.task_type,
+                    group_codes=group_codes or [],
+                    join_group_codes=join_group_codes or [],
+                    post_group_codes=post_group_codes or [],
+                    links=links,
+                    descriptions=descriptions,
+                    posting_mode=posting_mode,
+                    delay_seconds=delay
+                )
 
             except Exception as ex:
                 self.log_signal.emit("ERROR", f"{tag} Instance notice: {str(ex)}")
@@ -971,6 +992,12 @@ class AutomationWorker(QThread):
         self.active_player = None
         self.loop = None
         self._is_running = True
+        
+        # Color-coded resilient terminal and console logger
+        self.logger = ResilientConsoleLogger(
+            name="AutomationEngine",
+            gui_callback=self._log_bridge
+        ) if HAS_FAULT_TOLERANCE else None
 
     def _log_bridge(self, level: str, message: str):
         self.log_signal.emit(level, message)
@@ -1098,69 +1125,145 @@ class AutomationWorker(QThread):
             if not self._is_running:
                 return
 
-            # Check if custom recorded method was selected
-            chosen_method = payload.get("method", "")
+            # ------------------------------------------------------------------
+            # Resilient Method Dispatching & Intelligent Fallback Logic
+            # ------------------------------------------------------------------
+            # Verify and resolve live UI input parameters as absolute override baseline
+            if HAS_FAULT_TOLERANCE:
+                resolved_payload = UIInputOverridesResolver.resolve_payload(payload)
+            else:
+                resolved_payload = payload
+
+            chosen_method = resolved_payload.get("method", "")
             if chosen_method:
                 chosen_method = chosen_method.replace("📁 ", "").strip()
 
-            if chosen_method and chosen_method not in ("Default Item Listing (Standard)", "Default Facebook Marketplace Flow") and HAS_MACRO_RECORDER:
-                self.log_signal.emit("INFO", f"🎯 Dispatching Custom Learned Workflow: '{chosen_method}'...")
-                player = MacroMethodPlayer(
-                    method_name=chosen_method,
-                    dynamic_params=payload,
-                    log_callback=self._log_bridge
-                )
-                self.active_player = player
-                executed_ok = await player.execute(bot.page)
-                if not executed_ok and self._is_running:
-                    self.log_signal.emit("WARNING", f"Custom method fallback: invoking default marketplace publisher...")
-                    await bot.create_marketplace_listing(payload)
-            else:
-                await bot.create_marketplace_listing(payload)
+            use_method_replay = False
+            if chosen_method and chosen_method not in ("Default Item Listing (Standard)", "Default Facebook Marketplace Flow", "None", ""):
+                if HAS_FAULT_TOLERANCE and HAS_MACRO_RECORDER:
+                    methods_dir = MacroMethodManager.get_methods_dir()
+                    verif = MethodFallbackManager.verify_method_availability(chosen_method, methods_dir)
+                    if verif.is_valid:
+                        use_method_replay = True
+                    else:
+                        if self.logger:
+                            self.logger.fallback(f"Method '{chosen_method}' unavailable ({verif.reason}). Instantly falling back to Live UI Overrides.")
+                        else:
+                            self.log_signal.emit("WARNING", f"🔄 Method '{chosen_method}' unavailable ({verif.reason}). Falling back to Live UI Overrides.")
+                elif HAS_MACRO_RECORDER:
+                    use_method_replay = True
 
-            if not self.payload.get("is_batch") and self._is_running:
+            method_succeeded = False
+            if use_method_replay and HAS_MACRO_RECORDER:
+                try:
+                    if self.logger:
+                        self.logger.info(f"🎯 Dispatching Custom Method Replay: '{chosen_method}'...")
+                    else:
+                        self.log_signal.emit("INFO", f"🎯 Dispatching Custom Learned Workflow: '{chosen_method}'...")
+
+                    player = MacroMethodPlayer(
+                        method_name=chosen_method,
+                        dynamic_params=resolved_payload,
+                        log_callback=self._log_bridge
+                    )
+                    self.active_player = player
+                    method_succeeded = await player.execute(bot.page)
+
+                    if not method_succeeded and self._is_running:
+                        if self.logger:
+                            self.logger.fallback(f"Method '{chosen_method}' encountered execution halt. Engaging immediate Fallback to Live UI Overrides...")
+                        else:
+                            self.log_signal.emit("WARNING", f"🔄 Custom method '{chosen_method}' halted. Falling back to live UI inputs...")
+                        await bot.create_marketplace_listing(resolved_payload)
+                        method_succeeded = True
+                except Exception as replay_err:
+                    if not self._is_running:
+                        return
+                    if self.logger:
+                        self.logger.error(f"Exception during method replay '{chosen_method}': {str(replay_err)}", exc=replay_err)
+                        self.logger.fallback("Triggering automated fallback: publishing listing with live UI input parameters.")
+                    else:
+                        self.log_signal.emit("WARNING", f"🔄 Method replay error: {str(replay_err)}. Falling back to direct UI inputs...")
+                    await bot.create_marketplace_listing(resolved_payload)
+                    method_succeeded = True
+            else:
+                # Direct publication using live UI input overrides
+                await bot.create_marketplace_listing(resolved_payload)
+                method_succeeded = True
+
+            if not self.payload.get("is_batch") and self._is_running and method_succeeded:
+                if self.logger:
+                    self.logger.success("Listing published successfully!")
                 self.finished_signal.emit(True, "Listing published successfully!")
 
         except InvalidSessionError as e:
-            self.log_signal.emit("ERROR", f"Session Authentication Failure: {str(e)}")
-            self.log_signal.emit("WARNING", "Tip: Use 'Launch Manual Login' in Accounts Tab to capture fresh cookies.")
+            if self.logger:
+                self.logger.error(f"Session Authentication Failure: {str(e)}", exc=e)
+                self.logger.warning("Tip: Use 'Launch Manual Login' in Accounts Tab to capture fresh cookies.")
+            else:
+                self.log_signal.emit("ERROR", f"Session Authentication Failure: {str(e)}")
+                self.log_signal.emit("WARNING", "Tip: Use 'Launch Manual Login' in Accounts Tab to capture fresh cookies.")
             if not self.payload.get("is_batch"):
                 self.finished_signal.emit(False, f"Session Invalid: {str(e)}")
 
         except CheckpointDetectedError as e:
-            self.log_signal.emit("ERROR", f"Facebook Security Checkpoint: {str(e)}")
-            self.log_signal.emit("WARNING", "Action Required: Use 'Launch Manual Login' to solve 2FA/checkpoint.")
+            if self.logger:
+                self.logger.error(f"Facebook Security Checkpoint: {str(e)}", exc=e)
+                self.logger.warning("Action Required: Use 'Launch Manual Login' to solve 2FA/checkpoint.")
+            else:
+                self.log_signal.emit("ERROR", f"Facebook Security Checkpoint: {str(e)}")
+                self.log_signal.emit("WARNING", "Action Required: Use 'Launch Manual Login' to solve 2FA/checkpoint.")
             if not self.payload.get("is_batch"):
                 self.finished_signal.emit(False, f"Checkpoint: {str(e)}")
 
         except ProxyConnectionError as e:
-            self.log_signal.emit("ERROR", f"Proxy Failure: {str(e)}")
-            self.log_signal.emit("WARNING", "Check proxy host, port, and IP whitelist.")
+            if self.logger:
+                self.logger.error(f"Proxy Failure: {str(e)}", exc=e)
+                self.logger.warning("Check proxy host, port, and IP whitelist.")
+            else:
+                self.log_signal.emit("ERROR", f"Proxy Failure: {str(e)}")
+                self.log_signal.emit("WARNING", "Check proxy host, port, and IP whitelist.")
             if not self.payload.get("is_batch"):
                 self.finished_signal.emit(False, f"Proxy Error: {str(e)}")
 
         except NavigationTimeoutError as e:
-            self.log_signal.emit("ERROR", f"Navigation Timeout: {str(e)}")
+            if self.logger:
+                self.logger.error(f"Navigation Timeout: {str(e)}", exc=e)
+            else:
+                self.log_signal.emit("ERROR", f"Navigation Timeout: {str(e)}")
             if not self.payload.get("is_batch"):
                 self.finished_signal.emit(False, f"Timeout: {str(e)}")
 
         except ListingSubmissionError as e:
-            self.log_signal.emit("ERROR", f"Marketplace Form Submission Error: {str(e)}")
+            if self.logger:
+                self.logger.error(f"Marketplace Form Submission Error: {str(e)}", exc=e)
+            else:
+                self.log_signal.emit("ERROR", f"Marketplace Form Submission Error: {str(e)}")
             if not self.payload.get("is_batch"):
                 self.finished_signal.emit(False, f"Listing Error: {str(e)}")
 
         except Exception as e:
             err_msg = str(e)
             if "Target page, context or browser has been closed" in err_msg or "TargetClosedError" in err_msg:
-                self.log_signal.emit("WARNING", "🛑 Chrome browser was closed by user. Halting automation.")
+                if self.logger:
+                    self.logger.warning("🛑 Chrome browser was closed by user. Halting automation.")
+                else:
+                    self.log_signal.emit("WARNING", "🛑 Chrome browser was closed by user. Halting automation.")
                 if not self.payload.get("is_batch"):
                     self.finished_signal.emit(False, "Browser closed by user.")
             elif "Executable doesn't exist" in err_msg or "playwright install" in err_msg:
-                self.log_signal.emit("WARNING", "Chromium browser binary not downloaded. Run: 'playwright install chromium'")
-                self.log_signal.emit("INFO", "Demonstrating complete workflow via simulation engine...")
+                if self.logger:
+                    self.logger.warning("Chromium browser binary not downloaded. Run: 'playwright install chromium'")
+                    self.logger.info("Demonstrating complete workflow via simulation engine...")
+                else:
+                    self.log_signal.emit("WARNING", "Chromium browser binary not downloaded. Run: 'playwright install chromium'")
+                    self.log_signal.emit("INFO", "Demonstrating complete workflow via simulation engine...")
                 await self._run_simulation()
             else:
-                self.log_signal.emit("ERROR", f"Automation interrupted: {err_msg}")
+                if self.logger:
+                    self.logger.critical(f"Automation interrupted by unhandled exception: {err_msg}", exc=e)
+                else:
+                    self.log_signal.emit("ERROR", f"Automation interrupted: {err_msg}")
                 if not self.payload.get("is_batch"):
                     self.finished_signal.emit(False, err_msg)
         finally:
@@ -1247,19 +1350,69 @@ class AutomationWorker(QThread):
 
 
 # ------------------------------------------------------------------------------
+# Asynchronous Client Network IP Diagnostics Worker
+# ------------------------------------------------------------------------------
+class ClientIPWorker(QThread):
+    ip_ready = pyqtSignal(str, str)  # (local_ip, public_ip)
+
+    def run(self):
+        local_ip = "127.0.0.1"
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            try:
+                local_ip = socket.gethostbyname(socket.gethostname())
+            except Exception:
+                local_ip = "127.0.0.1"
+
+        public_ip = "Offline / Local LAN Only"
+        for endpoint in ["https://api.ipify.org", "https://icanhazip.com", "https://ifconfig.me/ip"]:
+            try:
+                req = urllib.request.Request(
+                    endpoint,
+                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) FBAutoBot/2.4'}
+                )
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    val = resp.read().decode('utf-8').strip()
+                    if val and len(val) <= 45:
+                        public_ip = val
+                        break
+            except Exception:
+                continue
+
+        self.ip_ready.emit(local_ip, public_ip)
+
+
+# ------------------------------------------------------------------------------
 # Main Application Window
 # ------------------------------------------------------------------------------
 class FBAutoBotMainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, initial_license_info=None):
         super().__init__()
         self.setWindowTitle("FB Auto Bot - Facebook Marketplace Automation Suite")
-        self.resize(1180, 780)
-        self.setMinimumSize(960, 640)
+        self.resize(1200, 800)
+        self.setMinimumSize(980, 660)
 
         # Set Window & App Icon (Prefers logo.png, logo.ico, icon.png)
         logo_file = get_best_logo_path()
         if logo_file and os.path.isfile(logo_file):
             self.setWindowIcon(QIcon(logo_file))
+
+        # License & Activity State Management
+        self.license_info = initial_license_info or {}
+        self.saved_license_key = ""
+        self.license_active = bool(initial_license_info)
+        self.has_shown_expired_warning = False
+        self.activity_logs = []
+        self.client_local_ip = "127.0.0.1"
+        self.client_public_ip = "Connecting..."
+        self.ip_worker = None
+
+        # Load persisted license from storage
+        self.reload_license_data()
 
         # Phase 4: Session Manager Vault DB & In-Memory Profiles
         self.session_manager = get_session_manager() if HAS_SESSION_MANAGER else None
@@ -1276,6 +1429,34 @@ class FBAutoBotMainWindow(QMainWindow):
 
         self.init_ui()
 
+        # Live Countdown Timer running every 1 second (1000ms)
+        self.countdown_timer = QTimer(self)
+        self.countdown_timer.timeout.connect(self.tick_license_countdown)
+        self.countdown_timer.start(1000)
+        self.tick_license_countdown()
+
+        # Fetch IP diagnostics asynchronously
+        self.fetch_client_ip()
+
+    def reload_license_data(self):
+        """Refreshes active cryptographic license status from storage."""
+        if HAS_LICENSING:
+            try:
+                saved_key = LicenseManager.load_saved_license()
+                if saved_key:
+                    self.saved_license_key = saved_key
+                    ok, msg, data = LicenseManager.verify_key(saved_key)
+                    self.license_active = ok
+                    if ok and isinstance(data, dict):
+                        self.license_info = data
+                        return
+            except Exception:
+                pass
+        if not self.license_info:
+            self.saved_license_key = ""
+            self.license_active = False
+            self.license_info = {}
+
     def init_ui(self):
         # Central widget
         central_widget = QWidget()
@@ -1288,11 +1469,15 @@ class FBAutoBotMainWindow(QMainWindow):
         sidebar = self.create_sidebar()
         main_layout.addWidget(sidebar)
 
-        # 2. Right Content Area (Stacked Widget + Bottom Console)
+        # 2. Right Content Area (Top Header + Stacked Widget + Bottom Console)
         content_container = QWidget()
         content_layout = QVBoxLayout(content_container)
-        content_layout.setContentsMargins(20, 20, 20, 16)
-        content_layout.setSpacing(14)
+        content_layout.setContentsMargins(18, 14, 18, 14)
+        content_layout.setSpacing(12)
+
+        # Modern Top Header Bar (Ultra-clean, dark, web-inspired)
+        self.top_header = self.create_top_header()
+        content_layout.addWidget(self.top_header)
 
         # Top stacked views
         self.pages_stack = QStackedWidget()
@@ -1303,14 +1488,16 @@ class FBAutoBotMainWindow(QMainWindow):
         self.page_group_posting = self.create_group_automation_page()
         self.page_ai = self.create_ai_page()
         self.page_settings = self.create_settings_page()
+        self.page_profile = self.create_profile_page()
 
         self.pages_stack.addWidget(self.page_dashboard)       # Index 0
         self.pages_stack.addWidget(self.page_accounts)        # Index 1
         self.pages_stack.addWidget(self.page_methods)         # Index 2
         self.pages_stack.addWidget(self.page_automation)      # Index 3
         self.pages_stack.addWidget(self.page_group_posting)   # Index 4
-        self.pages_stack.addWidget(self.page_ai)              # Index 5
+        self.pages_stack.addWidget(self.page_ai)              # Index 5 (AI Content Spinner Retained)
         self.pages_stack.addWidget(self.page_settings)        # Index 6
+        self.pages_stack.addWidget(self.page_profile)         # Index 7 (User Profile & Activity Logs)
 
         content_layout.addWidget(self.pages_stack, stretch=7)
 
@@ -1322,6 +1509,140 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Set initial active tab
         self.switch_tab(0)
+
+    # --------------------------------------------------------------------------
+    # Modern Top Header Bar
+    # --------------------------------------------------------------------------
+    def create_top_header(self):
+        header_frame = QFrame()
+        header_frame.setObjectName("topHeaderBar")
+        header_frame.setFixedHeight(54)
+        header_layout = QHBoxLayout(header_frame)
+        header_layout.setContentsMargins(16, 6, 16, 6)
+        header_layout.setSpacing(12)
+
+        # Left Section: Breadcrumb & Engine Status
+        left_layout = QHBoxLayout()
+        left_layout.setSpacing(10)
+
+        app_badge = QLabel("⚡ FB AUTO BOT")
+        app_badge.setStyleSheet("font-size: 11px; font-weight: 900; color: #818cf8; letter-spacing: 0.8px;")
+
+        sep = QLabel("›")
+        sep.setStyleSheet("font-size: 14px; font-weight: 700; color: rgba(255, 255, 255, 0.25);")
+
+        self.header_page_title = QLabel("Operational Dashboard")
+        self.header_page_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #f8fafc;")
+
+        self.header_stealth_pill = QLabel("● STEALTH ARMED")
+        self.header_stealth_pill.setStyleSheet("""
+            background-color: rgba(16, 185, 129, 0.12);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 800;
+            padding: 3px 8px;
+        """)
+
+        left_layout.addWidget(app_badge)
+        left_layout.addWidget(sep)
+        left_layout.addWidget(self.header_page_title)
+        left_layout.addWidget(self.header_stealth_pill)
+        header_layout.addLayout(left_layout)
+
+        header_layout.addStretch()
+
+        # Right Section: Live Countdown Pill, User Chip, Key & WhatsApp Buttons
+        right_layout = QHBoxLayout()
+        right_layout.setSpacing(8)
+
+        # Live Countdown Pill (clickable to jump to Profile page)
+        self.header_countdown_pill = QLabel("⏳ Calculating Duration...")
+        self.header_countdown_pill.setCursor(Qt.PointingHandCursor)
+        self.header_countdown_pill.setToolTip("Click to view full license details and telemetry")
+        self.header_countdown_pill.setStyleSheet("""
+            background-color: rgba(99, 102, 241, 0.12);
+            color: #c7d2fe;
+            border: 1px solid rgba(129, 140, 248, 0.25);
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+        """)
+        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(7)
+        right_layout.addWidget(self.header_countdown_pill)
+
+        # User Profile Chip
+        customer_name = self.license_info.get("customer", "Active User")
+        tier_name = self.license_info.get("tier", "Pro")
+        self.header_user_chip = QPushButton(f"👤 {customer_name} [{tier_name}]")
+        self.header_user_chip.setCursor(Qt.PointingHandCursor)
+        self.header_user_chip.setToolTip("Open User Profile & Activity Log")
+        self.header_user_chip.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.05);
+                color: #f1f5f9;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 10px;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 4px 12px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.12);
+                border: 1px solid rgba(255, 255, 255, 0.25);
+            }
+        """)
+        self.header_user_chip.clicked.connect(lambda: self.switch_tab(7))
+        right_layout.addWidget(self.header_user_chip)
+
+        # Quick Key Button
+        btn_key = QPushButton("🔑 Key")
+        btn_key.setToolTip("Activate or update software license key")
+        btn_key.setCursor(Qt.PointingHandCursor)
+        btn_key.setStyleSheet("""
+            QPushButton {
+                background-color: #1e293b;
+                color: #e2e8f0;
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 8px;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 4px 9px;
+            }
+            QPushButton:hover {
+                background-color: #334155;
+                color: #ffffff;
+            }
+        """)
+        btn_key.clicked.connect(self.open_license_activation_dialog)
+        right_layout.addWidget(btn_key)
+
+        # WhatsApp Support Button
+        btn_wa = QPushButton("💬 Support")
+        btn_wa.setToolTip("Direct WhatsApp Support (+15678993618)")
+        btn_wa.setCursor(Qt.PointingHandCursor)
+        btn_wa.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(5, 150, 105, 0.2);
+                color: #34d399;
+                border: 1px solid rgba(5, 150, 105, 0.4);
+                border-radius: 8px;
+                font-size: 11px;
+                font-weight: 700;
+                padding: 4px 10px;
+            }
+            QPushButton:hover {
+                background-color: #059669;
+                color: #ffffff;
+            }
+        """)
+        btn_wa.clicked.connect(self.open_whatsapp_support)
+        right_layout.addWidget(btn_wa)
+
+        header_layout.addLayout(right_layout)
+        return header_frame
 
     # --------------------------------------------------------------------------
     # Sidebar UI
@@ -1362,7 +1683,7 @@ class FBAutoBotMainWindow(QMainWindow):
         version_lbl.setStyleSheet("font-size: 10px; font-weight: 700; color: #6366f1; letter-spacing: 1px; margin-bottom: 16px;")
         layout.addWidget(version_lbl)
 
-        # Navigation Buttons
+        # Navigation Buttons (8 Tabs)
         self.nav_buttons = []
         nav_items = [
             ("📊 Dashboard", 0),
@@ -1372,6 +1693,7 @@ class FBAutoBotMainWindow(QMainWindow):
             ("📢 FB Group Posting", 4),
             ("🧠 AI Content Spinner", 5),
             ("⚙️ Settings & Stealth", 6),
+            ("👤 User Profile & Logs", 7),
         ]
 
         for text, index in nav_items:
@@ -1410,22 +1732,182 @@ class FBAutoBotMainWindow(QMainWindow):
             else:
                 btn.setStyleSheet("")
 
+        # Update header breadcrumb title
+        tab_names = [
+            "Operational Dashboard",
+            "Accounts & Session Manager",
+            "Methods & Macro Recorder",
+            "Marketplace Automation Engine",
+            "Facebook Group Automation",
+            "AI Content Spinner & Intelligence",
+            "Settings & Stealth Parameters",
+            "User Profile & Activity Logs"
+        ]
+        if 0 <= index < len(tab_names) and hasattr(self, 'header_page_title'):
+            self.header_page_title.setText(tab_names[index])
+
+        # If switching to profile page, ensure data is fresh
+        if index == 7 and hasattr(self, 'update_profile_page_data'):
+            self.update_profile_page_data()
+
+    # --------------------------------------------------------------------------
+    # Countdown Segment Digit Box Helper
+    # --------------------------------------------------------------------------
+    def create_countdown_digit_box(self, initial_val: str, label_text: str):
+        box = QFrame()
+        box.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #111827, stop:1 #070b14);
+                border: 1px solid rgba(255, 255, 255, 0.10);
+                border-radius: 10px;
+            }
+        """)
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(2)
+        layout.setAlignment(Qt.AlignCenter)
+
+        num_lbl = QLabel(initial_val)
+        num_lbl.setAlignment(Qt.AlignCenter)
+        num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #60a5fa; font-family: 'Consolas', 'Menlo', monospace;")
+        
+        tag_lbl = QLabel(label_text)
+        tag_lbl.setAlignment(Qt.AlignCenter)
+        tag_lbl.setStyleSheet("font-size: 10px; font-weight: 700; color: #64748b; letter-spacing: 0.8px;")
+
+        layout.addWidget(num_lbl)
+        layout.addWidget(tag_lbl)
+        box.num_lbl = num_lbl
+        return box
+
     # --------------------------------------------------------------------------
     # Tab 1: Dashboard
     # --------------------------------------------------------------------------
     def create_dashboard_page(self):
         page = QWidget()
-        layout = QVBoxLayout(page)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(16)
 
         # Header
         title = QLabel("Operational Dashboard")
         title.setProperty("class", "pageTitle")
-        sub = QLabel("Real-time telemetry, session health, and automated posting statistics.")
+        sub = QLabel("Real-time telemetry, license duration countdown, and automated posting statistics.")
         sub.setProperty("class", "pageSubtitle")
         layout.addWidget(title)
         layout.addWidget(sub)
+
+        # --- DEDICATED LIVE LICENSE & TRIAL DURATION TRACKER CARD ---
+        self.dash_license_card = QFrame()
+        self.dash_license_card.setProperty("class", "glassCard")
+        lc_layout = QVBoxLayout(self.dash_license_card)
+        lc_layout.setContentsMargins(18, 16, 18, 16)
+        lc_layout.setSpacing(12)
+
+        # Header row inside license card
+        lc_header = QHBoxLayout()
+        lc_title_box = QVBoxLayout()
+        lc_title_row = QHBoxLayout()
+        lc_icon = QLabel("🔑")
+        lc_icon.setStyleSheet("font-size: 18px;")
+        lc_title = QLabel("License & Trial Duration Tracker")
+        lc_title.setStyleSheet("font-size: 16px; font-weight: 800; color: #f8fafc;")
+        
+        self.dash_license_tier_badge = QLabel("PRO ENTERPRISE")
+        self.dash_license_tier_badge.setStyleSheet("background-color: #4f46e5; color: #ffffff; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; letter-spacing: 0.5px;")
+        
+        lc_title_row.addWidget(lc_icon)
+        lc_title_row.addWidget(lc_title)
+        lc_title_row.addWidget(self.dash_license_tier_badge)
+        lc_title_row.addStretch()
+
+        self.dash_license_sub = QLabel("Cryptographic HWID Signature Binding • Real-Time Countdown Telemetry")
+        self.dash_license_sub.setStyleSheet("font-size: 11px; color: #94a3b8;")
+
+        lc_title_box.addLayout(lc_title_row)
+        lc_title_box.addWidget(self.dash_license_sub)
+        lc_header.addLayout(lc_title_box)
+        lc_header.addStretch()
+
+        # Action Buttons in Card Header
+        btn_update_key = QPushButton("🔑 Update Key")
+        btn_update_key.setProperty("class", "secondaryBtn")
+        btn_update_key.setCursor(Qt.PointingHandCursor)
+        btn_update_key.clicked.connect(self.open_license_activation_dialog)
+
+        btn_extend_wa = QPushButton("💬 Extend on WhatsApp")
+        btn_extend_wa.setStyleSheet("background-color: #059669; color: #ffffff; font-weight: 700; font-size: 11px; padding: 6px 12px; border-radius: 8px;")
+        btn_extend_wa.setCursor(Qt.PointingHandCursor)
+        btn_extend_wa.clicked.connect(self.open_whatsapp_support)
+
+        lc_header.addWidget(btn_update_key)
+        lc_header.addWidget(btn_extend_wa)
+        lc_layout.addLayout(lc_header)
+
+        # 4-Segment Modern Digital Countdown Clock
+        self.countdown_clock_row = QHBoxLayout()
+        self.countdown_clock_row.setSpacing(10)
+
+        self.dash_box_days = self.create_countdown_digit_box("00", "DAYS")
+        self.dash_box_hours = self.create_countdown_digit_box("00", "HOURS")
+        self.dash_box_mins = self.create_countdown_digit_box("00", "MINUTES")
+        self.dash_box_secs = self.create_countdown_digit_box("00", "SECONDS")
+
+        self.countdown_clock_row.addWidget(self.dash_box_days)
+        self.countdown_clock_row.addWidget(self.dash_box_hours)
+        self.countdown_clock_row.addWidget(self.dash_box_mins)
+        self.countdown_clock_row.addWidget(self.dash_box_secs)
+        lc_layout.addLayout(self.countdown_clock_row)
+
+        # Details Row: User, Expiry Date, Status
+        details_row = QHBoxLayout()
+        details_row.setSpacing(14)
+        
+        self.dash_lic_user_lbl = QLabel("👤 User: Initializing...")
+        self.dash_lic_user_lbl.setStyleSheet("color: #cbd5e1; font-size: 12px; font-weight: 600;")
+        
+        self.dash_lic_expiry_lbl = QLabel("📅 Expiry: Initializing...")
+        self.dash_lic_expiry_lbl.setStyleSheet("color: #94a3b8; font-size: 12px;")
+
+        self.dash_lic_status_badge = QLabel("● ACTIVE")
+        self.dash_lic_status_badge.setStyleSheet("color: #10b981; font-size: 12px; font-weight: 800;")
+
+        details_row.addWidget(self.dash_lic_user_lbl)
+        details_row.addWidget(self.dash_lic_expiry_lbl)
+        details_row.addStretch()
+        details_row.addWidget(self.dash_lic_status_badge)
+        lc_layout.addLayout(details_row)
+
+        # Urgent Expiration Warning Banner (Visible upon license/trial expiration)
+        self.dash_expire_banner = QFrame()
+        self.dash_expire_banner.setStyleSheet("background-color: rgba(185, 28, 28, 0.25); border: 1.5px solid #ef4444; border-radius: 10px; padding: 12px;")
+        eb_layout = QHBoxLayout(self.dash_expire_banner)
+        eb_layout.setContentsMargins(12, 10, 12, 10)
+        
+        eb_icon = QLabel("⚠️")
+        eb_icon.setStyleSheet("font-size: 20px;")
+        
+        self.dash_expire_banner_text = QLabel("License duration expired! Please update your license key or please update your balance to continue using automation.")
+        self.dash_expire_banner_text.setStyleSheet("color: #fca5a5; font-size: 13px; font-weight: 700;")
+        self.dash_expire_banner_text.setWordWrap(True)
+
+        eb_btn = QPushButton("🔑 Update License Key Now")
+        eb_btn.setStyleSheet("background-color: #ef4444; color: #ffffff; font-weight: 800; font-size: 12px; padding: 7px 16px; border-radius: 8px;")
+        eb_btn.setCursor(Qt.PointingHandCursor)
+        eb_btn.clicked.connect(self.open_license_activation_dialog)
+
+        eb_layout.addWidget(eb_icon)
+        eb_layout.addWidget(self.dash_expire_banner_text, stretch=1)
+        eb_layout.addWidget(eb_btn)
+        self.dash_expire_banner.setVisible(False)
+        lc_layout.addWidget(self.dash_expire_banner)
+
+        layout.addWidget(self.dash_license_card)
 
         # Metrics cards row
         metrics_row = QHBoxLayout()
@@ -1513,7 +1995,7 @@ class FBAutoBotMainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         b1 = QPushButton("⚡ Launch New Auto-Listing")
         b1.setProperty("class", "primaryBtn")
-        b1.clicked.connect(lambda: self.switch_tab(2))
+        b1.clicked.connect(lambda: self.switch_tab(3))
 
         b2 = QPushButton("👥 Import New Account Session")
         b2.setProperty("class", "secondaryBtn")
@@ -1521,14 +2003,531 @@ class FBAutoBotMainWindow(QMainWindow):
 
         b3 = QPushButton("🧠 Spin Description with AI")
         b3.setProperty("class", "secondaryBtn")
-        b3.clicked.connect(lambda: self.switch_tab(3))
+        b3.clicked.connect(lambda: self.switch_tab(5))
+
+        b4 = QPushButton("👤 User Profile & Logs")
+        b4.setProperty("class", "secondaryBtn")
+        b4.clicked.connect(lambda: self.switch_tab(7))
 
         btn_row.addWidget(b1)
         btn_row.addWidget(b2)
         btn_row.addWidget(b3)
+        btn_row.addWidget(b4)
         btn_row.addStretch()
         q_layout.addLayout(btn_row)
         layout.addWidget(quick_card)
+
+        layout.addStretch()
+        scroll.setWidget(container)
+        outer_layout = QVBoxLayout(page)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(scroll)
+        return page
+
+    # --------------------------------------------------------------------------
+    # Live License Countdown & Automated Expiration Check Subsystem
+    # --------------------------------------------------------------------------
+    def tick_license_countdown(self):
+        """Live 1-second interval countdown updater and expiration guard."""
+        if not hasattr(self, 'dash_box_days'):
+            return
+
+        if not self.license_active and not self.license_info:
+            self.reload_license_data()
+
+        is_lifetime = False
+        expiry = self.license_info.get("expiry", 0)
+        customer = self.license_info.get("customer", "Active User")
+        tier = self.license_info.get("tier", "Pro")
+
+        if self.license_active and expiry == 0:
+            is_lifetime = True
+
+        if is_lifetime:
+            self.dash_license_tier_badge.setText(f"{tier.upper()} LIFETIME")
+            self.dash_license_tier_badge.setStyleSheet("background-color: #059669; color: #ffffff; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; letter-spacing: 0.5px;")
+            self.dash_box_days.num_lbl.setText("∞")
+            self.dash_box_hours.num_lbl.setText("LIFE")
+            self.dash_box_hours.num_lbl.setStyleSheet("font-size: 18px; font-weight: 900; color: #10b981; font-family: 'Consolas', monospace;")
+            self.dash_box_mins.num_lbl.setText("TIME")
+            self.dash_box_mins.num_lbl.setStyleSheet("font-size: 18px; font-weight: 900; color: #10b981; font-family: 'Consolas', monospace;")
+            self.dash_box_secs.num_lbl.setText("PASS")
+            self.dash_box_secs.num_lbl.setStyleSheet("font-size: 18px; font-weight: 900; color: #10b981; font-family: 'Consolas', monospace;")
+            
+            if hasattr(self, 'header_countdown_pill'):
+                self.header_countdown_pill.setText("⚡ Lifetime Unlimited")
+                self.header_countdown_pill.setStyleSheet("background-color: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 10px; font-size: 11px; font-weight: 700; padding: 4px 10px;")
+            
+            self.dash_lic_user_lbl.setText(f"👤 Registered: {customer}")
+            self.dash_lic_expiry_lbl.setText("📅 Duration: Lifetime Unlimited Access")
+            self.dash_lic_status_badge.setText("● VERIFIED & ACTIVE")
+            self.dash_lic_status_badge.setStyleSheet("color: #10b981; font-size: 12px; font-weight: 800;")
+            self.dash_expire_banner.setVisible(False)
+            return
+
+        now = int(time.time())
+        diff = expiry - now if expiry > 0 else -1
+
+        if self.license_active and diff > 0:
+            days = diff // 86400
+            hours = (diff % 86400) // 3600
+            mins = (diff % 3600) // 60
+            secs = diff % 60
+
+            self.dash_license_tier_badge.setText(f"{tier.upper()} TIER")
+            self.dash_license_tier_badge.setStyleSheet("background-color: #4f46e5; color: #ffffff; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; letter-spacing: 0.5px;")
+
+            self.dash_box_days.num_lbl.setText(f"{days:02d}")
+            self.dash_box_hours.num_lbl.setText(f"{hours:02d}")
+            self.dash_box_hours.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #60a5fa; font-family: 'Consolas', monospace;")
+            self.dash_box_mins.num_lbl.setText(f"{mins:02d}")
+            self.dash_box_mins.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #60a5fa; font-family: 'Consolas', monospace;")
+            self.dash_box_secs.num_lbl.setText(f"{secs:02d}")
+            self.dash_box_secs.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #60a5fa; font-family: 'Consolas', monospace;")
+
+            if hasattr(self, 'header_countdown_pill'):
+                self.header_countdown_pill.setText(f"⏳ {days}d {hours:02d}h {mins:02d}m {secs:02d}s")
+                self.header_countdown_pill.setStyleSheet("background-color: rgba(99, 102, 241, 0.15); color: #c7d2fe; border: 1px solid rgba(129, 140, 248, 0.3); border-radius: 10px; font-size: 11px; font-weight: 700; padding: 4px 10px;")
+
+            expiry_date_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(expiry))
+            self.dash_lic_user_lbl.setText(f"👤 Registered: {customer}")
+            self.dash_lic_expiry_lbl.setText(f"📅 Expiry: {expiry_date_str}")
+            self.dash_lic_status_badge.setText("● ACTIVE")
+            self.dash_lic_status_badge.setStyleSheet("color: #10b981; font-size: 12px; font-weight: 800;")
+
+            if days < 3:
+                self.dash_expire_banner.setVisible(True)
+                self.dash_expire_banner_text.setText(f"⚠️ Notice: Your license expires in {days} day(s) ({hours}h remaining). Please update your license key or renew your balance soon.")
+                self.dash_expire_banner.setStyleSheet("background-color: rgba(217, 119, 6, 0.25); border: 1.5px solid #f59e0b; border-radius: 10px; padding: 12px;")
+            else:
+                self.dash_expire_banner.setVisible(False)
+        else:
+            # Expired or Inactive
+            self.dash_license_tier_badge.setText("EXPIRED / INACTIVE")
+            self.dash_license_tier_badge.setStyleSheet("background-color: #b91c1c; color: #ffffff; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; letter-spacing: 0.5px;")
+
+            self.dash_box_days.num_lbl.setText("00")
+            self.dash_box_hours.num_lbl.setText("00")
+            self.dash_box_hours.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #ef4444; font-family: 'Consolas', monospace;")
+            self.dash_box_mins.num_lbl.setText("00")
+            self.dash_box_mins.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #ef4444; font-family: 'Consolas', monospace;")
+            self.dash_box_secs.num_lbl.setText("00")
+            self.dash_box_secs.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #ef4444; font-family: 'Consolas', monospace;")
+
+            if hasattr(self, 'header_countdown_pill'):
+                self.header_countdown_pill.setText("🔴 EXPIRED (00:00:00)")
+                self.header_countdown_pill.setStyleSheet("background-color: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 10px; font-size: 11px; font-weight: 800; padding: 4px 10px;")
+
+            self.dash_lic_user_lbl.setText(f"👤 Client: {customer}")
+            self.dash_lic_expiry_lbl.setText("📅 Duration: Expired / Key Renewal Needed")
+            self.dash_lic_status_badge.setText("● EXPIRED")
+            self.dash_lic_status_badge.setStyleSheet("color: #ef4444; font-size: 12px; font-weight: 800;")
+
+            self.dash_expire_banner.setVisible(True)
+            self.dash_expire_banner_text.setText("⚠️ Warning: Your license or trial period has ended! Please update your license key or please update your balance to continue using automation.")
+            self.dash_expire_banner.setStyleSheet("background-color: rgba(185, 28, 28, 0.35); border: 1.5px solid #ef4444; border-radius: 10px; padding: 12px;")
+
+            # Automatic Trigger Check Warning Alert
+            if not self.has_shown_expired_warning:
+                self.has_shown_expired_warning = True
+                self.log_message("WARNING", "License countdown expired: Please update your license key or please update your balance.", category="LICENSE")
+                QMessageBox.warning(
+                    self,
+                    "License Expiration Notice",
+                    "⚠️ Your license duration has expired!\n\n"
+                    "Please update your license key or please update your balance to continue unlimited automated posting.\n\n"
+                    "Click 'Update Key' to enter a valid license key or contact Admin on WhatsApp."
+                )
+
+    def open_license_activation_dialog(self):
+        """Presents the License Activation Dialog to allow entering or updating license keys."""
+        if not HAS_LICENSING or LicenseActivationDialog is None:
+            QMessageBox.information(self, "Notice", "Licensing gatekeeper is not configured in this environment.")
+            return
+
+        dialog = LicenseActivationDialog(self, admin_phone="+15678993618")
+        if dialog.exec_() == LicenseActivationDialog.Accepted:
+            self.reload_license_data()
+            self.has_shown_expired_warning = False
+            self.tick_license_countdown()
+            self.update_profile_page_data()
+            cust = self.license_info.get("customer", "Client")
+            tier = self.license_info.get("tier", "Pro")
+            self.setWindowTitle(f"FB Auto Bot v2.4 - [{cust} | {tier}] - HWID Locked")
+            self.log_message("SUCCESS", f"🎉 New software license successfully activated for {cust} ({tier})!", category="LICENSE")
+
+    def open_whatsapp_support(self):
+        """Opens WhatsApp support chat for license renewals, technical support, or top-ups."""
+        try:
+            import webbrowser
+            import urllib.parse
+            admin_phone = "+15678993618"
+            clean_phone = re.sub(r'[^0-9]', '', admin_phone)
+            hwid = get_machine_hwid() if HAS_LICENSING else "HWID"
+            cust = self.license_info.get("customer", "Client")
+            text = f"Hello Admin, I would like to renew or update my license for FB Auto Bot v2.4.\nCustomer: {cust}\nHWID: {hwid}"
+            encoded_text = urllib.parse.quote(text)
+            url = f"https://wa.me/{clean_phone}?text={encoded_text}"
+            webbrowser.open(url)
+            self.log_message("INFO", "Dispatched WhatsApp support chat window.", category="LICENSE")
+        except Exception as e:
+            QMessageBox.information(self, "Support Contact", f"WhatsApp Admin Contact: +15678993618\n(Error opening browser: {e})")
+
+    # --------------------------------------------------------------------------
+    # Tab 8: User Profile & Activity Log Page
+    # --------------------------------------------------------------------------
+    def create_profile_page(self):
+        page = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        # Page Header
+        title = QLabel("User Profile & System Telemetry")
+        title.setProperty("class", "pageTitle")
+        sub = QLabel("Manage your client credentials, hardware identification, network details, and real-time execution audit logs.")
+        sub.setProperty("class", "pageSubtitle")
+        layout.addWidget(title)
+        layout.addWidget(sub)
+
+        # Top 2 Cards: User Identity & License Credentials vs Technical Machine Diagnostics
+        cards_row = QHBoxLayout()
+        cards_row.setSpacing(14)
+
+        # --- Card 1: User Identity & License Credentials ---
+        card_user = QFrame()
+        card_user.setProperty("class", "glassCard")
+        u_layout = QVBoxLayout(card_user)
+        u_layout.setContentsMargins(18, 16, 18, 16)
+        u_layout.setSpacing(12)
+
+        u_header = QLabel("👤 User Identity & License Credentials")
+        u_header.setProperty("class", "cardTitle")
+        u_layout.addWidget(u_header)
+
+        self.prof_name_lbl = QLabel("Client Name: Loading...")
+        self.prof_name_lbl.setStyleSheet("font-size: 14px; font-weight: 700; color: #f8fafc;")
+        u_layout.addWidget(self.prof_name_lbl)
+
+        self.prof_tier_lbl = QLabel("Plan / Tier: Loading...")
+        self.prof_tier_lbl.setStyleSheet("font-size: 12px; color: #818cf8; font-weight: 700;")
+        u_layout.addWidget(self.prof_tier_lbl)
+
+        # License Key Field with Show/Hide toggle and Copy
+        u_layout.addWidget(QLabel("Cryptographic License Key:"))
+        key_row = QHBoxLayout()
+        self.prof_key_input = QLineEdit()
+        self.prof_key_input.setReadOnly(True)
+        self.prof_key_input.setEchoMode(QLineEdit.Password)
+        self.prof_key_input.setStyleSheet("font-family: monospace; font-size: 11px; background-color: #070a13; color: #34d399; font-weight: bold;")
+        
+        self.prof_chk_unmask = QCheckBox("Show")
+        self.prof_chk_unmask.toggled.connect(lambda checked: self.prof_key_input.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password))
+        
+        btn_copy_key = QPushButton("📋 Copy Key")
+        btn_copy_key.setProperty("class", "secondaryBtn")
+        btn_copy_key.clicked.connect(self.copy_license_key_to_clipboard)
+
+        key_row.addWidget(self.prof_key_input, stretch=1)
+        key_row.addWidget(self.prof_chk_unmask)
+        key_row.addWidget(btn_copy_key)
+        u_layout.addLayout(key_row)
+
+        self.prof_expiry_lbl = QLabel("Expires: Loading...")
+        self.prof_expiry_lbl.setStyleSheet("font-size: 12px; color: #cbd5e1;")
+        u_layout.addWidget(self.prof_expiry_lbl)
+
+        self.prof_countdown_lbl = QLabel("Remaining: Loading...")
+        self.prof_countdown_lbl.setStyleSheet("font-size: 12px; color: #38bdf8; font-weight: 700;")
+        u_layout.addWidget(self.prof_countdown_lbl)
+
+        # Action buttons in Card 1
+        u_btn_row = QHBoxLayout()
+        btn_prof_update_key = QPushButton("🔑 Update / Enter License Key")
+        btn_prof_update_key.setProperty("class", "primaryBtn")
+        btn_prof_update_key.clicked.connect(self.open_license_activation_dialog)
+
+        btn_prof_wa = QPushButton("💬 Renew on WhatsApp")
+        btn_prof_wa.setStyleSheet("background-color: #059669; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 8px 14px;")
+        btn_prof_wa.clicked.connect(self.open_whatsapp_support)
+
+        u_btn_row.addWidget(btn_prof_update_key)
+        u_btn_row.addWidget(btn_prof_wa)
+        u_layout.addLayout(u_btn_row)
+
+        cards_row.addWidget(card_user, stretch=1)
+
+        # --- Card 2: Technical Client Machine & Network Diagnostics ---
+        card_tech = QFrame()
+        card_tech.setProperty("class", "glassCard")
+        t_layout = QVBoxLayout(card_tech)
+        t_layout.setContentsMargins(18, 16, 18, 16)
+        t_layout.setSpacing(12)
+
+        t_header = QLabel("🖥️ Technical Machine & IP Diagnostics")
+        t_header.setProperty("class", "cardTitle")
+        t_layout.addWidget(t_header)
+
+        # Hardware ID (HWID)
+        t_layout.addWidget(QLabel("Machine Hardware ID (HWID):"))
+        hwid_row = QHBoxLayout()
+        self.prof_hwid_input = QLineEdit(get_machine_hwid() if HAS_LICENSING else "HWID-UNAVAILABLE")
+        self.prof_hwid_input.setReadOnly(True)
+        self.prof_hwid_input.setStyleSheet("font-family: monospace; font-size: 11px; background-color: #070a13; color: #60a5fa; font-weight: bold;")
+        
+        btn_copy_hwid = QPushButton("📋 Copy HWID")
+        btn_copy_hwid.setProperty("class", "secondaryBtn")
+        btn_copy_hwid.clicked.connect(self.copy_hwid_to_clipboard)
+
+        hwid_row.addWidget(self.prof_hwid_input, stretch=1)
+        hwid_row.addWidget(btn_copy_hwid)
+        t_layout.addLayout(hwid_row)
+
+        # Client IP Address (Local & Public WAN)
+        t_layout.addWidget(QLabel("Client Computer IP Address:"))
+        ip_row = QHBoxLayout()
+        self.prof_ip_input = QLineEdit("Detecting IP network...")
+        self.prof_ip_input.setReadOnly(True)
+        self.prof_ip_input.setStyleSheet("font-family: monospace; font-size: 11px; background-color: #070a13; color: #f59e0b; font-weight: bold;")
+        
+        btn_refresh_ip = QPushButton("🔄 Refresh IP")
+        btn_refresh_ip.setProperty("class", "secondaryBtn")
+        btn_refresh_ip.clicked.connect(self.fetch_client_ip)
+
+        ip_row.addWidget(self.prof_ip_input, stretch=1)
+        ip_row.addWidget(btn_refresh_ip)
+        t_layout.addLayout(ip_row)
+
+        # Operating System & Runtime Environment Details
+        sys_details = [
+            f"Machine Hostname: {platform.node()}",
+            f"Operating System: {platform.system()} {platform.release()} ({platform.machine()})",
+            f"Python Runtime: {platform.python_version()} | PyQt5 Desktop GUI",
+            f"Stealth Engine: Playwright Isolation + WebGL Canvas Anti-Fingerprinting"
+        ]
+        self.prof_sys_lbl = QLabel("\n".join(sys_details))
+        self.prof_sys_lbl.setStyleSheet("font-size: 11px; color: #94a3b8; line-height: 1.4;")
+        t_layout.addWidget(self.prof_sys_lbl)
+
+        cards_row.addWidget(card_tech, stretch=1)
+        layout.addLayout(cards_row)
+
+        # --- Card 3: Recent Activity Logs & Audit Trail ---
+        card_logs = QFrame()
+        card_logs.setProperty("class", "glassCard")
+        l_layout = QVBoxLayout(card_logs)
+        l_layout.setContentsMargins(18, 16, 18, 16)
+        l_layout.setSpacing(12)
+
+        # Log toolbar
+        log_tb = QHBoxLayout()
+        log_tb.setSpacing(10)
+
+        log_tb_title = QLabel("📜 Activity Logs & Execution Audit Trail")
+        log_tb_title.setProperty("class", "cardTitle")
+        log_tb.addWidget(log_tb_title)
+        log_tb.addStretch()
+
+        log_tb.addWidget(QLabel("Filter:"))
+        self.prof_log_level_filter = QComboBox()
+        self.prof_log_level_filter.addItems(["All Levels", "SUCCESS", "INFO", "WARNING", "ERROR"])
+        self.prof_log_level_filter.currentIndexChanged.connect(self.filter_activity_logs)
+        log_tb.addWidget(self.prof_log_level_filter)
+
+        self.prof_log_search = QLineEdit()
+        self.prof_log_search.setPlaceholderText("Search logs...")
+        self.prof_log_search.textChanged.connect(self.filter_activity_logs)
+        self.prof_log_search.setFixedWidth(160)
+        log_tb.addWidget(self.prof_log_search)
+
+        btn_export_logs = QPushButton("📥 Export Logs")
+        btn_export_logs.setProperty("class", "secondaryBtn")
+        btn_export_logs.clicked.connect(self.export_activity_logs)
+        log_tb.addWidget(btn_export_logs)
+
+        btn_clear_logs = QPushButton("🗑️ Clear")
+        btn_clear_logs.setProperty("class", "secondaryBtn")
+        btn_clear_logs.clicked.connect(self.clear_activity_logs)
+        log_tb.addWidget(btn_clear_logs)
+
+        l_layout.addLayout(log_tb)
+
+        # Activity Log Table
+        self.profile_log_table = QTableWidget()
+        self.profile_log_table.setColumnCount(4)
+        self.profile_log_table.setHorizontalHeaderLabels(["Timestamp", "Category", "Level", "Activity Description"])
+        self.profile_log_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.profile_log_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.profile_log_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.profile_log_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.profile_log_table.verticalHeader().setVisible(False)
+        self.profile_log_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.profile_log_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.profile_log_table.setFixedHeight(220)
+        l_layout.addWidget(self.profile_log_table)
+
+        layout.addWidget(card_logs)
+
+        scroll.setWidget(container)
+        outer_layout = QVBoxLayout(page)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(scroll)
+
+        self.update_profile_page_data()
+        return page
+
+    def update_profile_page_data(self):
+        """Updates user profile card fields with the latest license and client data."""
+        if not hasattr(self, 'prof_name_lbl'):
+            return
+
+        customer = self.license_info.get("customer", "Active Client")
+        tier = self.license_info.get("tier", "Pro")
+        expiry = self.license_info.get("expiry", 0)
+
+        self.prof_name_lbl.setText(f"Client Name: {customer}")
+        self.prof_tier_lbl.setText(f"Plan / Tier: {tier} (Cryptographically Bound)")
+        self.prof_key_input.setText(self.saved_license_key or "NO_ACTIVE_LICENSE_KEY_FOUND")
+
+        if expiry > 0:
+            expiry_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(expiry))
+            diff = expiry - int(time.time())
+            if diff > 0:
+                days = diff // 86400
+                hours = (diff % 86400) // 3600
+                self.prof_expiry_lbl.setText(f"Expires: {expiry_str}")
+                self.prof_countdown_lbl.setText(f"Remaining Duration: {days} Days, {hours} Hours")
+                self.prof_countdown_lbl.setStyleSheet("font-size: 12px; color: #34d399; font-weight: 700;")
+            else:
+                self.prof_expiry_lbl.setText(f"Expires: {expiry_str} (EXPIRED)")
+                self.prof_countdown_lbl.setText("Remaining Duration: 00:00:00 (EXPIRED - Update Key)")
+                self.prof_countdown_lbl.setStyleSheet("font-size: 12px; color: #ef4444; font-weight: 700;")
+        else:
+            self.prof_expiry_lbl.setText("Expires: Lifetime Unlimited Access")
+            self.prof_countdown_lbl.setText("Remaining Duration: ∞ Unlimited (No Expiration)")
+            self.prof_countdown_lbl.setStyleSheet("font-size: 12px; color: #34d399; font-weight: 700;")
+
+        if hasattr(self, 'header_user_chip'):
+            self.header_user_chip.setText(f"👤 {customer} [{tier}]")
+
+    def copy_license_key_to_clipboard(self):
+        key = self.saved_license_key or self.prof_key_input.text()
+        if key and key != "NO_ACTIVE_LICENSE_KEY_FOUND":
+            QApplication.clipboard().setText(key)
+            QMessageBox.information(self, "Copied", "License key copied to clipboard!")
+        else:
+            QMessageBox.warning(self, "Notice", "No license key available to copy.")
+
+    def copy_hwid_to_clipboard(self):
+        hwid = self.prof_hwid_input.text()
+        QApplication.clipboard().setText(hwid)
+        QMessageBox.information(self, "Copied", f"Hardware ID copied to clipboard!\n\nHWID: {hwid}\n\nSend this HWID to Admin for key generation.")
+
+    def fetch_client_ip(self):
+        """Asynchronously discovers local LAN and public WAN IP."""
+        if hasattr(self, 'prof_ip_input'):
+            self.prof_ip_input.setText("Fetching network IP...")
+        self.ip_worker = ClientIPWorker()
+        self.ip_worker.ip_ready.connect(self.on_ip_fetched)
+        self.ip_worker.start()
+
+    def on_ip_fetched(self, local_ip: str, public_ip: str):
+        self.client_local_ip = local_ip
+        self.client_public_ip = public_ip
+        if hasattr(self, 'prof_ip_input'):
+            self.prof_ip_input.setText(f"Public WAN: {public_ip}  |  Local LAN: {local_ip}")
+
+    def append_log_to_table(self, entry: dict):
+        """Adds a single log entry row to the profile page activity table."""
+        if not hasattr(self, 'profile_log_table'):
+            return
+        row = self.profile_log_table.rowCount()
+        self.profile_log_table.insertRow(row)
+
+        item_time = QTableWidgetItem(entry.get("short_time", ""))
+        item_time.setForeground(QColor("#94a3b8"))
+        item_time.setTextAlignment(Qt.AlignCenter)
+
+        item_cat = QTableWidgetItem(entry.get("category", "SYSTEM"))
+        item_cat.setForeground(QColor("#a5b4fc"))
+        item_cat.setTextAlignment(Qt.AlignCenter)
+
+        level = entry.get("level", "INFO")
+        item_level = QTableWidgetItem(level)
+        item_level.setTextAlignment(Qt.AlignCenter)
+        if level == "SUCCESS":
+            item_level.setForeground(QColor("#34d399"))
+        elif level == "WARNING":
+            item_level.setForeground(QColor("#f59e0b"))
+        elif level == "ERROR":
+            item_level.setForeground(QColor("#ef4444"))
+        else:
+            item_level.setForeground(QColor("#38bdf8"))
+
+        item_msg = QTableWidgetItem(entry.get("message", ""))
+        item_msg.setForeground(QColor("#f8fafc"))
+
+        self.profile_log_table.setItem(row, 0, item_time)
+        self.profile_log_table.setItem(row, 1, item_cat)
+        self.profile_log_table.setItem(row, 2, item_level)
+        self.profile_log_table.setItem(row, 3, item_msg)
+        self.profile_log_table.scrollToBottom()
+
+    def filter_activity_logs(self):
+        """Filters the Activity Log Table based on level and search text."""
+        if not hasattr(self, 'profile_log_table') or not hasattr(self, 'prof_log_level_filter'):
+            return
+        selected_level = self.prof_log_level_filter.currentText()
+        search_query = self.prof_log_search.text().strip().lower()
+
+        self.profile_log_table.setRowCount(0)
+        for entry in self.activity_logs:
+            if selected_level != "All Levels" and entry.get("level") != selected_level:
+                continue
+            if search_query:
+                msg = entry.get("message", "").lower()
+                cat = entry.get("category", "").lower()
+                if search_query not in msg and search_query not in cat:
+                    continue
+            self.append_log_to_table(entry)
+
+    def export_activity_logs(self):
+        """Exports activity logs to JSON or TXT file."""
+        if not self.activity_logs:
+            QMessageBox.information(self, "Export Notice", "No activity logs recorded to export yet.")
+            return
+        filepath, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Activity Logs",
+            os.path.join(os.path.expanduser("~"), f"fb_autobot_activity_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"),
+            "JSON Files (*.json);;Text Files (*.txt)"
+        )
+        if not filepath:
+            return
+        try:
+            if filepath.endswith(".txt"):
+                with open(filepath, "w", encoding="utf-8") as f:
+                    for entry in self.activity_logs:
+                        f.write(f"[{entry.get('timestamp')}] [{entry.get('level')}] [{entry.get('category')}] {entry.get('message')}\n")
+            else:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    json.dump(self.activity_logs, f, indent=2)
+            QMessageBox.information(self, "Export Successful", f"Activity logs exported successfully to:\n{filepath}")
+            self.log_message("SUCCESS", f"Activity logs exported to: {filepath}", category="SYSTEM")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Could not export logs: {e}")
+
+    def clear_activity_logs(self):
+        """Clears the internal log history and log table."""
+        self.activity_logs.clear()
+        if hasattr(self, 'profile_log_table'):
+            self.profile_log_table.setRowCount(0)
+        self.log_message("INFO", "Activity logs audit trail cleared by user.", category="SYSTEM")
 
         layout.addStretch()
         return page
@@ -2783,6 +3782,75 @@ class FBAutoBotMainWindow(QMainWindow):
         else:
             self.log_message("WARNING", f"Recording ended or cancelled for '{method_name}'.")
 
+    def record_new_group_macro_method(self):
+        """Prompts for an FB group method name & target account, launches an interactive browser, and records FB Group actions."""
+        try:
+            name, ok = QInputDialog.getText(
+                self,
+                "New FB Group Method Recorder",
+                "Enter a name for this custom FB Group posting method:\n(e.g., Car_Dealers_Group, Real_Estate_Group_Post)",
+                QLineEdit.Normal,
+                "Custom_FBGroup_Flow"
+            )
+            if not ok or not name.strip():
+                return
+
+            method_name = re.sub(r'[^a-zA-Z0-9_-]', '_', name.strip())
+
+            selected_account_data = {}
+            if self.accounts_list:
+                account_options = ["🌐 Generic Browser (Fresh / No Saved Cookies)"]
+                for a in self.accounts_list:
+                    a_name = a.get("name", "Account")
+                    a_status = a.get("status", "Healthy")
+                    account_options.append(f"👤 {a_name} [{a_status}]")
+
+                acc_choice, acc_ok = QInputDialog.getItem(
+                    self,
+                    "Select Account for Group Recording",
+                    f"Choose an account profile to log into Facebook automatically for '{method_name}':",
+                    account_options,
+                    0,
+                    False
+                )
+                if not acc_ok:
+                    return
+
+                if acc_choice != account_options[0]:
+                    chosen_idx = account_options.index(acc_choice) - 1
+                    if 0 <= chosen_idx < len(self.accounts_list):
+                        selected_account_data = self.accounts_list[chosen_idx]
+                        self.log_message("INFO", f"Selected account profile '{selected_account_data.get('name')}' for FB Group recording session.")
+
+            self.log_message("INFO", f"🔴 Initializing FB Group Click Recorder for: '{method_name}'...")
+            self.log_message("INFO", "A full-screen browser will open shortly. Manually click your exact FB Group posting steps.")
+            self.log_message("INFO", "When finished, simply CLOSE the browser window and your FB Group method will be saved automatically in config/group_methods/!")
+
+            if hasattr(self, 'btn_record_new_grp_method_top'):
+                self.btn_record_new_grp_method_top.setEnabled(False)
+                self.btn_record_new_grp_method_top.setText("🔴 Recording FB Group Flow...")
+
+            self.group_macro_worker = GroupMacroRecordWorker(method_name, account_data=selected_account_data)
+            self.group_macro_worker.log_signal.connect(self.log_message)
+            self.group_macro_worker.finished_signal.connect(self.on_group_macro_recording_finished)
+            self.group_macro_worker.start()
+        except Exception as e:
+            self.log_message("ERROR", f"FB Group Macro Recorder error: {str(e)}")
+            QMessageBox.critical(self, "Recording Error", f"Could not start FB Group recorder:\n\n{str(e)}")
+            if hasattr(self, 'btn_record_new_grp_method_top'):
+                self.btn_record_new_grp_method_top.setEnabled(True)
+                self.btn_record_new_grp_method_top.setText("🔴 Record FB Group Method (Open Chrome)")
+
+    def on_group_macro_recording_finished(self, success: bool, method_name: str):
+        if hasattr(self, 'btn_record_new_grp_method_top'):
+            self.btn_record_new_grp_method_top.setEnabled(True)
+            self.btn_record_new_grp_method_top.setText("🔴 Record FB Group Method (Open Chrome)")
+        if success:
+            self.log_message("SUCCESS", f"🎉 FB Group Method '{method_name}' successfully learned and registered in config/group_methods/!")
+            self.refresh_group_methods_table()
+        else:
+            self.log_message("WARNING", f"FB Group Recording ended or cancelled for '{method_name}'.")
+
     def update_account_dropdown(self):
         self.populate_accounts_checklist()
         self.populate_group_accounts_checklist()
@@ -3049,27 +4117,9 @@ class FBAutoBotMainWindow(QMainWindow):
         p_layout.addLayout(p_settings_row)
 
         # Extension notice badge
-        ext_status_box = QLabel("🧩 Chrome Extension 'FEWFEED' will automatically load on every triggered Chrome instance.")
+        ext_status_box = QLabel("🧩 FEWFEED Extension Engine: Auto-loads in mobile emulation for 1-click group posting.")
         ext_status_box.setStyleSheet("background-color: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3); color: #c7d2fe; padding: 6px 10px; border-radius: 6px; font-size: 11px;")
         p_layout.addWidget(ext_status_box)
-
-        # Action Buttons for Posting
-        p_btn_row = QHBoxLayout()
-        self.btn_start_grp_post = QPushButton("🚀 Start Group Posting")
-        self.btn_start_grp_post.setProperty("class", "primaryBtn")
-        self.btn_start_grp_post.setCursor(Qt.PointingHandCursor)
-        self.btn_start_grp_post.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: 700; font-size: 13px; padding: 10px;")
-        self.btn_start_grp_post.clicked.connect(self.start_group_posting)
-        p_btn_row.addWidget(self.btn_start_grp_post, stretch=2)
-
-        self.btn_stop_grp_post = QPushButton("🛑 Stop")
-        self.btn_stop_grp_post.setProperty("class", "dangerBtn")
-        self.btn_stop_grp_post.setEnabled(False)
-        self.btn_stop_grp_post.setCursor(Qt.PointingHandCursor)
-        self.btn_stop_grp_post.setStyleSheet("font-size: 13px; padding: 10px;")
-        self.btn_stop_grp_post.clicked.connect(self.stop_group_automation)
-        p_btn_row.addWidget(self.btn_stop_grp_post, stretch=1)
-        p_layout.addLayout(p_btn_row)
 
         panels_row.addWidget(post_panel, stretch=1)
 
@@ -3122,34 +4172,59 @@ class FBAutoBotMainWindow(QMainWindow):
         j_ib_layout = QVBoxLayout(j_info_box)
         j_ib_layout.setSpacing(4)
         j_ib_layout.addWidget(QLabel("<b>Joining Engine Features:</b>"))
-        j_ib_layout.addWidget(QLabel("• Auto-detects Already-Joined & Pending memberships to prevent duplicate requests."))
-        j_ib_layout.addWidget(QLabel("• Submits default membership forms/questions when prompted."))
-        j_ib_layout.addWidget(QLabel("• Applies randomized human jitter between requests for account safety."))
+        j_ib_layout.addWidget(QLabel("• Auto-detects Already-Joined & Pending memberships."))
+        j_ib_layout.addWidget(QLabel("• Submits default membership forms/questions automatically."))
+        j_ib_layout.addWidget(QLabel("• Applies randomized human jitter between requests."))
         j_layout.addWidget(j_info_box)
 
         j_layout.addStretch()
 
-        # Action Buttons for Group Joining
-        j_btn_row = QHBoxLayout()
-        self.btn_start_grp_join = QPushButton("➕ Start Group Joining")
-        self.btn_start_grp_join.setProperty("class", "primaryBtn")
-        self.btn_start_grp_join.setCursor(Qt.PointingHandCursor)
-        self.btn_start_grp_join.setStyleSheet("background-color: #059669; color: #ffffff; font-weight: 700; font-size: 13px; padding: 10px;")
-        self.btn_start_grp_join.clicked.connect(self.start_group_joining)
-        j_btn_row.addWidget(self.btn_start_grp_join, stretch=2)
-
-        self.btn_stop_grp_join = QPushButton("🛑 Stop")
-        self.btn_stop_grp_join.setProperty("class", "dangerBtn")
-        self.btn_stop_grp_join.setEnabled(False)
-        self.btn_stop_grp_join.setCursor(Qt.PointingHandCursor)
-        self.btn_stop_grp_join.setStyleSheet("font-size: 13px; padding: 10px;")
-        self.btn_stop_grp_join.clicked.connect(self.stop_group_automation)
-        j_btn_row.addWidget(self.btn_stop_grp_join, stretch=1)
-        j_layout.addLayout(j_btn_row)
-
         panels_row.addWidget(join_panel, stretch=1)
 
         layout.addLayout(panels_row)
+
+        # ----------------------------------------------------------------------
+        # [UNIFIED ACTION BAR: Single Start / Stop Button for Group Automation]
+        # ----------------------------------------------------------------------
+        action_card = QFrame()
+        action_card.setProperty("class", "glassCard")
+        action_card.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(15, 23, 42, 0.95), stop:1 rgba(30, 41, 59, 0.95)); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; padding: 14px;")
+        ac_layout = QVBoxLayout(action_card)
+        ac_layout.setSpacing(10)
+
+        # Step Workflow Banner
+        workflow_banner = QLabel("⚡ <b>FEWFEED Automated Sequence:</b> Mobile Chrome opens → Runs <b>Auto Join</b> (Card #2) if group list is provided → Then opens <b>Auto Post</b> (Card #1), injects descriptions/links, selects all groups, and submits post.")
+        workflow_banner.setStyleSheet("color: #e0e7ff; font-size: 12px; line-height: 1.4;")
+        workflow_banner.setWordWrap(True)
+        ac_layout.addWidget(workflow_banner)
+
+        # Single Unified Start & Stop Buttons
+        u_btn_row = QHBoxLayout()
+        u_btn_row.setSpacing(12)
+
+        self.btn_start_grp_unified = QPushButton("🚀 START FB GROUP AUTOMATION (FEWFEED)")
+        self.btn_start_grp_unified.setProperty("class", "primaryBtn")
+        self.btn_start_grp_unified.setCursor(Qt.PointingHandCursor)
+        self.btn_start_grp_unified.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #059669); color: #ffffff; font-weight: 800; font-size: 14px; padding: 14px; border-radius: 8px;")
+        self.btn_start_grp_unified.clicked.connect(self.start_unified_group_automation)
+        u_btn_row.addWidget(self.btn_start_grp_unified, stretch=3)
+
+        self.btn_stop_grp_unified = QPushButton("🛑 STOP")
+        self.btn_stop_grp_unified.setProperty("class", "dangerBtn")
+        self.btn_stop_grp_unified.setEnabled(False)
+        self.btn_stop_grp_unified.setCursor(Qt.PointingHandCursor)
+        self.btn_stop_grp_unified.setStyleSheet("font-size: 13px; font-weight: 700; padding: 14px; border-radius: 8px;")
+        self.btn_stop_grp_unified.clicked.connect(self.stop_group_automation)
+        u_btn_row.addWidget(self.btn_stop_grp_unified, stretch=1)
+
+        ac_layout.addLayout(u_btn_row)
+        layout.addWidget(action_card)
+
+        # Compatibility aliases
+        self.btn_start_grp_post = self.btn_start_grp_unified
+        self.btn_stop_grp_post = self.btn_stop_grp_unified
+        self.btn_start_grp_join = self.btn_start_grp_unified
+        self.btn_stop_grp_join = self.btn_stop_grp_unified
 
         scroll.setWidget(container)
 
@@ -3277,58 +4352,78 @@ class FBAutoBotMainWindow(QMainWindow):
         self.group_worker.finished_signal.connect(self.on_group_automation_finished)
         self.group_worker.start()
 
-    def start_group_joining(self):
-        """Validates inputs and dispatches GroupAutomationWorker for group joining workflow."""
+    def start_unified_group_automation(self):
+        """Validates inputs and dispatches GroupAutomationWorker for the full FewFeed 2-in-1 workflow (Auto Join -> Auto Post)."""
         accounts = self.get_selected_group_accounts()
         if not accounts:
             QMessageBox.warning(self, "No Accounts Selected", "Please select at least one Facebook account profile above.")
             return
 
-        raw_codes = self.grp_join_codes_input.toPlainText().strip()
-        codes = parse_group_codes(raw_codes)
-        if not codes:
-            QMessageBox.warning(self, "Missing Group Codes", "Please enter at least one target Facebook Group Code or URL to join.")
+        raw_join_codes = self.grp_join_codes_input.toPlainText().strip()
+        join_codes = parse_group_codes(raw_join_codes)
+
+        raw_post_codes = self.grp_post_codes_input.toPlainText().strip()
+        post_codes = parse_group_codes(raw_post_codes)
+
+        raw_links = self.grp_post_links_input.toPlainText().strip()
+        links = parse_multiline_links(raw_links)
+
+        raw_desc = self.grp_post_desc_input.toPlainText().strip()
+        descriptions = [d.strip() for d in re.split(r'\n\s*\n', raw_desc) if d.strip()] if raw_desc else []
+
+        if not join_codes and not links and not descriptions and not post_codes:
+            QMessageBox.warning(self, "No Data Provided", "Please provide Target Groups to Join or Post Descriptions/Links to proceed.")
             return
 
-        threads = self.grp_join_thread_spin.value()
-        delay = self.grp_join_delay_spin.value()
+        mode = "Random" if "Random" in self.grp_post_mode_select.currentText() else "Sequential"
+        threads = max(self.grp_post_thread_spin.value(), self.grp_join_thread_spin.value())
+        delay = self.grp_post_delay_spin.value()
 
         payload = {
             "accounts": accounts,
-            "group_codes": codes,
+            "group_codes": post_codes or join_codes,
+            "join_group_codes": join_codes,
+            "post_group_codes": post_codes,
+            "links": links,
+            "descriptions": descriptions,
+            "mode": mode,
             "threads": threads,
             "delay": delay
         }
 
-        self.btn_start_grp_join.setEnabled(False)
-        self.btn_stop_grp_join.setEnabled(True)
-        self.btn_start_grp_post.setEnabled(False)
-        self.engine_status_lbl.setText("● FB GROUP JOINING")
-        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
+        self.btn_start_grp_unified.setEnabled(False)
+        self.btn_stop_grp_unified.setEnabled(True)
+        self.engine_status_lbl.setText("● FEWFEED AUTOMATION ACTIVE")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #38bdf8;")
 
-        self.group_worker = GroupAutomationWorker(task_type="joining", payload=payload)
+        self.group_worker = GroupAutomationWorker(task_type="unified", payload=payload)
         self.group_worker.log_signal.connect(self.log_message)
         self.group_worker.progress_signal.connect(self.update_progress)
         self.group_worker.finished_signal.connect(self.on_group_automation_finished)
         self.group_worker.start()
 
+    def start_group_posting(self):
+        """Redirects to unified group automation."""
+        self.start_unified_group_automation()
+
+    def start_group_joining(self):
+        """Redirects to unified group automation."""
+        self.start_unified_group_automation()
+
     def stop_group_automation(self):
         if self.group_worker:
             self.group_worker.stop()
-            self.btn_stop_grp_post.setEnabled(False)
-            self.btn_stop_grp_join.setEnabled(False)
+            self.btn_stop_grp_unified.setEnabled(False)
 
     def on_group_automation_finished(self, success: bool, message: str):
-        self.btn_start_grp_post.setEnabled(True)
-        self.btn_stop_grp_post.setEnabled(False)
-        self.btn_start_grp_join.setEnabled(True)
-        self.btn_stop_grp_join.setEnabled(False)
+        self.btn_start_grp_unified.setEnabled(True)
+        self.btn_stop_grp_unified.setEnabled(False)
         self.engine_status_lbl.setText("● READY FOR TASKS")
         self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
 
         if success:
             self.progress_bar.setValue(100)
-            QMessageBox.information(self, "Group Task Complete", f"Facebook Group task finished!\n\n{message}")
+            QMessageBox.information(self, "Group Task Complete", f"Facebook Group FewFeed automation finished!\n\n{message}")
         else:
             QMessageBox.warning(self, "Group Task Notice", f"Facebook Group execution notice:\n\n{message}")
 
@@ -3781,18 +4876,40 @@ class FBAutoBotMainWindow(QMainWindow):
         self.log_message("INFO", "FB Auto Bot Engine v2.4 initialized. Ready to automate Facebook Marketplace.")
         return panel
 
-    def log_message(self, level, message):
+    def log_message(self, level, message, category="SYSTEM"):
         timestamp = datetime.now().strftime("%H:%M:%S")
-        color_map = {
-            "INFO": "#94a3b8",
-            "SUCCESS": "#10b981",
-            "WARNING": "#f59e0b",
-            "ERROR": "#ef4444"
+        date_stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        entry = {
+            "timestamp": date_stamp,
+            "short_time": timestamp,
+            "category": category,
+            "level": level,
+            "message": message
         }
-        color = color_map.get(level, "#cbd5e1")
-        formatted = f'<span style="color: #64748b;">[{timestamp}]</span> <b style="color: {color};">[{level}]</b> <span style="color: #f8fafc;">{message}</span>'
-        self.console_box.append(formatted)
-        self.console_box.moveCursor(QTextCursor.End)
+        if hasattr(self, 'activity_logs'):
+            self.activity_logs.append(entry)
+
+        color_map = {
+            "INFO": "#38bdf8",       # Sky blue
+            "SUCCESS": "#10b981",    # Emerald green
+            "WARNING": "#f59e0b",    # Amber
+            "ERROR": "#ef4444",      # Crimson red
+            "CRITICAL": "#ff0055",   # Vivid magenta/red
+            "FALLBACK": "#c084fc"    # Purple/violet
+        }
+        color = color_map.get(level.upper(), "#cbd5e1")
+        badge = f"[{level.upper()}]"
+        if level.upper() == "FALLBACK":
+            badge = "[FALLBACK 🔄]"
+        elif level.upper() == "CRITICAL":
+            badge = "[CRITICAL 🚨]"
+        formatted = f'<span style="color: #64748b;">[{timestamp}]</span> <b style="color: {color};">{badge}</b> <span style="color: #f8fafc;">{message}</span>'
+        if hasattr(self, 'console_box'):
+            self.console_box.append(formatted)
+            self.console_box.moveCursor(QTextCursor.End)
+
+        if hasattr(self, 'profile_log_table'):
+            self.append_log_to_table(entry)
 
     def update_progress(self, val):
         self.progress_bar.setValue(val)
@@ -3844,12 +4961,12 @@ def main():
                 sys.exit(0)
             license_info = getattr(dialog, 'license_data', {}) or {}
 
-    window = FBAutoBotMainWindow()
+    window = FBAutoBotMainWindow(initial_license_info=license_info)
     if HAS_LICENSING and license_info:
         customer = license_info.get("customer", "Active User")
         tier = license_info.get("tier", "Pro")
         window.setWindowTitle(f"FB Auto Bot v2.4 - [{customer} | {tier}] - HWID Locked")
-        window.log_message("SUCCESS", f"License verified for {customer} ({tier}). HWID: {get_machine_hwid()}")
+        window.log_message("SUCCESS", f"License verified for {customer} ({tier}). HWID: {get_machine_hwid()}", category="LICENSE")
 
     window.show()
     sys.exit(app.exec_())

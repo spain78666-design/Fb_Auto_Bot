@@ -51,7 +51,16 @@ def main():
     print("🚀 FB Auto Bot - Windows Setup Installer Builder")
     print("=" * 70)
 
-    # Step 0: Ensure pristine valid ICO file exists
+    # Step 0: Ensure clean build directory & pristine valid ICO file exists
+    for folder in ["build", "dist", "dist_installer"]:
+        fp = os.path.join(base_dir, folder)
+        if os.path.exists(fp):
+            try:
+                shutil.rmtree(fp, ignore_errors=True)
+                print(f"🧹 Cleaned previous cache folder: {folder}")
+            except Exception as e:
+                pass
+
     fix_and_generate_valid_ico(base_dir)
 
     # Step 1: Run PyInstaller in --onedir mode for clean Inno Setup packaging
@@ -62,6 +71,8 @@ def main():
     
     pyinstaller_cmd = [
         sys.executable, "-m", "PyInstaller",
+        "--noconfirm",
+        "--clean",
         "--noconsole",
         "--onedir",
         "--name", "FBAutoBot",

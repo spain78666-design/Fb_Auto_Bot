@@ -13,6 +13,10 @@ try:
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
+    async_playwright = None
+    Browser = Any
+    BrowserContext = Any
+    Page = Any
 
 def get_base_dir() -> str:
     """Returns absolute path to persistent app base directory across PyInstaller exe and dev modes."""
@@ -25,7 +29,13 @@ def get_methods_dir() -> str:
     os.makedirs(mdir, exist_ok=True)
     return mdir
 
+def get_group_methods_dir() -> str:
+    gdir = os.path.join(get_base_dir(), "config", "group_methods")
+    os.makedirs(gdir, exist_ok=True)
+    return gdir
+
 METHODS_DIR = get_methods_dir()
+GROUP_METHODS_DIR = get_group_methods_dir()
 
 def parse_recorder_cookies(raw_cookies: Any) -> List[Dict[str, Any]]:
     """Helper to parse cookies in JSON list or semicolon string format into Playwright cookies."""
@@ -470,6 +480,7 @@ class MacroRecorderSession:
         
         async with async_playwright() as p:
             browser = None
+            context = None
             ext_path = os.path.join(get_base_dir(), "FEWFEED")
             launch_args = [
                 "--disable-blink-features=AutomationControlled",
@@ -501,32 +512,63 @@ class MacroRecorderSession:
                 except Exception:
                     pass
 
-            for ch in ["chrome", "msedge", None]:
-                try:
-                    browser = await p.chromium.launch(
-                        headless=False,
-                        args=launch_args,
-                        ignore_default_args=["--enable-automation"],
-                        proxy=proxy_config,
-                        channel=ch
-                    )
-                    self.log("INFO", f"Full-Screen Recorder launched using: {ch.upper() if ch else 'Chromium'}")
-                    break
-                except Exception:
-                    continue
+            # Check if account has persistent profile directory
+            profile_dir = self.account_data.get("profile_dir")
+            if not profile_dir and self.account_data.get("id"):
+                safe_id = "".join(c for c in str(self.account_data.get("id", "")) if c.isalnum() or c in ("_", "-"))
+                if safe_id:
+                    profile_dir = os.path.join(get_base_dir(), "profiles", safe_id)
+            if profile_dir:
+                os.makedirs(profile_dir, exist_ok=True)
 
-            if not browser:
-                self.log("ERROR", "Could not find Google Chrome or Edge. Please verify Chrome is installed.")
-                return False
+            if profile_dir and os.path.exists(profile_dir):
+                for ch in ["chrome", "msedge", None]:
+                    try:
+                        p_kwargs = {
+                            "user_data_dir": profile_dir,
+                            "headless": False,
+                            "args": launch_args,
+                            "ignore_default_args": ["--enable-automation"],
+                            "proxy": proxy_config,
+                            "no_viewport": True,
+                            "locale": "en-US",
+                            "permissions": ["geolocation", "notifications"]
+                        }
+                        if ch:
+                            p_kwargs["channel"] = ch
+                        context = await p.chromium.launch_persistent_context(**p_kwargs)
+                        self.log("INFO", f"Full-Screen Recorder launched with profile '{os.path.basename(profile_dir)}' using: {ch.upper() if ch else 'Chromium'}")
+                        break
+                    except Exception:
+                        continue
+
+            if not context:
+                for ch in ["chrome", "msedge", None]:
+                    try:
+                        browser = await p.chromium.launch(
+                            headless=False,
+                            args=launch_args,
+                            ignore_default_args=["--enable-automation"],
+                            proxy=proxy_config,
+                            channel=ch
+                        )
+                        self.log("INFO", f"Full-Screen Recorder launched using: {ch.upper() if ch else 'Chromium'}")
+                        break
+                    except Exception:
+                        continue
+
+                if not browser and not context:
+                    self.log("ERROR", "Could not find Google Chrome or Edge. Please verify Chrome is installed.")
+                    return False
+
+                if not context:
+                    context = await browser.new_context(
+                        no_viewport=True,
+                        locale="en-US",
+                        permissions=["geolocation", "notifications"]
+                    )
 
             try:
-                # no_viewport=True guarantees full screen window adaptation
-                context = await browser.new_context(
-                    no_viewport=True,
-                    locale="en-US",
-                    permissions=["geolocation", "notifications"]
-                )
-
                 # Inject cookies from account_data if provided
                 account_cookies = self.account_data.get("cookies")
                 if account_cookies:
@@ -537,8 +579,6 @@ class MacroRecorderSession:
                             self.log("SUCCESS", f"🔑 Injected {len(parsed_cookies)} session cookies for account '{acc_name or 'Selected'}'.")
                         except Exception as ce:
                             self.log("WARNING", f"Cookie injection notice: {str(ce)[:80]}")
-
-                page = await context.new_page()
 
                 # Expose Python bridge for real-time action capturing
                 def on_action_bridge(action_json: str):
@@ -551,8 +591,21 @@ class MacroRecorderSession:
                     except Exception as e:
                         pass
 
-                await page.expose_function("__py_on_macro_action", on_action_bridge)
-                await page.add_init_script(RECORDING_INJECT_JS)
+                async def setup_page_recorder(p_inst):
+                    try:
+                        await p_inst.expose_function("__py_on_macro_action", on_action_bridge)
+                    except Exception:
+                        pass
+                    try:
+                        await p_inst.add_init_script(RECORDING_INJECT_JS)
+                    except Exception:
+                        pass
+
+                # Attach recording hooks to all current and future tabs/pages
+                context.on("page", lambda new_p: asyncio.create_task(setup_page_recorder(new_p)))
+
+                page = context.pages[0] if context.pages else await context.new_page()
+                await setup_page_recorder(page)
 
                 self.log("INFO", "Navigating to Facebook Marketplace...")
                 try:
@@ -563,10 +616,15 @@ class MacroRecorderSession:
                 self.log("INFO", "🟢 RECORDER IS ACTIVE! Perform your listing workflow normally.")
                 self.log("INFO", "💡 When you finish the steps, simply CLOSE the Chrome window to save.")
 
-                # Keep session alive until user closes the window
+                # Keep session alive until user closes all browser windows
                 while True:
                     try:
-                        if page.is_closed():
+                        all_closed = True
+                        for p_check in context.pages:
+                            if not p_check.is_closed():
+                                all_closed = False
+                                break
+                        if all_closed:
                             break
                         await asyncio.sleep(0.8)
                     except Exception:
@@ -589,6 +647,358 @@ class MacroRecorderSession:
                 return False
             finally:
                 try:
+                    if context:
+                        await context.close()
+                    if browser:
+                        await browser.close()
+                except Exception:
+                    pass
+
+
+# ==============================================================================
+# Facebook Group Method Manager & Group Macro Recorder Session
+# ==============================================================================
+class GroupMethodManager:
+    """Manages saved Facebook Group posting methods and workflows."""
+
+    @staticmethod
+    def get_methods_dir() -> str:
+        os.makedirs(GROUP_METHODS_DIR, exist_ok=True)
+        return GROUP_METHODS_DIR
+
+    @classmethod
+    def list_methods(cls) -> List[str]:
+        """Returns all available custom and built-in group methods."""
+        gdir = cls.get_methods_dir()
+        cls._ensure_default_methods()
+        methods = []
+        for fname in os.listdir(gdir):
+            if fname.endswith(".json"):
+                methods.append(fname[:-5])
+        
+        defaults = ["Standard Group Post (Feed)", "Discussion & Link Share", "Group Buy & Sell Post"]
+        sorted_methods = [d for d in defaults if d in methods]
+        for m in sorted(methods):
+            if m not in sorted_methods:
+                sorted_methods.append(m)
+        return sorted_methods or ["Standard Group Post (Feed)"]
+
+    @classmethod
+    def load_method_data(cls, method_name: str) -> Dict[str, Any]:
+        """Loads complete group method JSON with metadata and action steps."""
+        cls.get_methods_dir()
+        path = os.path.join(GROUP_METHODS_DIR, f"{method_name}.json")
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {
+            "name": method_name,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "description": "Standard Facebook group posting workflow",
+            "actions": []
+        }
+
+    @classmethod
+    def save_method(cls, method_name: str, actions: List[Dict[str, Any]], description: str = "") -> str:
+        """Saves a recorded group workflow to disk."""
+        cls.get_methods_dir()
+        safe_name = re.sub(r'[^a-zA-Z0-9_\-\s]', '', method_name).strip()
+        path = os.path.join(GROUP_METHODS_DIR, f"{safe_name}.json")
+        
+        payload = {
+            "name": safe_name,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "total_steps": len(actions),
+            "description": description or f"Recorded group flow with {len(actions)} actions",
+            "actions": actions
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+        return safe_name
+
+    @classmethod
+    def delete_method(cls, method_name: str) -> bool:
+        """Deletes a saved group method file."""
+        path = os.path.join(GROUP_METHODS_DIR, f"{method_name}.json")
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+                return True
+            except Exception:
+                return False
+        return False
+
+    @classmethod
+    def _ensure_default_methods(cls):
+        """Initializes default group method files if missing."""
+        defaults = {
+            "Standard Group Post (Feed)": {
+                "name": "Standard Group Post (Feed)",
+                "created_at": "2026-03-01 00:00:00",
+                "total_steps": 3,
+                "description": "Click 'Write something...', enter post content/link, and click 'Post'.",
+                "actions": [
+                    {
+                        "action_type": "click",
+                        "selector": "div[role='button']:has-text('Write something...'), div[role='button']:has-text('Create a public post...')",
+                        "fallbacks": ["div[role='button']:has-text('Write something...')", "span:has-text('Write something...')"],
+                        "delay_ms": 1000,
+                        "text": "Write something..."
+                    },
+                    {
+                        "action_type": "type",
+                        "selector": "div[role='dialog'] div[role='textbox'], div[aria-label*='What\\'s on your mind'][role='textbox'], div[contenteditable='true'][role='textbox']",
+                        "field_type": "description",
+                        "fallbacks": ["div[role='dialog'] div[role='textbox']"],
+                        "delay_ms": 1200,
+                        "sample_value": "{{DESCRIPTION}}\n\n{{LINK}}"
+                    },
+                    {
+                        "action_type": "click",
+                        "selector": "div[role='dialog'] div[aria-label='Post'][role='button'], div[role='button']:has-text('Post')",
+                        "fallbacks": ["div[role='dialog'] div[aria-label='Post'][role='button']"],
+                        "delay_ms": 2500,
+                        "text": "Post"
+                    }
+                ]
+            },
+            "Discussion & Link Share": {
+                "name": "Discussion & Link Share",
+                "created_at": "2026-03-01 00:00:00",
+                "total_steps": 3,
+                "description": "Opens group discussion tab and publishes post content.",
+                "actions": [
+                    {
+                        "action_type": "click",
+                        "selector": "div[role='button']:has-text('Write something...'), span:has-text('Write something...')",
+                        "fallbacks": ["div[role='button']:has-text('Write something...')"],
+                        "delay_ms": 1000,
+                        "text": "Write something..."
+                    },
+                    {
+                        "action_type": "type",
+                        "selector": "div[role='dialog'] div[role='textbox']",
+                        "field_type": "description",
+                        "fallbacks": ["div[role='dialog'] div[role='textbox']"],
+                        "delay_ms": 1500,
+                        "sample_value": "{{DESCRIPTION}}"
+                    },
+                    {
+                        "action_type": "click",
+                        "selector": "div[role='dialog'] div[aria-label='Post'][role='button']",
+                        "fallbacks": ["div[role='dialog'] div[aria-label='Post'][role='button']"],
+                        "delay_ms": 2000,
+                        "text": "Post"
+                    }
+                ]
+            }
+        }
+        for name, data in defaults.items():
+            path = os.path.join(GROUP_METHODS_DIR, f"{name}.json")
+            if not os.path.exists(path):
+                try:
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                except Exception:
+                    pass
+
+
+class GroupMacroRecorderSession:
+    """Launches full-screen Chrome on a Facebook Group to record group actions."""
+
+    def __init__(
+        self,
+        method_name: str,
+        account_data: Optional[Dict[str, Any]] = None,
+        target_group_url: Optional[str] = None,
+        log_callback: Optional[Callable[[str, str], None]] = None
+    ):
+        self.method_name = method_name
+        self.account_data = account_data or {}
+        self.target_group_url = target_group_url or "https://www.facebook.com/groups/feed/"
+        self.log = log_callback or (lambda lvl, msg: print(f"[{lvl}] {msg}"))
+        self.recorded_actions: List[Dict[str, Any]] = []
+
+    async def start_recording(self) -> bool:
+        if not PLAYWRIGHT_AVAILABLE:
+            self.log("ERROR", "Playwright library is required for browser recording.")
+            return False
+
+        acc_name = self.account_data.get("name", "")
+        self.log("INFO", f"🔴 Initializing Facebook Group Macro Recorder for: '{self.method_name}'...")
+        if acc_name:
+            self.log("INFO", f"👤 Using Account: '{acc_name}'")
+
+        async with async_playwright() as p:
+            browser = None
+            context = None
+            ext_path = os.path.join(get_base_dir(), "FEWFEED")
+            launch_args = [
+                "--disable-blink-features=AutomationControlled",
+                "--start-maximized",
+                "--disable-infobars",
+                "--no-default-browser-check",
+                "--disable-notifications",
+                "--lang=en-US,en"
+            ]
+            if os.path.exists(ext_path) and os.path.exists(os.path.join(ext_path, "manifest.json")):
+                launch_args.append(f"--load-extension={ext_path}")
+                launch_args.append(f"--disable-extensions-except={ext_path}")
+
+            proxy_config = None
+            raw_proxy = self.account_data.get("proxy", "")
+            if raw_proxy and "Direct" not in raw_proxy:
+                try:
+                    from urllib.parse import urlparse
+                    if "://" not in raw_proxy:
+                        raw_proxy = f"http://{raw_proxy}"
+                    parsed_p = urlparse(raw_proxy)
+                    if parsed_p.hostname and parsed_p.port:
+                        proxy_config = {"server": f"{parsed_p.scheme}://{parsed_p.hostname}:{parsed_p.port}"}
+                        if parsed_p.username and parsed_p.password:
+                            proxy_config["username"] = parsed_p.username
+                            proxy_config["password"] = parsed_p.password
+                        self.log("INFO", f"Applying Account Proxy: {parsed_p.hostname}:{parsed_p.port}")
+                except Exception:
+                    pass
+
+            profile_dir = self.account_data.get("profile_dir")
+            if not profile_dir and self.account_data.get("id"):
+                safe_id = "".join(c for c in str(self.account_data.get("id", "")) if c.isalnum() or c in ("_", "-"))
+                if safe_id:
+                    profile_dir = os.path.join(get_base_dir(), "profiles", safe_id)
+            if profile_dir:
+                os.makedirs(profile_dir, exist_ok=True)
+
+            if profile_dir and os.path.exists(profile_dir):
+                for ch in ["chrome", "msedge", None]:
+                    try:
+                        p_kwargs = {
+                            "user_data_dir": profile_dir,
+                            "headless": False,
+                            "args": launch_args,
+                            "ignore_default_args": ["--enable-automation"],
+                            "proxy": proxy_config,
+                            "no_viewport": True,
+                            "locale": "en-US",
+                            "permissions": ["geolocation", "notifications"]
+                        }
+                        if ch:
+                            p_kwargs["channel"] = ch
+                        context = await p.chromium.launch_persistent_context(**p_kwargs)
+                        self.log("INFO", f"Group Recorder launched with profile '{os.path.basename(profile_dir)}' using: {ch.upper() if ch else 'Chromium'}")
+                        break
+                    except Exception:
+                        continue
+
+            if not context:
+                for ch in ["chrome", "msedge", None]:
+                    try:
+                        browser = await p.chromium.launch(
+                            headless=False,
+                            args=launch_args,
+                            ignore_default_args=["--enable-automation"],
+                            proxy=proxy_config,
+                            channel=ch
+                        )
+                        self.log("INFO", f"Group Recorder launched using: {ch.upper() if ch else 'Chromium'}")
+                        break
+                    except Exception:
+                        continue
+
+                if not browser and not context:
+                    self.log("ERROR", "Could not find Google Chrome or Edge.")
+                    return False
+
+                if not context:
+                    context = await browser.new_context(
+                        no_viewport=True,
+                        locale="en-US",
+                        permissions=["geolocation", "notifications"]
+                    )
+
+            try:
+                account_cookies = self.account_data.get("cookies")
+                if account_cookies:
+                    parsed_cookies = parse_recorder_cookies(account_cookies)
+                    if parsed_cookies:
+                        try:
+                            await context.add_cookies(parsed_cookies)
+                            self.log("SUCCESS", f"🔑 Injected {len(parsed_cookies)} session cookies.")
+                        except Exception as ce:
+                            self.log("WARNING", f"Cookie injection notice: {str(ce)[:80]}")
+
+                def on_action_bridge(action_json: str):
+                    try:
+                        act = json.loads(action_json)
+                        self.recorded_actions.append(act)
+                        typ = act.get('action_type', 'click').upper()
+                        txt = act.get('text') or act.get('sample_value') or act.get('field_type') or act.get('selector', '')
+                        self.log("SUCCESS", f"✅ Step #{len(self.recorded_actions)}: [{typ}] on '{str(txt)[:35]}'")
+                    except Exception:
+                        pass
+
+                async def setup_group_page_recorder(p_inst):
+                    try:
+                        await p_inst.expose_function("__py_on_macro_action", on_action_bridge)
+                    except Exception:
+                        pass
+                    try:
+                        await p_inst.add_init_script(RECORDING_INJECT_JS)
+                    except Exception:
+                        pass
+
+                # Attach recording hooks to all current and future tabs/pages
+                context.on("page", lambda new_p: asyncio.create_task(setup_group_page_recorder(new_p)))
+
+                page = context.pages[0] if context.pages else await context.new_page()
+                await setup_group_page_recorder(page)
+
+                self.log("INFO", f"Navigating to Facebook Group ({self.target_group_url})...")
+                try:
+                    await page.goto(self.target_group_url, wait_until="domcontentloaded", timeout=45000)
+                except Exception as ex:
+                    self.log("WARNING", f"Page notice: {str(ex)[:80]}")
+
+                self.log("INFO", "🟢 GROUP RECORDER IS ACTIVE! Perform your group posting actions.")
+                self.log("INFO", "💡 When you finish, simply CLOSE the Chrome window to save.")
+
+                while True:
+                    try:
+                        all_closed = True
+                        for p_check in context.pages:
+                            if not p_check.is_closed():
+                                all_closed = False
+                                break
+                        if all_closed:
+                            break
+                        await asyncio.sleep(0.8)
+                    except Exception:
+                        break
+
+                if self.recorded_actions:
+                    GroupMethodManager.save_method(
+                        self.method_name,
+                        self.recorded_actions,
+                        description=f"Recorded group flow with {len(self.recorded_actions)} steps on {datetime.now().strftime('%Y-%m-%d')}"
+                    )
+                    self.log("SUCCESS", f"🎉 Group Method '{self.method_name}' successfully compiled with {len(self.recorded_actions)} actions!")
+                    return True
+                else:
+                    self.log("WARNING", f"Recording ended for '{self.method_name}'. No actions were captured.")
+                    return False
+
+            except Exception as e:
+                self.log("ERROR", f"Group recording session exception: {str(e)}")
+                return False
+            finally:
+                try:
+                    if context:
+                        await context.close()
                     if browser:
                         await browser.close()
                 except Exception:
@@ -611,6 +1021,8 @@ class MacroMethodPlayer:
         self.params = dynamic_params
         self.log = log_callback or (lambda lvl, msg: print(f"[{lvl}] {msg}"))
         self.method_data = MacroMethodManager.load_method_data(method_name)
+        self.actions = self.method_data.get("actions", [])
+        self.is_valid = bool(self.actions)
         self._is_stopped = False
 
     def stop(self):
@@ -719,6 +1131,21 @@ class MacroMethodPlayer:
             # 3. Handle Semantic Typing (Title, Price, Description, Location, Category)
             if action_type == "type":
                 value_to_type = step.get("sample_value", "")
+
+                # Dynamic semantic inference if field_type was recorded as 'custom'
+                if field_type == "custom":
+                    infer_blob = f"{selector} {aria_label} {target_text}".lower()
+                    if any(k in infer_blob for k in ["title", "what are you selling", "عنوان"]):
+                        field_type = "title"
+                    elif any(k in infer_blob for k in ["price", "قیمت", "cost", "amount", "$"]):
+                        field_type = "price"
+                    elif any(k in infer_blob for k in ["description", "تفصیل", "details"]):
+                        field_type = "description"
+                    elif any(k in infer_blob for k in ["location", "لوکیشن", "city", "zip"]):
+                        field_type = "location"
+                    elif any(k in infer_blob for k in ["category", "کیٹیگری"]):
+                        field_type = "category"
+
                 if field_type == "title" and title:
                     value_to_type = title
                     filled_fields["title"] = True
@@ -902,7 +1329,8 @@ class MacroMethodPlayer:
                 await loc_input.click()
                 await page.keyboard.press("Control+A")
                 await page.keyboard.press("Backspace")
-                await page.keyboard.type(location, delay=40)
+                search_query = re.sub(r'\(.*?\)', '', location).strip() or location
+                await page.keyboard.type(search_query, delay=40)
                 await asyncio.sleep(1.8)
                 # Pick the first location suggestion
                 first_option = await page.query_selector('div[role="listbox"] div[role="option"], ul[role="listbox"] li, div[role="option"]')
