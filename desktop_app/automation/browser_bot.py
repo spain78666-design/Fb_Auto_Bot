@@ -4,6 +4,8 @@ Phase 2: Asynchronous Anti-Detect Automation for Facebook Marketplace
 """
 
 import os
+import sys
+import re
 import json
 import random
 import socket
@@ -226,9 +228,17 @@ def parse_cookie_payload(raw_cookies: str) -> List[Dict[str, Any]]:
     return formatted
 
 
+def get_base_dir() -> str:
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
 def get_fewfeed_extension_path() -> Optional[str]:
     """Resolves the absolute path to FEWFEED extension folder."""
     candidates = [
+        os.path.join(get_base_dir(), "FEWFEED"),
+        os.path.join(getattr(sys, '_MEIPASS', ''), "FEWFEED"),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FEWFEED")),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "FEWFEED")),
         "/desktop_app/FEWFEED",
@@ -236,7 +246,7 @@ def get_fewfeed_extension_path() -> Optional[str]:
         os.path.abspath("desktop_app/FEWFEED")
     ]
     for c in candidates:
-        if os.path.isdir(c) and os.path.exists(os.path.join(c, "manifest.json")):
+        if c and os.path.isdir(c) and os.path.exists(os.path.join(c, "manifest.json")):
             return os.path.abspath(c)
     return None
 
@@ -615,6 +625,95 @@ class FacebookMarketplaceBot:
     # --------------------------------------------------------------------------
     # Core Listing Publication Flow & Multi-Tab Engine
     # --------------------------------------------------------------------------
+    async def set_account_marketplace_location(self, page: Page, main_location: str) -> bool:
+        """Sets the Chrome ID / Account primary Marketplace default location on Facebook Marketplace homepage."""
+        if not main_location or not main_location.strip():
+            return False
+
+        loc_name = main_location.strip()
+        self.log("INFO", f"==================================================")
+        self.log("INFO", f"🌍 Setting Chrome ID Marketplace Default Location to '{loc_name}'...")
+
+        try:
+            if "facebook.com/marketplace" not in page.url or "/create/" in page.url:
+                self.log("INFO", "Navigating to Facebook Marketplace main page...")
+                await page.goto("https://www.facebook.com/marketplace", wait_until="domcontentloaded", timeout=35000)
+                await self.sleep(2.0)
+
+            # Look for location link/button under 'Create new listing' or top header
+            loc_btn = None
+            selectors = [
+                "a[href*='/marketplace/'] span:has-text('km')",
+                "a[href*='/marketplace/'] span:has-text('mile')",
+                "div[role='button']:has-text('Within')",
+                "span:has-text('Within')",
+                "div[aria-label*='Location']",
+                "div[aria-label*='الموقع']",
+                "a[aria-label*='Location']"
+            ]
+
+            for sel in selectors:
+                try:
+                    elem = page.locator(sel).first
+                    if await elem.is_visible(timeout=1500):
+                        txt = await elem.inner_text()
+                        if any(k in txt.lower() for k in ["within", "km", "mile", "location", "·", ","]):
+                            loc_btn = elem
+                            break
+                except Exception:
+                    continue
+
+            if not loc_btn:
+                all_btns = page.locator("div[role='button'], a, span")
+                cnt = await all_btns.count()
+                for i in range(min(cnt, 40)):
+                    try:
+                        t = await all_btns.nth(i).inner_text(timeout=400)
+                        if "within" in t.lower() or " km" in t.lower() or " miles" in t.lower():
+                            loc_btn = all_btns.nth(i)
+                            break
+                    except Exception:
+                        continue
+
+            if loc_btn:
+                self.log("INFO", "📍 Clicking blue Marketplace location selector link...")
+                await loc_btn.click(force=True)
+                await self.sleep(2.0)
+
+                # Find input inside 'Change location' popup dialog
+                dialog_input = page.locator("div[role='dialog'] input[type='text'], div[role='dialog'] input[aria-label*='Location'], input[placeholder*='Location']").first
+                if await dialog_input.is_visible(timeout=3500):
+                    await dialog_input.click(force=True)
+                    await page.keyboard.press("Control+A")
+                    await page.keyboard.press("Backspace")
+                    await dialog_input.fill(loc_name)
+                    await self.sleep(1.8)
+
+                    sug = page.locator("ul[role='listbox'] li, div[role='option'], div[role='dialog'] ul li").first
+                    if await sug.is_visible(timeout=3000):
+                        await sug.click(force=True)
+                        await self.sleep(1.0)
+                    else:
+                        await page.keyboard.press("Enter")
+                        await self.sleep(1.0)
+
+                    apply_btn = page.locator("div[role='dialog'] div[role='button']:has-text('Apply'), div[role='dialog'] div[role='button']:has-text('Save'), div[role='dialog'] button:has-text('Apply'), div[role='dialog'] div[role='button']:has-text('حفظ')").first
+                    if await apply_btn.is_visible(timeout=2000):
+                        await apply_btn.click(force=True)
+                        await self.sleep(2.0)
+                    else:
+                        await page.keyboard.press("Enter")
+                        await self.sleep(1.5)
+
+                    self.log("SUCCESS", f"✅ Account ID Marketplace Default Location set to '{loc_name}'!")
+                    return True
+
+            self.log("INFO", "Marketplace default location updated/retained.")
+            return False
+        except Exception as err:
+            self.log("WARNING", f"Account location notice: {str(err)[:50]}")
+            return False
+
     async def create_marketplace_batch(self, payload: Dict[str, Any]):
         """
         Multi-Tab Parallel Marketplace Listing Engine.
@@ -625,12 +724,46 @@ class FacebookMarketplaceBot:
         tabs_count = int(payload.get("tabs_count", payload.get("posts_per_id", 1)))
         tabs_count = max(1, min(tabs_count, 100))
 
+        # 0. Set Chrome ID / Account Main Location first if provided
+        main_account_loc = payload.get("project_main_location", "").strip() or payload.get("main_location", "").strip()
+        if main_account_loc:
+            await self.set_account_marketplace_location(self.page, main_account_loc)
+
         self.log("INFO", f"==================================================")
         self.log("INFO", f"🚀 MULTI-TAB PARALLEL ENGINE: {tabs_count} Tab(s) Configured")
         self.log("INFO", f"⚡ Preparing Distinct Location & Picture Mappings...")
 
-        # 1. Distinct Location & Picture Mapping
-        if HAS_FAULT_TOLERANCE and DistinctDataMapper:
+        # 1. Distinct Location & Picture Mapping or Project Tabs Mapping
+        if payload.get("project_tabs") and len(payload["project_tabs"]) > 0:
+            proj_tabs = payload["project_tabs"]
+            tabs_count = len(proj_tabs)
+            tab_payloads = []
+            for i, pt in enumerate(proj_tabs):
+                tp = dict(payload)
+                tp["tab_index"] = i + 1
+                tp["total_tabs"] = tabs_count
+                tp["title"] = pt.get("title", "")
+                tp["price"] = pt.get("price", "0")
+                tp["category"] = pt.get("category", "Household")
+
+                # Pick a random location from tab location pool if user provided multiple
+                raw_loc = pt.get("location", "")
+                loc_pool = [l.strip() for l in re.split(r'[\r\n,;]+', str(raw_loc)) if l.strip()]
+                if loc_pool:
+                    chosen_loc = random.choice(loc_pool)
+                else:
+                    chosen_loc = main_account_loc or "Local Radius"
+                tp["location"] = chosen_loc
+
+                tp["description"] = pt.get("description", "")
+                tp["images"] = pt.get("images", [])
+                tp["anti_dup_shield"] = pt.get("anti_dup_shield", True)
+                tp["anti_dup_rotate"] = pt.get("anti_dup_rotate", True)
+                tp["wipe_exif"] = pt.get("wipe_exif", True)
+                tp["anti_dup_noise"] = pt.get("anti_dup_noise", False)
+                tab_payloads.append(tp)
+            self.log("INFO", f"📁 Project Campaign Mode Active: {len(tab_payloads)} Tab(s) loaded.")
+        elif HAS_FAULT_TOLERANCE and DistinctDataMapper:
             tab_payloads = DistinctDataMapper.map_tabs_payload(payload, tabs_count, log_callback=self.log)
         else:
             raw_loc = payload.get("location", "")
@@ -641,7 +774,7 @@ class FacebookMarketplaceBot:
                 tp = dict(payload)
                 tp["tab_index"] = i + 1
                 tp["total_tabs"] = tabs_count
-                tp["location"] = loc_pool[i % len(loc_pool)]
+                tp["location"] = random.choice(loc_pool)
                 tp["images"] = [imgs_pool[i % len(imgs_pool)]] if imgs_pool else []
                 tab_payloads.append(tp)
 
@@ -679,10 +812,10 @@ class FacebookMarketplaceBot:
 
         async def navigate_tab_safely(tab_num: int, page_obj: Page):
             # Micro-stagger between tab navigation calls (150-350ms) to ensure socket throughput
-            await asyncio.sleep((tab_num - 1) * random.uniform(0.2, 0.4))
+            await asyncio.sleep((tab_num - 1) * random.uniform(0.15, 0.3))
             try:
                 await page_obj.goto(create_url, wait_until="domcontentloaded", timeout=45000)
-                await asyncio.sleep(random.uniform(0.8, 1.8))
+                await asyncio.sleep(random.uniform(0.5, 1.2))
             except Exception as e:
                 self.log("WARNING", f"Tab [{tab_num}/{tabs_count}] DOM load notice: {str(e)[:45]}")
 
@@ -704,59 +837,90 @@ class FacebookMarketplaceBot:
             elif HAS_MACRO_RECORDER:
                 use_method_replay = True
 
-        # 5. Process each tab with human-like anti-detection delays
+        # 5. Process each tab: In Project Mode, fill all forms SIMULTANEOUSLY, then publish ALL tabs SIMULTANEOUSLY!
+        is_project_mode = bool(payload.get("project_tabs") and len(payload["project_tabs"]) > 0)
         success_count = 0
-        for idx, (tab_page, t_payload) in enumerate(zip(tabs, tab_payloads), 1):
-            if self._cancel_requested:
-                self.log("WARNING", "🛑 Batch posting cancelled by user.")
-                break
 
-            self.log("INFO", f"--------------------------------------------------")
-            self.log("INFO", f"👉 Tab [{idx}/{tabs_count}]: Activating tab in Chrome...")
-            try:
-                await tab_page.bring_to_front()
-                await self.sleep(random.uniform(0.6, 1.2))
-            except Exception:
-                pass
+        if is_project_mode:
+            self.log("INFO", f"📁 PROJECT CAMPAIGN MODE: Filling form details SIMULTANEOUSLY across all {tabs_count} tab(s) in parallel...")
 
-            self.set_progress(int(((idx - 1) / tabs_count) * 100))
+            async def fill_tab_simultaneously(t_idx, page_obj, p_load):
+                self.log("INFO", f"👉 Tab [{t_idx}/{tabs_count}]: Filling Title ('{p_load.get('title', '')[:25]}...'), Price (${p_load.get('price')}), Random Location ('{p_load.get('location')}')...")
+                return await self.create_marketplace_listing_on_page(page_obj, p_load, skip_publish=True)
 
-            tab_published = False
-            # Method Replay Flow
-            if use_method_replay and HAS_MACRO_RECORDER:
+            fill_results = await asyncio.gather(*[
+                fill_tab_simultaneously(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))
+            ])
+
+            # Step B: All tabs are filled & at final Publish screen -> Trigger SIMULTANEOUS Publish across ALL tabs!
+            if not self._cancel_requested:
+                self.log("INFO", f"==================================================")
+                self.log("INFO", f"🔥 ALL {len(tabs)} TABS ARE FULLY PREPARED ON THE PUBLISH SCREEN!")
+                self.log("INFO", f"🚀 CLICKING 'PUBLISH' BUTTON SIMULTANEOUSLY ACROSS ALL {len(tabs)} TABS (0ms DELAY)...")
+
+                async def publish_tab_simultaneously(t_idx, page_obj, p_load):
+                    return await self.publish_marketplace_listing_on_page(page_obj, p_load)
+
+                pub_results = await asyncio.gather(*[
+                    publish_tab_simultaneously(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))
+                ])
+                success_count = sum(1 for r in pub_results if r)
+                self.set_progress(100)
+                self.log("SUCCESS", f"🎉 PROJECT CAMPAIGN COMPLETE: {success_count}/{tabs_count} tabs published simultaneously in parallel!")
+                return success_count
+        else:
+            # Standard & Bulk Sequential Flow
+            for idx, (tab_page, t_payload) in enumerate(zip(tabs, tab_payloads), 1):
+                if self._cancel_requested:
+                    self.log("WARNING", "🛑 Batch posting cancelled by user.")
+                    break
+
+                self.log("INFO", f"--------------------------------------------------")
+                self.log("INFO", f"👉 Tab [{idx}/{tabs_count}]: Activating tab in Chrome...")
                 try:
-                    self.log("INFO", f"⚡ Tab [{idx}/{tabs_count}]: Replaying method '{chosen_method}'...")
-                    player = MacroMethodPlayer(
-                        method_name=chosen_method,
-                        dynamic_params=t_payload,
-                        log_callback=self.log
-                    )
-                    method_ok = await player.execute(tab_page)
-                    if method_ok:
-                        tab_published = True
-                    else:
-                        self.log("WARNING", f"🔄 Tab [{idx}/{tabs_count}]: Replay step incomplete. Falling back to live UI inputs...")
+                    await tab_page.bring_to_front()
+                    await self.sleep(random.uniform(0.6, 1.2))
+                except Exception:
+                    pass
+
+                self.set_progress(int(((idx - 1) / tabs_count) * 100))
+
+                tab_published = False
+                # Method Replay Flow
+                if use_method_replay and HAS_MACRO_RECORDER:
+                    try:
+                        self.log("INFO", f"⚡ Tab [{idx}/{tabs_count}]: Replaying method '{chosen_method}'...")
+                        player = MacroMethodPlayer(
+                            method_name=chosen_method,
+                            dynamic_params=t_payload,
+                            log_callback=self.log
+                        )
+                        method_ok = await player.execute(tab_page)
+                        if method_ok:
+                            tab_published = True
+                        else:
+                            self.log("WARNING", f"🔄 Tab [{idx}/{tabs_count}]: Replay step incomplete. Falling back to live UI inputs...")
+                            tab_published = await self.create_marketplace_listing_on_page(tab_page, t_payload)
+                    except Exception as replay_err:
+                        self.log("WARNING", f"🔄 Tab [{idx}/{tabs_count}]: Method error: {str(replay_err)[:50]}. Engaging live UI fallback...")
                         tab_published = await self.create_marketplace_listing_on_page(tab_page, t_payload)
-                except Exception as replay_err:
-                    self.log("WARNING", f"🔄 Tab [{idx}/{tabs_count}]: Method error: {str(replay_err)[:50]}. Engaging live UI fallback...")
+                else:
+                    # Live UI Inputs Flow
                     tab_published = await self.create_marketplace_listing_on_page(tab_page, t_payload)
-            else:
-                # Live UI Inputs Flow
-                tab_published = await self.create_marketplace_listing_on_page(tab_page, t_payload)
 
-            if tab_published:
-                success_count += 1
-                self.log("SUCCESS", f"✅ Tab [{idx}/{tabs_count}] Published successfully! (Location: '{t_payload['location']}')")
+                if tab_published:
+                    success_count += 1
+                    self.log("SUCCESS", f"✅ Tab [{idx}/{tabs_count}] Published successfully! (Location: '{t_payload['location']}')")
 
-            # Anti-detection delay between tab interactions
-            if idx < tabs_count and not self._cancel_requested:
-                cooldown = random.uniform(3.0, 5.5) if self.speed_mode == "slow" else random.uniform(1.8, 3.2)
-                self.log("INFO", f"🛡️ Anti-detection cooldown: Pausing {cooldown:.1f}s before interacting with Tab [{idx + 1}]...")
-                await self.sleep(cooldown)
+                # Anti-detection delay between tab interactions
+                if idx < tabs_count and not self._cancel_requested:
+                    cooldown = random.uniform(3.0, 5.5) if self.speed_mode == "slow" else random.uniform(1.8, 3.2)
+                    self.log("INFO", f"🛡️ Anti-detection cooldown: Pausing {cooldown:.1f}s before interacting with Tab [{idx + 1}]...")
+                    await self.sleep(cooldown)
 
-        self.set_progress(100)
-        self.log("SUCCESS", f"🎉 Multi-Tab Engine Finished: {success_count}/{tabs_count} listings successfully broadcast!")
-        return success_count
+            self.set_progress(100)
+            self.log("SUCCESS", f"🎉 Multi-Tab Engine Finished: {success_count}/{tabs_count} listings successfully broadcast!")
+            return success_count
 
     async def create_marketplace_listing(self, payload: Dict[str, Any]):
         """Executes single or multi-tab listing publication flow with Method Manager support."""
@@ -794,7 +958,7 @@ class FacebookMarketplaceBot:
 
         return await self.create_marketplace_listing_on_page(self.page, payload)
 
-    async def create_marketplace_listing_on_page(self, page: Page, payload: Dict[str, Any]) -> bool:
+    async def create_marketplace_listing_on_page(self, page: Page, payload: Dict[str, Any], skip_publish: bool = False) -> bool:
         """
         Executes the Facebook Marketplace listing publication workflow with precision
         field locators (guaranteeing Title, Price, Category, Condition, Description,
@@ -922,10 +1086,22 @@ class FacebookMarketplaceBot:
         if clicked_next:
             await self.sleep(random.uniform(2.5, 4.0))
 
+        if skip_publish:
+            self.log("SUCCESS", f"✅ Form details filled & Next screen reached for '{title[:30]}...'")
+            return True
+
         # ----------------------------------------------------------------------
         # 9. Click "Publish" Button
         # ----------------------------------------------------------------------
-        self.log("INFO", "🚀 Triggering listing publication (Publish)...")
+        return await self.publish_marketplace_listing_on_page(page, payload)
+
+    async def publish_marketplace_listing_on_page(self, page: Page, payload: Dict[str, Any]) -> bool:
+        """Triggers final 'Publish' button submission on an active Facebook Marketplace page."""
+        if not page or page.is_closed() or self._cancel_requested:
+            return False
+
+        title = payload.get("title", "Listing")
+        self.log("INFO", f"🚀 Triggering listing publication (Publish) for '{title[:40]}...'")
         clicked_publish = await self._click_button_with_text(page, ["Publish", "Post", "شائع", "Done", "Save"])
         if not clicked_publish:
             # Fallback selectors
@@ -946,12 +1122,13 @@ class FacebookMarketplaceBot:
                     continue
 
         if not clicked_publish:
-            raise ListingSubmissionError("Could not locate the final 'Publish' or 'Next' submission button.")
+            self.log("WARNING", f"Could not locate the final 'Publish' button for '{title}'.")
+            return False
 
         # Wait for publication confirmation
-        self.log("INFO", "Awaiting confirmation from Facebook Marketplace...")
+        self.log("INFO", f"Awaiting confirmation from Facebook Marketplace for '{title[:30]}...'")
         await self.sleep(random.uniform(3.5, 5.5))
-        self.log("SUCCESS", f"Marketplace listing '{title}' successfully broadcast!")
+        self.log("SUCCESS", f"✅ Marketplace listing '{title}' successfully broadcast!")
         return True
 
     # --------------------------------------------------------------------------

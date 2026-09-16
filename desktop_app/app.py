@@ -9,6 +9,7 @@ import os
 import re
 import json
 import time
+import random
 import socket
 import platform
 import urllib.request
@@ -198,6 +199,15 @@ except ImportError:
         HAS_LICENSING = True
     except ImportError:
         HAS_LICENSING = False
+
+# ------------------------------------------------------------------------------
+# Base Directory Helper (Supports PyInstaller EXE & Dev Modes)
+# ------------------------------------------------------------------------------
+def get_base_dir() -> str:
+    """Returns absolute path to persistent app base directory across PyInstaller exe and dev modes."""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
 
 # ------------------------------------------------------------------------------
 # Robust Asset Loader (Supports logo.png, logo.ico, icon.png in ./assets or ../assets)
@@ -892,15 +902,15 @@ class GroupAutomationWorker(QThread):
         self.log_signal.emit("INFO", f"📱 Mobile Device Emulation Enforced: deviceMetrics={{width: 393, height: 851, pixelRatio: 3.0}}")
         self.log_signal.emit("INFO", f"🧩 Chrome Extension: FEWFEED pre-loaded across all {threads} concurrent browser instance(s).")
 
+        total_accs = len(accounts)
+        effective_threads = max(threads, total_accs)
         tasks = []
-        semaphore = asyncio.Semaphore(threads)
+        semaphore = asyncio.Semaphore(effective_threads)
 
         for thread_idx, acc in enumerate(accounts, 1):
-            if thread_idx > threads:
-                break
             tasks.append(self._run_single_browser_instance(
                 thread_id=thread_idx,
-                total_threads=min(len(accounts), threads),
+                total_threads=total_accs,
                 account=acc,
                 group_codes=group_codes,
                 join_group_codes=join_group_codes,
@@ -1427,6 +1437,13 @@ class FBAutoBotMainWindow(QMainWindow):
         self.manual_worker = None
         self.ai_worker = None
 
+        # Projects Data Management (Project Listing Marketplace)
+        self.projects_file = os.path.join(get_base_dir(), "projects.json")
+        self.projects_list = self.load_projects_from_disk()
+        self.current_editing_project_id = None
+        self.current_editing_tab_index = 0
+        self.project_tab_images = []
+
         self.init_ui()
 
         # Live Countdown Timer running every 1 second (1000ms)
@@ -1485,6 +1502,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.page_accounts = self.create_accounts_page()
         self.page_methods = self.create_methods_page()
         self.page_automation = self.create_automation_page()
+        self.page_project_listing = self.create_project_listing_page()
         self.page_group_posting = self.create_group_automation_page()
         self.page_ai = self.create_ai_page()
         self.page_settings = self.create_settings_page()
@@ -1493,11 +1511,12 @@ class FBAutoBotMainWindow(QMainWindow):
         self.pages_stack.addWidget(self.page_dashboard)       # Index 0
         self.pages_stack.addWidget(self.page_accounts)        # Index 1
         self.pages_stack.addWidget(self.page_methods)         # Index 2
-        self.pages_stack.addWidget(self.page_automation)      # Index 3
-        self.pages_stack.addWidget(self.page_group_posting)   # Index 4
-        self.pages_stack.addWidget(self.page_ai)              # Index 5 (AI Content Spinner Retained)
-        self.pages_stack.addWidget(self.page_settings)        # Index 6
-        self.pages_stack.addWidget(self.page_profile)         # Index 7 (User Profile & Activity Logs)
+        self.pages_stack.addWidget(self.page_automation)      # Index 3 (Standard Listing Marketplace)
+        self.pages_stack.addWidget(self.page_project_listing) # Index 4 (Project Listing Marketplace)
+        self.pages_stack.addWidget(self.page_group_posting)   # Index 5 (FB Group Posting)
+        self.pages_stack.addWidget(self.page_ai)              # Index 6 (AI Content Spinner)
+        self.pages_stack.addWidget(self.page_settings)        # Index 7 (Settings & Stealth)
+        self.pages_stack.addWidget(self.page_profile)         # Index 8 (User Profile & Activity Logs)
 
         content_layout.addWidget(self.pages_stack, stretch=7)
 
@@ -1570,7 +1589,7 @@ class FBAutoBotMainWindow(QMainWindow):
             font-weight: 700;
             padding: 4px 10px;
         """)
-        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(7)
+        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(8)
         right_layout.addWidget(self.header_countdown_pill)
 
         # User Profile Chip
@@ -1594,7 +1613,7 @@ class FBAutoBotMainWindow(QMainWindow):
                 border: 1px solid rgba(255, 255, 255, 0.25);
             }
         """)
-        self.header_user_chip.clicked.connect(lambda: self.switch_tab(7))
+        self.header_user_chip.clicked.connect(lambda: self.switch_tab(8))
         right_layout.addWidget(self.header_user_chip)
 
         # Quick Key Button
@@ -1683,17 +1702,18 @@ class FBAutoBotMainWindow(QMainWindow):
         version_lbl.setStyleSheet("font-size: 10px; font-weight: 700; color: #6366f1; letter-spacing: 1px; margin-bottom: 16px;")
         layout.addWidget(version_lbl)
 
-        # Navigation Buttons (8 Tabs)
+        # Navigation Buttons (9 Tabs)
         self.nav_buttons = []
         nav_items = [
             ("📊 Dashboard", 0),
             ("👥 Accounts Manager", 1),
             ("🎯 Methods Manager", 2),
-            ("⚡ Automation Engine", 3),
-            ("📢 FB Group Posting", 4),
-            ("🧠 AI Content Spinner", 5),
-            ("⚙️ Settings & Stealth", 6),
-            ("👤 User Profile & Logs", 7),
+            ("⚡ Standard & Bulk Listing", 3),
+            ("📁 Project Listing", 4),
+            ("📢 FB Group Posting", 5),
+            ("🧠 AI Content Spinner", 6),
+            ("⚙️ Settings & Stealth", 7),
+            ("👤 User Profile & Logs", 8),
         ]
 
         for text, index in nav_items:
@@ -1737,7 +1757,8 @@ class FBAutoBotMainWindow(QMainWindow):
             "Operational Dashboard",
             "Accounts & Session Manager",
             "Methods & Macro Recorder",
-            "Marketplace Automation Engine",
+            "Standard & Bulk Listing Marketplace",
+            "Project Listing Marketplace",
             "Facebook Group Automation",
             "AI Content Spinner & Intelligence",
             "Settings & Stealth Parameters",
@@ -1747,7 +1768,7 @@ class FBAutoBotMainWindow(QMainWindow):
             self.header_page_title.setText(tab_names[index])
 
         # If switching to profile page, ensure data is fresh
-        if index == 7 and hasattr(self, 'update_profile_page_data'):
+        if index == 8 and hasattr(self, 'update_profile_page_data'):
             self.update_profile_page_data()
 
     # --------------------------------------------------------------------------
@@ -2949,134 +2970,14 @@ class FBAutoBotMainWindow(QMainWindow):
         layout.setSpacing(14)
 
         # Title
-        title = QLabel("Learned Methods & Custom Workflows Vault")
+        title = QLabel("🎯 FB Group Automation Methods Manager")
         title.setProperty("class", "pageTitle")
-        sub = QLabel("Record, manage, and inspect separate workflows for Facebook Marketplace Listings and Facebook Group Automation.")
+        sub = QLabel("Record, manage, and inspect custom posting workflows specifically for Facebook Group Automation.")
         sub.setProperty("class", "pageSubtitle")
         layout.addWidget(title)
         layout.addWidget(sub)
 
-        # Sub-tabs: Marketplace Methods vs FB Group Methods
-        self.methods_subtabs = QTabWidget()
-        self.methods_subtabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                background: rgba(15, 23, 42, 0.4);
-                border-radius: 10px;
-                padding: 12px;
-            }
-            QTabBar::tab {
-                background: rgba(30, 41, 59, 0.6);
-                color: #94a3b8;
-                font-weight: 700;
-                font-size: 13px;
-                padding: 10px 20px;
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
-                margin-right: 4px;
-            }
-            QTabBar::tab:selected {
-                background: #1e293b;
-                color: #38bdf8;
-                border-bottom: 2px solid #38bdf8;
-            }
-            QTabBar::tab:hover:!selected {
-                background: rgba(51, 65, 85, 0.8);
-                color: #f8fafc;
-            }
-        """)
-
-        # ----------------------------------------------------------------------
-        # Subtab 1: Marketplace Methods (config/methods/)
-        # ----------------------------------------------------------------------
-        mkt_tab = QWidget()
-        mkt_layout = QVBoxLayout(mkt_tab)
-        mkt_layout.setContentsMargins(0, 0, 0, 0)
-        mkt_layout.setSpacing(12)
-
-        top_bar = QFrame()
-        top_bar.setProperty("class", "glassCard")
-        tb_layout = QHBoxLayout(top_bar)
-        tb_layout.setContentsMargins(12, 10, 12, 10)
-
-        self.btn_record_new_method_top = QPushButton("🔴 Record Marketplace Method (Open Chrome)")
-        self.btn_record_new_method_top.setStyleSheet("background-color: #dc2626; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 8px 18px;")
-        self.btn_record_new_method_top.setCursor(Qt.PointingHandCursor)
-        self.btn_record_new_method_top.setToolTip("Opens Chrome full-screen to record Marketplace listing steps. Saved in config/methods/.")
-        self.btn_record_new_method_top.clicked.connect(self.record_new_macro_method)
-        tb_layout.addWidget(self.btn_record_new_method_top)
-
-        self.btn_refresh_methods = QPushButton("🔄 Refresh Marketplace Methods")
-        self.btn_refresh_methods.setProperty("class", "secondaryBtn")
-        self.btn_refresh_methods.setCursor(Qt.PointingHandCursor)
-        self.btn_refresh_methods.clicked.connect(self.refresh_methods_table)
-        tb_layout.addWidget(self.btn_refresh_methods)
-
-        tb_layout.addStretch()
-
-        methods_count_hint = QLabel("💡 Stored in config/methods/ • Selected in Marketplace Automation Engine")
-        methods_count_hint.setStyleSheet("color: #94a3b8; font-size: 11px;")
-        tb_layout.addWidget(methods_count_hint)
-
-        mkt_layout.addWidget(top_bar)
-
-        # Marketplace Table Card
-        table_card = QFrame()
-        table_card.setProperty("class", "glassCard")
-        t_layout = QVBoxLayout(table_card)
-        t_layout.setSpacing(10)
-
-        t_title = QLabel("🛒 Saved Facebook Marketplace Listing Methods")
-        t_title.setStyleSheet("font-size: 14px; font-weight: 700; color: #ffffff;")
-        t_layout.addWidget(t_title)
-
-        self.methods_table = QTableWidget()
-        self.methods_table.setColumnCount(5)
-        self.methods_table.setHorizontalHeaderLabels([
-            "Method Name", "Total Steps", "Created Date", "Description", "Actions"
-        ])
-        self.methods_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.methods_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.methods_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.methods_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        self.methods_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self.methods_table.verticalHeader().setVisible(False)
-        self.methods_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.methods_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.methods_table.setMinimumHeight(220)
-
-        t_layout.addWidget(self.methods_table)
-        mkt_layout.addWidget(table_card)
-
-        # Marketplace Guide Card
-        guide_card = QFrame()
-        guide_card.setStyleSheet("background-color: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 14px;")
-        g_layout = QVBoxLayout(guide_card)
-        g_layout.setSpacing(6)
-
-        g_title = QLabel("📖 How Marketplace Method Recording Works:")
-        g_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #38bdf8;")
-        g_layout.addWidget(g_title)
-
-        steps_text = (
-            "1. Click 'Record Marketplace Method' and give your workflow a name (e.g., 'Vehicle_Posting', 'Home_Rental', 'Standard_Item').\n"
-            "2. Chrome opens in full-screen mode. Perform your exact listing clicks, categories, and sample data.\n"
-            "3. Close the Chrome browser when finished — steps are saved in config/methods/ automatically.\n"
-            "4. Go to 'Automation Engine' to pick your saved Marketplace method and execute across accounts!"
-        )
-        g_lbl = QLabel(steps_text)
-        g_lbl.setStyleSheet("color: #cbd5e1; font-size: 12px; line-height: 1.5;")
-        g_layout.addWidget(g_lbl)
-        mkt_layout.addWidget(guide_card)
-
-        # ----------------------------------------------------------------------
-        # Subtab 2: FB Group Methods (config/group_methods/)
-        # ----------------------------------------------------------------------
-        grp_tab = QWidget()
-        grp_layout = QVBoxLayout(grp_tab)
-        grp_layout.setContentsMargins(0, 0, 0, 0)
-        grp_layout.setSpacing(12)
-
+        # Top Bar
         grp_top_bar = QFrame()
         grp_top_bar.setProperty("class", "glassCard")
         gtb_layout = QHBoxLayout(grp_top_bar)
@@ -3097,11 +2998,11 @@ class FBAutoBotMainWindow(QMainWindow):
 
         gtb_layout.addStretch()
 
-        grp_methods_hint = QLabel("💡 Stored in config/group_methods/ • Completely isolated from Marketplace")
+        grp_methods_hint = QLabel("💡 Stored in config/group_methods/")
         grp_methods_hint.setStyleSheet("color: #38bdf8; font-size: 11px;")
         gtb_layout.addWidget(grp_methods_hint)
 
-        grp_layout.addWidget(grp_top_bar)
+        layout.addWidget(grp_top_bar)
 
         # Group Methods Table Card
         grp_table_card = QFrame()
@@ -3126,43 +3027,35 @@ class FBAutoBotMainWindow(QMainWindow):
         self.group_methods_table.verticalHeader().setVisible(False)
         self.group_methods_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.group_methods_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.group_methods_table.setMinimumHeight(220)
+        self.group_methods_table.setMinimumHeight(280)
 
         gt_layout.addWidget(self.group_methods_table)
-        grp_layout.addWidget(grp_table_card)
+        layout.addWidget(grp_table_card)
 
         # Group Guide Card
         grp_guide_card = QFrame()
         grp_guide_card.setStyleSheet("background-color: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 14px;")
         gg_layout = QVBoxLayout(grp_guide_card)
         gg_layout.setSpacing(6)
-        gg_title = QLabel("📖 How FB Group Method Recording Works (Separated from Marketplace):")
+        gg_title = QLabel("📖 How FB Group Method Recording Works:")
         gg_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #10b981;")
         gg_layout.addWidget(gg_title)
         grp_steps_text = (
             "1. Click 'Record FB Group Method' and enter a method name (e.g., 'Feed_Direct_Post', 'Discussion_Photo_Share', 'Anonymous_Post').\n"
             "2. Chrome opens in full-screen on Facebook Groups feed. Perform your exact posting clicks, composer triggers, and sample text.\n"
             "3. Close the Chrome browser when finished — steps are saved separately in config/group_methods/.\n"
-            "4. Go to 'FB Group Posting' tab to pick your saved Group method without interfering with Marketplace methods!"
+            "4. Go to 'FB Group Posting' page to pick your saved Group method for execution!"
         )
         gg_lbl = QLabel(grp_steps_text)
         gg_lbl.setStyleSheet("color: #cbd5e1; font-size: 12px; line-height: 1.5;")
         gg_layout.addWidget(gg_lbl)
-        grp_layout.addWidget(grp_guide_card)
-
-        # Add both subtabs
-        self.methods_subtabs.addTab(mkt_tab, "🛒 Marketplace Listing Methods")
-        self.methods_subtabs.addTab(grp_tab, "📢 FB Group Automation Methods")
-
-        layout.addWidget(self.methods_subtabs)
+        layout.addWidget(grp_guide_card)
 
         scroll.setWidget(container)
         outer_layout = QVBoxLayout(page)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.addWidget(scroll)
 
-        # Initial populate both
-        self.refresh_methods_table()
         self.refresh_group_methods_table()
         return page
 
@@ -3377,48 +3270,48 @@ class FBAutoBotMainWindow(QMainWindow):
         layout.setSpacing(14)
 
         # Title
-        title = QLabel("Marketplace Automation Engine")
+        title = QLabel("Standard & Bulk Listing Marketplace")
         title.setProperty("class", "pageTitle")
-        sub = QLabel("Fill listing metadata, choose custom method, select target accounts for sequential 1-by-1 posting.")
+        sub = QLabel("Fill listing metadata, set target location pool, and select target accounts for sequential 1-by-1 posting.")
         sub.setProperty("class", "pageSubtitle")
         layout.addWidget(title)
         layout.addWidget(sub)
+
+        # Execution Controls Card (At Top for Easy Access without scrolling)
+        ctrl_card = QFrame()
+        ctrl_card.setProperty("class", "glassCard")
+        c_layout = QHBoxLayout(ctrl_card)
+        c_layout.setSpacing(16)
+
+        speed_box = QHBoxLayout()
+        speed_box.addWidget(QLabel("Posting Speed:"))
+        self.speed_select = QComboBox()
+        self.speed_select.addItems(["Normal (Recommended: 15-30s)", "Slow (Ultra-Stealth: 30-60s)", "Fast (5-15s)"])
+        speed_box.addWidget(self.speed_select)
+        c_layout.addLayout(speed_box)
+
+        c_layout.addStretch()
+
+        self.start_btn = QPushButton("🚀 Start Sequential Auto-Posting")
+        self.start_btn.setProperty("class", "successBtn")
+        self.start_btn.setCursor(Qt.PointingHandCursor)
+        self.start_btn.clicked.connect(self.start_automation)
+
+        self.stop_btn = QPushButton("🛑 Stop")
+        self.stop_btn.setProperty("class", "dangerBtn")
+        self.stop_btn.setCursor(Qt.PointingHandCursor)
+        self.stop_btn.setEnabled(False)
+        self.stop_btn.clicked.connect(self.stop_automation)
+
+        c_layout.addWidget(self.start_btn)
+        c_layout.addWidget(self.stop_btn)
+        layout.addWidget(ctrl_card)
 
         # Form Card
         form_card = QFrame()
         form_card.setProperty("class", "glassCard")
         f_layout = QVBoxLayout(form_card)
         f_layout.setSpacing(12)
-
-        # Row 0: Custom Posting Method Selector + Quick Record Action
-        row0 = QHBoxLayout()
-        col_m = QVBoxLayout()
-        m_lbl_box = QHBoxLayout()
-        m_lbl_box.addWidget(QLabel("🎯 Posting Flow / Learned Method:"))
-        m_lbl_box.addStretch()
-        col_m.addLayout(m_lbl_box)
-
-        method_ctrl_box = QHBoxLayout()
-        self.method_select = QComboBox()
-        self.refresh_methods_dropdown()
-        method_ctrl_box.addWidget(self.method_select, stretch=3)
-
-        self.btn_record_method = QPushButton("🔴 Record New Method (Chrome)")
-        self.btn_record_method.setStyleSheet("background-color: #dc2626; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 6px 14px;")
-        self.btn_record_method.setCursor(Qt.PointingHandCursor)
-        self.btn_record_method.setToolTip("Opens full-screen Chrome to record your exact clicks.")
-        self.btn_record_method.clicked.connect(self.record_new_macro_method)
-        method_ctrl_box.addWidget(self.btn_record_method, stretch=1)
-
-        self.btn_goto_methods = QPushButton("🎯 Manage Methods")
-        self.btn_goto_methods.setProperty("class", "secondaryBtn")
-        self.btn_goto_methods.setCursor(Qt.PointingHandCursor)
-        self.btn_goto_methods.clicked.connect(lambda: self.switch_tab(2))
-        method_ctrl_box.addWidget(self.btn_goto_methods, stretch=1)
-
-        col_m.addLayout(method_ctrl_box)
-        row0.addLayout(col_m)
-        f_layout.addLayout(row0)
 
         # Row 1: Target Facebook Accounts (Multi-Account Checklist for Sequential Batch)
         acc_box = QFrame()
@@ -3529,9 +3422,10 @@ class FBAutoBotMainWindow(QMainWindow):
 
         col_loc = QVBoxLayout()
         col_loc.addWidget(QLabel("Target Locations / Cities Pool (Randomized per Ad):"))
-        self.location_input = QLineEdit()
-        self.location_input.setPlaceholderText("e.g., Los Angeles, CA, New York, NY, Chicago, IL, Houston, TX, Miami, FL (Separate 50+ cities with commas or newlines)")
-        self.location_input.setToolTip("Enter 50-60 locations separated by commas. The bot randomly selects 1 location for each ad.")
+        self.location_input = QTextEdit()
+        self.location_input.setPlaceholderText("e.g., Los Angeles, CA\nNew York, NY\nChicago, IL\nHouston, TX\nMiami, FL (1 location per line or comma-separated)")
+        self.location_input.setFixedHeight(65)
+        self.location_input.setToolTip("Enter locations separated by commas or newlines. The bot randomly selects 1 location for each ad.")
         col_loc.addWidget(self.location_input)
 
         row3.addLayout(col_p, stretch=1)
@@ -3552,7 +3446,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         self.desc_input = QTextEdit()
         self.desc_input.setPlaceholderText("Write details, specifications, payment terms, and pickup notes...")
-        self.desc_input.setFixedHeight(75)
+        self.desc_input.setFixedHeight(65)
         f_layout.addWidget(self.desc_input)
 
         # Row 5: Images & Anti-Duplicate options
@@ -3589,36 +3483,6 @@ class FBAutoBotMainWindow(QMainWindow):
         f_layout.addLayout(flags_row)
 
         layout.addWidget(form_card)
-
-        # Execution Controls Card
-        ctrl_card = QFrame()
-        ctrl_card.setProperty("class", "glassCard")
-        c_layout = QHBoxLayout(ctrl_card)
-        c_layout.setSpacing(16)
-
-        speed_box = QHBoxLayout()
-        speed_box.addWidget(QLabel("Posting Speed:"))
-        self.speed_select = QComboBox()
-        self.speed_select.addItems(["Normal (Recommended: 15-30s)", "Slow (Ultra-Stealth: 30-60s)", "Fast (5-15s)"])
-        speed_box.addWidget(self.speed_select)
-        c_layout.addLayout(speed_box)
-
-        c_layout.addStretch()
-
-        self.start_btn = QPushButton("🚀 Start Sequential Auto-Posting")
-        self.start_btn.setProperty("class", "successBtn")
-        self.start_btn.setCursor(Qt.PointingHandCursor)
-        self.start_btn.clicked.connect(self.start_automation)
-
-        self.stop_btn = QPushButton("🛑 Stop")
-        self.stop_btn.setProperty("class", "dangerBtn")
-        self.stop_btn.setCursor(Qt.PointingHandCursor)
-        self.stop_btn.setEnabled(False)
-        self.stop_btn.clicked.connect(self.stop_automation)
-
-        c_layout.addWidget(self.start_btn)
-        c_layout.addWidget(self.stop_btn)
-        layout.addWidget(ctrl_card)
 
         scroll.setWidget(container)
         outer_layout = QVBoxLayout(page)
@@ -3854,6 +3718,7 @@ class FBAutoBotMainWindow(QMainWindow):
     def update_account_dropdown(self):
         self.populate_accounts_checklist()
         self.populate_group_accounts_checklist()
+        self.refresh_project_accounts_checklist()
         if hasattr(self, 'target_acc_select'):
             self.target_acc_select.clear()
             if not self.accounts_list:
@@ -3866,6 +3731,964 @@ class FBAutoBotMainWindow(QMainWindow):
                 name = acc.get("name", "Account")
                 icon = "🟢" if status in ("Healthy", "Active") else ("🟡" if status == "Checkpoint" else "🔴")
                 self.target_acc_select.addItem(f"{icon} {name} [{status}] ({proxy})")
+
+    # --------------------------------------------------------------------------
+    # Tab 4: Project Listing Marketplace (Multi-Project & Multi-Tab Campaign Engine)
+    # --------------------------------------------------------------------------
+    def load_projects_from_disk(self):
+        if hasattr(self, 'projects_file') and os.path.exists(self.projects_file):
+            try:
+                with open(self.projects_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        return data
+            except Exception as e:
+                print(f"Error loading projects: {e}")
+
+        default_projects = [
+            {
+                "id": f"proj_{int(time.time())}",
+                "name": "Default Project - Marketplace Campaign",
+                "created_at": time.strftime("%Y-%m-%d %H:%M"),
+                "tabs": [
+                    {
+                        "tab_name": "Tab 1 - Main Product",
+                        "category": "Household",
+                        "title": "Modern Comfort Living Room Unit - High Quality",
+                        "price": "199",
+                        "location": "Los Angeles, CA, New York, NY, Chicago, IL",
+                        "description": "Brand new condition. Premium quality item with fast regional delivery.",
+                        "images": [],
+                        "anti_dup_shield": True,
+                        "anti_dup_rotate": True,
+                        "wipe_exif": True,
+                        "anti_dup_noise": False
+                    }
+                ]
+            }
+        ]
+        self.save_projects_to_disk(default_projects)
+        return default_projects
+
+    def save_projects_to_disk(self, projects=None):
+        if projects is None:
+            projects = getattr(self, 'projects_list', [])
+        try:
+            os.makedirs(os.path.dirname(self.projects_file), exist_ok=True)
+            with open(self.projects_file, "w", encoding="utf-8") as f:
+                json.dump(projects, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            self.log_message("WARNING", f"Failed saving projects to disk: {str(e)}")
+
+    def get_project_by_id(self, project_id):
+        for p in self.projects_list:
+            if p.get("id") == project_id:
+                return p
+        return None
+
+    def create_project_listing_page(self):
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setSpacing(0)
+
+        self.project_stack = QStackedWidget()
+
+        # View 0: Projects Directory List
+        self.proj_list_view = self.create_projects_directory_view()
+        # View 1: Project Tab Editor
+        self.proj_editor_view = self.create_project_editor_view()
+
+        self.project_stack.addWidget(self.proj_list_view)   # Sub-index 0
+        self.project_stack.addWidget(self.proj_editor_view) # Sub-index 1
+
+        page_layout.addWidget(self.project_stack)
+        return page
+
+    def create_projects_directory_view(self):
+        view = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; } QScrollBar { background: transparent; }")
+
+        container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        # Header Title & Action
+        top_bar = QHBoxLayout()
+        header_box = QVBoxLayout()
+        title = QLabel("Project Listing Marketplace")
+        title.setProperty("class", "pageTitle")
+        sub = QLabel("Organize custom project folders, set distinct titles, descriptions & images for every tab, and launch multi-tab campaign automation.")
+        sub.setProperty("class", "pageSubtitle")
+        header_box.addWidget(title)
+        header_box.addWidget(sub)
+        top_bar.addLayout(header_box, stretch=3)
+
+        btn_add_proj = QPushButton("➕ Add Project")
+        btn_add_proj.setStyleSheet("background-color: #4f46e5; color: #ffffff; font-weight: 800; font-size: 13px; border-radius: 10px; padding: 10px 20px;")
+        btn_add_proj.setCursor(Qt.PointingHandCursor)
+        btn_add_proj.setToolTip("Create a new project folder for multi-tab Chrome automation")
+        btn_add_proj.clicked.connect(self.add_new_project_dialog)
+        top_bar.addWidget(btn_add_proj, stretch=1)
+        layout.addLayout(top_bar)
+
+        # Card container for project list
+        self.projects_grid_widget = QWidget()
+        self.projects_grid_layout = QVBoxLayout(self.projects_grid_widget)
+        self.projects_grid_layout.setContentsMargins(0, 0, 0, 0)
+        self.projects_grid_layout.setSpacing(12)
+
+        layout.addWidget(self.projects_grid_widget)
+        layout.addStretch()
+
+        scroll.setWidget(container)
+
+        main_layout = QVBoxLayout(view)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(scroll)
+
+        # Render initial grid
+        self.render_projects_grid()
+        return view
+
+    def render_projects_grid(self):
+        if not hasattr(self, 'projects_grid_layout'):
+            return
+
+        while self.projects_grid_layout.count():
+            item = self.projects_grid_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not self.projects_list:
+            empty_card = QFrame()
+            empty_card.setProperty("class", "glassCard")
+            e_layout = QVBoxLayout(empty_card)
+            e_layout.setContentsMargins(30, 40, 30, 40)
+            e_lbl = QLabel("📂 No Projects Created Yet")
+            e_lbl.setStyleSheet("font-size: 16px; font-weight: 700; color: #94a3b8; text-align: center;")
+            e_sub = QLabel("Click '+ Add Project' above to create your first project folder with custom multi-tab campaign settings.")
+            e_sub.setStyleSheet("font-size: 12px; color: #64748b; text-align: center;")
+            btn_create = QPushButton("➕ Add Your First Project")
+            btn_create.setStyleSheet("background-color: #4f46e5; color: white; font-weight: 700; padding: 8px 16px; border-radius: 8px;")
+            btn_create.setCursor(Qt.PointingHandCursor)
+            btn_create.clicked.connect(self.add_new_project_dialog)
+
+            e_layout.addWidget(e_lbl, alignment=Qt.AlignCenter)
+            e_layout.addWidget(e_sub, alignment=Qt.AlignCenter)
+            e_layout.addWidget(btn_create, alignment=Qt.AlignCenter)
+            self.projects_grid_layout.addWidget(empty_card)
+            return
+
+        for proj in self.projects_list:
+            p_id = proj.get("id")
+            p_name = proj.get("name", "Untitled Project")
+            p_date = proj.get("created_at", "N/A")
+            tabs_count = len(proj.get("tabs", []))
+
+            card = QFrame()
+            card.setProperty("class", "glassCard")
+            card.setStyleSheet("""
+                QFrame.glassCard {
+                    background-color: rgba(15, 23, 42, 0.65);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 12px;
+                    padding: 16px;
+                }
+                QFrame.glassCard:hover {
+                    border: 1px solid rgba(99, 102, 241, 0.4);
+                    background-color: rgba(15, 23, 42, 0.85);
+                }
+            """)
+
+            c_layout = QHBoxLayout(card)
+            c_layout.setContentsMargins(16, 14, 16, 14)
+            c_layout.setSpacing(16)
+
+            info_box = QVBoxLayout()
+            info_box.setSpacing(4)
+            name_lbl = QLabel(f"📁  {p_name}")
+            name_lbl.setStyleSheet("font-size: 15px; font-weight: 800; color: #f8fafc;")
+
+            sub_lbl = QLabel(f"📅 Created: {p_date}   |   📑 {tabs_count} Tab(s) Configured")
+            sub_lbl.setStyleSheet("font-size: 11px; font-weight: 600; color: #94a3b8;")
+
+            info_box.addWidget(name_lbl)
+            info_box.addWidget(sub_lbl)
+            c_layout.addLayout(info_box, stretch=3)
+
+            btn_box = QHBoxLayout()
+            btn_box.setSpacing(8)
+
+            btn_open = QPushButton("📂 Open / Edit Tabs")
+            btn_open.setStyleSheet("background-color: #4f46e5; color: #ffffff; font-size: 12px; font-weight: 700; padding: 7px 14px; border-radius: 8px;")
+            btn_open.setCursor(Qt.PointingHandCursor)
+            btn_open.clicked.connect(lambda checked, pid=p_id: self.open_project_editor(pid))
+
+            btn_run = QPushButton("🚀 Run Project")
+            btn_run.setStyleSheet("background-color: #059669; color: #ffffff; font-size: 12px; font-weight: 700; padding: 7px 14px; border-radius: 8px;")
+            btn_run.setCursor(Qt.PointingHandCursor)
+            btn_run.clicked.connect(lambda checked, pid=p_id: self.open_project_editor(pid, run_immediately=True))
+
+            btn_rename = QPushButton("✏️ Rename")
+            btn_rename.setProperty("class", "secondaryBtn")
+            btn_rename.setCursor(Qt.PointingHandCursor)
+            btn_rename.setStyleSheet("font-size: 11px; padding: 6px 10px;")
+            btn_rename.clicked.connect(lambda checked, pid=p_id: self.rename_project_dialog(pid))
+
+            btn_del = QPushButton("🗑️")
+            btn_del.setStyleSheet("background-color: rgba(220, 38, 38, 0.15); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.3); border-radius: 8px; font-size: 13px; padding: 6px 10px;")
+            btn_del.setCursor(Qt.PointingHandCursor)
+            btn_del.setToolTip("Delete this project folder")
+            btn_del.clicked.connect(lambda checked, pid=p_id: self.delete_project_dialog(pid))
+
+            btn_box.addWidget(btn_open)
+            btn_box.addWidget(btn_run)
+            btn_box.addWidget(btn_rename)
+            btn_box.addWidget(btn_del)
+            c_layout.addLayout(btn_box, stretch=2)
+
+            self.projects_grid_layout.addWidget(card)
+
+    def add_new_project_dialog(self):
+        name, ok = QInputDialog.getText(self, "Add New Project Folder", "Enter Project Name:\n(e.g., iPhone 15 Campaign, Auto Parts Promo)")
+        if ok and name.strip():
+            p_name = name.strip()
+            existing_names = [p.get("name", "").strip().lower() for p in self.projects_list]
+            if p_name.lower() in existing_names:
+                QMessageBox.warning(
+                    self,
+                    "Duplicate Project Name",
+                    f"A project folder named '{p_name}' already exists!\n\nPlease choose a different project name."
+                )
+                return
+
+            p_id = f"proj_{int(time.time())}"
+            new_proj = {
+                "id": p_id,
+                "name": p_name,
+                "main_location": "Los Angeles, CA",
+                "created_at": time.strftime("%Y-%m-%d %H:%M"),
+                "tabs": [
+                    {
+                        "tab_name": "Tab 1 - Default Listing",
+                        "category": "Household",
+                        "title": "",
+                        "price": "0",
+                        "location": "Los Angeles, CA, New York, NY, Chicago, IL",
+                        "description": "",
+                        "images": [],
+                        "anti_dup_shield": True,
+                        "anti_dup_rotate": True,
+                        "wipe_exif": True,
+                        "anti_dup_noise": False
+                    }
+                ]
+            }
+            self.projects_list.append(new_proj)
+            self.save_projects_to_disk()
+            self.render_projects_grid()
+            self.log_message("SUCCESS", f"Created new project folder: '{p_name}'")
+
+    def rename_project_dialog(self, project_id):
+        proj = self.get_project_by_id(project_id)
+        if not proj:
+            return
+        old_name = proj.get("name", "")
+        name, ok = QInputDialog.getText(self, "Rename Project Folder", "Enter new Project Name:", text=old_name)
+        if ok and name.strip():
+            new_name = name.strip()
+            if new_name.lower() != old_name.lower():
+                existing_names = [p.get("name", "").strip().lower() for p in self.projects_list if p.get("id") != project_id]
+                if new_name.lower() in existing_names:
+                    QMessageBox.warning(
+                        self,
+                        "Duplicate Project Name",
+                        f"A project folder named '{new_name}' already exists!\n\nPlease choose a different project name."
+                    )
+                    return
+            proj["name"] = new_name
+            self.save_projects_to_disk()
+            self.render_projects_grid()
+            if hasattr(self, 'proj_editor_title_lbl') and self.current_editing_project_id == project_id:
+                self.proj_editor_title_lbl.setText(f"📁 Folder: {proj['name']}")
+            self.log_message("INFO", f"Renamed project '{old_name}' -> '{proj['name']}'")
+
+    def delete_project_dialog(self, project_id):
+        proj = self.get_project_by_id(project_id)
+        if not proj:
+            return
+        reply = QMessageBox.question(
+            self, "Delete Project Folder",
+            f"Are you sure you want to delete project folder '{proj.get('name')}' and all its configured tabs?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            self.projects_list = [p for p in self.projects_list if p.get("id") != project_id]
+            self.save_projects_to_disk()
+            self.render_projects_grid()
+            self.log_message("INFO", f"Deleted project folder '{proj.get('name')}'")
+
+    def open_project_editor(self, project_id, run_immediately=False):
+        proj = self.get_project_by_id(project_id)
+        if not proj:
+            return
+        self.current_editing_project_id = project_id
+        self.current_editing_tab_index = 0
+        if hasattr(self, 'proj_editor_title_lbl'):
+            self.proj_editor_title_lbl.setText(f"📁 Folder: {proj.get('name', 'Project')}")
+        if hasattr(self, 'proj_main_loc_input'):
+            self.proj_main_loc_input.setText(proj.get("main_location", "Los Angeles, CA"))
+
+        self.refresh_project_accounts_checklist()
+        self.render_project_tabs_bar()
+        self.load_project_tab_into_form(0)
+        self.project_stack.setCurrentIndex(1)
+
+        if run_immediately:
+            self.start_project_automation()
+
+    def close_project_editor(self):
+        self.save_current_project_tab_state()
+        self.render_projects_grid()
+        self.project_stack.setCurrentIndex(0)
+
+    def create_project_editor_view(self):
+        view = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; } QScrollBar { background: transparent; }")
+
+        container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        # Top Bar: Back button & Project Name Header & Start/Stop Controls
+        top_bar = QHBoxLayout()
+        btn_back = QPushButton("⬅️ Back to Projects List")
+        btn_back.setProperty("class", "secondaryBtn")
+        btn_back.setStyleSheet("font-weight: 700; padding: 6px 14px;")
+        btn_back.setCursor(Qt.PointingHandCursor)
+        btn_back.clicked.connect(self.close_project_editor)
+        top_bar.addWidget(btn_back)
+
+        self.proj_editor_title_lbl = QLabel("📁 Folder: Project Name")
+        self.proj_editor_title_lbl.setStyleSheet("font-size: 16px; font-weight: 800; color: #818cf8; margin-left: 10px;")
+        top_bar.addWidget(self.proj_editor_title_lbl)
+        top_bar.addStretch()
+
+        btn_add_tab_top = QPushButton("➕ Add Tab")
+        btn_add_tab_top.setStyleSheet("background-color: #059669; color: #ffffff; font-weight: 700; font-size: 12px; border-radius: 8px; padding: 6px 14px;")
+        btn_add_tab_top.setCursor(Qt.PointingHandCursor)
+        btn_add_tab_top.clicked.connect(self.add_tab_to_current_project)
+        top_bar.addWidget(btn_add_tab_top)
+
+        self.top_proj_btn_start = QPushButton("🚀 Start Project")
+        self.top_proj_btn_start.setStyleSheet("font-weight: 800; font-size: 12px; padding: 6px 16px; background-color: #059669; color: #ffffff; border-radius: 8px;")
+        self.top_proj_btn_start.setCursor(Qt.PointingHandCursor)
+        self.top_proj_btn_start.clicked.connect(self.start_project_automation)
+        top_bar.addWidget(self.top_proj_btn_start)
+
+        self.top_proj_btn_stop = QPushButton("🛑 Stop Project")
+        self.top_proj_btn_stop.setStyleSheet("font-weight: 800; font-size: 12px; padding: 6px 16px; background-color: #dc2626; color: #ffffff; border-radius: 8px;")
+        self.top_proj_btn_stop.setCursor(Qt.PointingHandCursor)
+        self.top_proj_btn_stop.setEnabled(False)
+        self.top_proj_btn_stop.clicked.connect(self.stop_project_automation)
+        top_bar.addWidget(self.top_proj_btn_stop)
+
+        layout.addLayout(top_bar)
+
+        # Project Configuration Card: Chrome / Account ID Main Location
+        proj_cfg_card = QFrame()
+        proj_cfg_card.setStyleSheet("background-color: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 10px; padding: 12px;")
+        pcfg_layout = QHBoxLayout(proj_cfg_card)
+        pcfg_layout.setContentsMargins(12, 10, 12, 10)
+        pcfg_layout.setSpacing(12)
+
+        lbl_loc = QLabel("📍 Chrome ID Main Location (Marketplace Account Default):")
+        lbl_loc.setStyleSheet("font-size: 12px; font-weight: 700; color: #a5b4fc;")
+        pcfg_layout.addWidget(lbl_loc)
+
+        self.proj_main_loc_input = QLineEdit()
+        self.proj_main_loc_input.setPlaceholderText("e.g. Los Angeles, CA or New York, NY (Sets location link under 'Create new listing' on Marketplace homepage)")
+        self.proj_main_loc_input.setStyleSheet("background-color: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; padding: 6px 12px; color: #ffffff; font-weight: 600;")
+        pcfg_layout.addWidget(self.proj_main_loc_input, stretch=1)
+
+        layout.addWidget(proj_cfg_card)
+
+        # Tab Selector Pills Container
+        tabs_bar_card = QFrame()
+        tabs_bar_card.setStyleSheet("background-color: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 8px;")
+        tb_layout = QHBoxLayout(tabs_bar_card)
+        tb_layout.setContentsMargins(8, 6, 8, 6)
+        tb_layout.setSpacing(8)
+
+        self.proj_tabs_scroll = QScrollArea()
+        self.proj_tabs_scroll.setFixedHeight(40)
+        self.proj_tabs_scroll.setWidgetResizable(True)
+        self.proj_tabs_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; } QScrollBar { background: transparent; }")
+
+        self.proj_tabs_widget = QWidget()
+        self.proj_tabs_layout = QHBoxLayout(self.proj_tabs_widget)
+        self.proj_tabs_layout.setContentsMargins(0, 0, 0, 0)
+        self.proj_tabs_layout.setSpacing(6)
+        self.proj_tabs_scroll.setWidget(self.proj_tabs_widget)
+        tb_layout.addWidget(self.proj_tabs_scroll, stretch=4)
+
+        btn_dup_tab = QPushButton("📋 Duplicate Tab")
+        btn_dup_tab.setProperty("class", "secondaryBtn")
+        btn_dup_tab.setStyleSheet("font-size: 11px; padding: 4px 10px;")
+        btn_dup_tab.setCursor(Qt.PointingHandCursor)
+        btn_dup_tab.clicked.connect(self.duplicate_current_project_tab)
+        tb_layout.addWidget(btn_dup_tab)
+
+        btn_del_tab = QPushButton("🗑️ Delete Tab")
+        btn_del_tab.setStyleSheet("background-color: rgba(220, 38, 38, 0.2); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.4); border-radius: 6px; font-size: 11px; padding: 4px 10px;")
+        btn_del_tab.setCursor(Qt.PointingHandCursor)
+        btn_del_tab.clicked.connect(self.delete_current_project_tab)
+        tb_layout.addWidget(btn_del_tab)
+
+        layout.addWidget(tabs_bar_card)
+
+        # Target Facebook Accounts Checklist Box
+        acc_box = QFrame()
+        acc_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px;")
+        ab_layout = QVBoxLayout(acc_box)
+        ab_layout.setSpacing(8)
+
+        ab_header = QHBoxLayout()
+        ab_header.addWidget(QLabel("👥 Target Facebook Accounts (Sequential Batch Queue):"))
+        ab_header.addStretch()
+
+        btn_sel_all = QPushButton("⚡ Select All")
+        btn_sel_all.setStyleSheet("background-color: #3b82f6; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
+        btn_sel_all.setCursor(Qt.PointingHandCursor)
+        btn_sel_all.clicked.connect(self.select_all_project_accounts)
+        ab_header.addWidget(btn_sel_all)
+
+        btn_clr_acc = QPushButton("❌ Clear")
+        btn_clr_acc.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
+        btn_clr_acc.setCursor(Qt.PointingHandCursor)
+        btn_clr_acc.clicked.connect(self.clear_all_project_accounts)
+        ab_header.addWidget(btn_clr_acc)
+
+        ab_layout.addLayout(ab_header)
+
+        self.proj_acc_checklist_scroll = QScrollArea()
+        self.proj_acc_checklist_scroll.setFixedHeight(100)
+        self.proj_acc_checklist_scroll.setWidgetResizable(True)
+        self.proj_acc_checklist_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.05); background: rgba(15, 23, 42, 0.6); border-radius: 6px; } QScrollBar { background: transparent; }")
+
+        self.proj_acc_checklist_widget = QWidget()
+        self.proj_acc_checklist_layout = QVBoxLayout(self.proj_acc_checklist_widget)
+        self.proj_acc_checklist_layout.setContentsMargins(8, 6, 8, 6)
+        self.proj_acc_checklist_layout.setSpacing(6)
+        self.proj_acc_checklist_scroll.setWidget(self.proj_acc_checklist_widget)
+        ab_layout.addWidget(self.proj_acc_checklist_scroll)
+
+        layout.addWidget(acc_box)
+
+        # Form Card for Active Tab (No posting flow/method column!)
+        form_card = QFrame()
+        form_card.setProperty("class", "glassCard")
+        f_layout = QVBoxLayout(form_card)
+        f_layout.setSpacing(12)
+
+        # Row 1: Tab Name & Category
+        r1 = QHBoxLayout()
+        col_tname = QVBoxLayout()
+        col_tname.addWidget(QLabel("Tab Identifier / Name:"))
+        self.proj_tab_name_input = QLineEdit()
+        self.proj_tab_name_input.setPlaceholderText("e.g. Tab 1 - Smartphone Promo")
+        col_tname.addWidget(self.proj_tab_name_input)
+        r1.addLayout(col_tname, stretch=2)
+
+        col_cat = QVBoxLayout()
+        col_cat.addWidget(QLabel("Marketplace Category:"))
+        self.proj_category_select = QComboBox()
+        self.proj_category_select.addItems([
+            "Household", "Appliances", "Auto Parts", "Electronics & Computers",
+            "Home & Kitchen", "Tools & Appliances", "Furniture & Decor",
+            "Vehicles & Parts", "Apparel & Accessories", "Mobile Phones & Tablets",
+            "Sports & Outdoors", "Toys & Games"
+        ])
+        col_cat.addWidget(self.proj_category_select)
+        r1.addLayout(col_cat, stretch=2)
+        f_layout.addLayout(r1)
+
+        # Row 2: Title & AI Spin
+        r2 = QHBoxLayout()
+        col_t = QVBoxLayout()
+        t_hdr = QHBoxLayout()
+        t_hdr.addWidget(QLabel("Listing Title (Max 100 chars):"))
+        t_hdr.addStretch()
+        btn_spin_t = QPushButton("✨ Auto-Spin via AI")
+        btn_spin_t.setProperty("class", "secondaryBtn")
+        btn_spin_t.setStyleSheet("font-size: 11px; padding: 2px 8px; color: #a5b4fc;")
+        btn_spin_t.setCursor(Qt.PointingHandCursor)
+        btn_spin_t.clicked.connect(self.quick_spin_project_tab_title)
+        t_hdr.addWidget(btn_spin_t)
+        col_t.addLayout(t_hdr)
+
+        self.proj_title_input = QLineEdit()
+        self.proj_title_input.setPlaceholderText("e.g., Apple iPhone 15 Pro Max 256GB Unlocked - Brand New")
+        col_t.addWidget(self.proj_title_input)
+        r2.addLayout(col_t)
+        f_layout.addLayout(r2)
+
+        # Row 3: Price & Target Locations
+        r3 = QHBoxLayout()
+        col_p = QVBoxLayout()
+        col_p.addWidget(QLabel("Price ($ USD / Amount):"))
+        self.proj_price_input = QLineEdit()
+        self.proj_price_input.setPlaceholderText("150")
+        col_p.addWidget(self.proj_price_input)
+
+        col_loc = QVBoxLayout()
+        col_loc.addWidget(QLabel("Target Locations / Cities Pool (Randomized per Ad):"))
+        self.proj_location_input = QTextEdit()
+        self.proj_location_input.setPlaceholderText("e.g., Los Angeles, CA\nNew York, NY\nChicago, IL\nHouston, TX")
+        self.proj_location_input.setFixedHeight(65)
+        col_loc.addWidget(self.proj_location_input)
+
+        r3.addLayout(col_p, stretch=1)
+        r3.addLayout(col_loc, stretch=3)
+        f_layout.addLayout(r3)
+
+        # Row 4: Product Description & AI Spin
+        d_hdr = QHBoxLayout()
+        d_hdr.addWidget(QLabel("Product Description:"))
+        d_hdr.addStretch()
+        btn_spin_d = QPushButton("✨ Auto-Spin via AI")
+        btn_spin_d.setProperty("class", "secondaryBtn")
+        btn_spin_d.setStyleSheet("font-size: 11px; padding: 2px 8px; color: #a5b4fc;")
+        btn_spin_d.setCursor(Qt.PointingHandCursor)
+        btn_spin_d.clicked.connect(self.quick_spin_project_tab_desc)
+        d_hdr.addWidget(btn_spin_d)
+        f_layout.addLayout(d_hdr)
+
+        self.proj_desc_input = QTextEdit()
+        self.proj_desc_input.setPlaceholderText("Write details, specifications, payment terms, and pickup notes...")
+        self.proj_desc_input.setFixedHeight(65)
+        f_layout.addWidget(self.proj_desc_input)
+
+        # Row 5: Images & Anti-Duplicate Checkboxes
+        img_row = QHBoxLayout()
+        self.proj_browse_img_btn = QPushButton("📁 Browse Product Images")
+        self.proj_browse_img_btn.setProperty("class", "secondaryBtn")
+        self.proj_browse_img_btn.setCursor(Qt.PointingHandCursor)
+        self.proj_browse_img_btn.clicked.connect(self.browse_project_tab_images)
+        img_row.addWidget(self.proj_browse_img_btn)
+
+        self.proj_img_count_lbl = QLabel("0 image(s) selected")
+        self.proj_img_count_lbl.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        img_row.addWidget(self.proj_img_count_lbl)
+        img_row.addStretch()
+        f_layout.addLayout(img_row)
+
+        dup_row = QHBoxLayout()
+        self.proj_chk_shield = QCheckBox("🛡️ Anti-Duplicate Shield")
+        self.proj_chk_shield.setChecked(True)
+        self.proj_chk_rotate = QCheckBox("🔄 Rotate Images (0.5°)")
+        self.proj_chk_rotate.setChecked(True)
+        self.proj_chk_exif = QCheckBox("🧹 Wipe EXIF")
+        self.proj_chk_exif.setChecked(True)
+        self.proj_chk_noise = QCheckBox("✨ Canvas Noise")
+
+        dup_row.addWidget(self.proj_chk_shield)
+        dup_row.addWidget(self.proj_chk_rotate)
+        dup_row.addWidget(self.proj_chk_exif)
+        dup_row.addWidget(self.proj_chk_noise)
+        f_layout.addLayout(dup_row)
+
+        layout.addWidget(form_card)
+
+        # Action Buttons Row
+        act_row = QHBoxLayout()
+        self.proj_btn_save_tab = QPushButton("💾 Save Tab Settings")
+        self.proj_btn_save_tab.setProperty("class", "secondaryBtn")
+        self.proj_btn_save_tab.setStyleSheet("font-weight: 700; padding: 10px 18px;")
+        self.proj_btn_save_tab.setCursor(Qt.PointingHandCursor)
+        self.proj_btn_save_tab.clicked.connect(self.save_current_project_tab_state)
+        act_row.addWidget(self.proj_btn_save_tab)
+
+        act_row.addStretch()
+
+        self.proj_btn_start_automation = QPushButton("🚀 Start Project Automation")
+        self.proj_btn_start_automation.setStyleSheet("font-weight: 800; font-size: 13px; padding: 12px 24px; background-color: #059669; color: #ffffff; border-radius: 8px;")
+        self.proj_btn_start_automation.setCursor(Qt.PointingHandCursor)
+        self.proj_btn_start_automation.clicked.connect(self.start_project_automation)
+        act_row.addWidget(self.proj_btn_start_automation)
+
+        self.proj_btn_stop_automation = QPushButton("🛑 Stop Project")
+        self.proj_btn_stop_automation.setStyleSheet("font-weight: 800; font-size: 13px; padding: 12px 24px; background-color: #dc2626; color: #ffffff; border-radius: 8px;")
+        self.proj_btn_stop_automation.setCursor(Qt.PointingHandCursor)
+        self.proj_btn_stop_automation.setEnabled(False)
+        self.proj_btn_stop_automation.clicked.connect(self.stop_project_automation)
+        act_row.addWidget(self.proj_btn_stop_automation)
+
+        layout.addLayout(act_row)
+        scroll.setWidget(container)
+
+        main_layout = QVBoxLayout(view)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(scroll)
+        return view
+
+    def render_project_tabs_bar(self):
+        proj = self.get_project_by_id(self.current_editing_project_id)
+        if not proj or not hasattr(self, 'proj_tabs_layout'):
+            return
+
+        while self.proj_tabs_layout.count():
+            item = self.proj_tabs_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        tabs = proj.get("tabs", [])
+        for i, tdata in enumerate(tabs):
+            t_name = tdata.get("tab_name") or f"Tab {i+1}"
+            btn = QPushButton(f"📑 {t_name}")
+            btn.setCursor(Qt.PointingHandCursor)
+            if i == self.current_editing_tab_index:
+                btn.setStyleSheet("background-color: #4f46e5; color: #ffffff; border: 1px solid #6366f1; font-weight: 700; border-radius: 6px; padding: 4px 10px;")
+            else:
+                btn.setStyleSheet("background-color: rgba(255, 255, 255, 0.05); color: #cbd5e1; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px 10px;")
+            btn.clicked.connect(lambda checked, idx=i: self.switch_project_tab(idx))
+            self.proj_tabs_layout.addWidget(btn)
+
+        btn_add = QPushButton("➕ Add Tab")
+        btn_add.setStyleSheet("background-color: rgba(5, 150, 105, 0.2); color: #34d399; border: 1px solid rgba(5, 150, 105, 0.4); border-radius: 6px; font-weight: 700; padding: 4px 10px;")
+        btn_add.setCursor(Qt.PointingHandCursor)
+        btn_add.clicked.connect(self.add_tab_to_current_project)
+        self.proj_tabs_layout.addWidget(btn_add)
+        self.proj_tabs_layout.addStretch()
+
+    def switch_project_tab(self, new_index):
+        self.save_current_project_tab_state()
+        self.current_editing_tab_index = new_index
+        self.render_project_tabs_bar()
+        self.load_project_tab_into_form(new_index)
+
+    def load_project_tab_into_form(self, tab_index):
+        proj = self.get_project_by_id(self.current_editing_project_id)
+        if not proj:
+            return
+        tabs = proj.get("tabs", [])
+        if tab_index < 0 or tab_index >= len(tabs):
+            tab_index = 0
+            self.current_editing_tab_index = 0
+
+        tdata = tabs[tab_index]
+        self.proj_tab_name_input.setText(tdata.get("tab_name", f"Tab {tab_index+1}"))
+
+        cat = tdata.get("category", "Household")
+        idx = self.proj_category_select.findText(cat)
+        if idx >= 0:
+            self.proj_category_select.setCurrentIndex(idx)
+
+        self.proj_title_input.setText(tdata.get("title", ""))
+        self.proj_price_input.setText(str(tdata.get("price", "0")))
+        self.proj_location_input.setText(tdata.get("location", ""))
+        self.proj_desc_input.setPlainText(tdata.get("description", ""))
+
+        imgs = tdata.get("images", [])
+        self.project_tab_images = imgs
+        if imgs:
+            self.proj_img_count_lbl.setText(f"{len(imgs)} image(s) selected: {', '.join([os.path.basename(f) for f in imgs[:2]])}...")
+        else:
+            self.proj_img_count_lbl.setText("0 image(s) selected")
+
+        self.proj_chk_shield.setChecked(tdata.get("anti_dup_shield", True))
+        self.proj_chk_rotate.setChecked(tdata.get("anti_dup_rotate", True))
+        self.proj_chk_exif.setChecked(tdata.get("wipe_exif", True))
+        self.proj_chk_noise.setChecked(tdata.get("anti_dup_noise", False))
+
+    def save_current_project_tab_state(self):
+        proj = self.get_project_by_id(self.current_editing_project_id)
+        if not proj:
+            return
+        tabs = proj.get("tabs", [])
+        if not tabs or self.current_editing_tab_index >= len(tabs):
+            return
+
+        if hasattr(self, 'proj_main_loc_input'):
+            proj["main_location"] = self.proj_main_loc_input.text().strip()
+
+        tdata = {
+            "tab_name": self.proj_tab_name_input.text().strip() or f"Tab {self.current_editing_tab_index+1}",
+            "category": self.proj_category_select.currentText(),
+            "title": self.proj_title_input.text().strip(),
+            "price": self.proj_price_input.text().strip() or "0",
+            "location": self.proj_location_input.text().strip() or "Local Radius",
+            "description": self.proj_desc_input.toPlainText().strip(),
+            "images": getattr(self, 'project_tab_images', []),
+            "anti_dup_shield": self.proj_chk_shield.isChecked(),
+            "anti_dup_rotate": self.proj_chk_rotate.isChecked(),
+            "wipe_exif": self.proj_chk_exif.isChecked(),
+            "anti_dup_noise": self.proj_chk_noise.isChecked()
+        }
+        tabs[self.current_editing_tab_index] = tdata
+        self.save_projects_to_disk()
+
+    def add_tab_to_current_project(self):
+        self.save_current_project_tab_state()
+        proj = self.get_project_by_id(self.current_editing_project_id)
+        if not proj:
+            return
+        tabs = proj.get("tabs", [])
+        new_tab_idx = len(tabs) + 1
+        new_tdata = {
+            "tab_name": f"Tab {new_tab_idx}",
+            "category": "Household",
+            "title": "",
+            "price": "0",
+            "location": "Local Radius",
+            "description": "",
+            "images": [],
+            "anti_dup_shield": True,
+            "anti_dup_rotate": True,
+            "wipe_exif": True,
+            "anti_dup_noise": False
+        }
+        tabs.append(new_tdata)
+        self.save_projects_to_disk()
+        self.current_editing_tab_index = len(tabs) - 1
+        self.render_project_tabs_bar()
+        self.load_project_tab_into_form(self.current_editing_tab_index)
+        self.log_message("INFO", f"Added new tab 'Tab {new_tab_idx}' to project '{proj.get('name')}'")
+
+    def duplicate_current_project_tab(self):
+        self.save_current_project_tab_state()
+        proj = self.get_project_by_id(self.current_editing_project_id)
+        if not proj:
+            return
+        tabs = proj.get("tabs", [])
+        if not tabs:
+            return
+        cur_tab = dict(tabs[self.current_editing_tab_index])
+        cur_tab["tab_name"] = f"{cur_tab.get('tab_name', 'Tab')} (Copy)"
+        tabs.append(cur_tab)
+        self.save_projects_to_disk()
+        self.current_editing_tab_index = len(tabs) - 1
+        self.render_project_tabs_bar()
+        self.load_project_tab_into_form(self.current_editing_tab_index)
+
+    def delete_current_project_tab(self):
+        proj = self.get_project_by_id(self.current_editing_project_id)
+        if not proj:
+            return
+        tabs = proj.get("tabs", [])
+        if len(tabs) <= 1:
+            QMessageBox.warning(self, "Cannot Delete", "A project must contain at least one tab configuration.")
+            return
+        del tabs[self.current_editing_tab_index]
+        self.save_projects_to_disk()
+        self.current_editing_tab_index = max(0, self.current_editing_tab_index - 1)
+        self.render_project_tabs_bar()
+        self.load_project_tab_into_form(self.current_editing_tab_index)
+
+    def browse_project_tab_images(self):
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Select Product Images for Tab", "", "Image Files (*.png *.jpg *.jpeg *.webp)"
+        )
+        if files:
+            self.project_tab_images = files
+            self.proj_img_count_lbl.setText(f"{len(files)} image(s) selected: {', '.join([os.path.basename(f) for f in files[:2]])}...")
+            self.save_current_project_tab_state()
+
+    def quick_spin_project_tab_title(self):
+        raw = self.proj_title_input.text().strip()
+        if not raw:
+            return
+        if HAS_SPINTAX:
+            spinned = SpintaxEngine.spin_text(raw)
+        else:
+            spinned = raw
+        self.proj_title_input.setText(spinned)
+
+    def quick_spin_project_tab_desc(self):
+        raw = self.proj_desc_input.toPlainText().strip()
+        if not raw:
+            return
+        if HAS_SPINTAX:
+            spinned = SpintaxEngine.spin_text(raw)
+        else:
+            spinned = raw
+        self.proj_desc_input.setPlainText(spinned)
+
+    def refresh_project_accounts_checklist(self):
+        if not hasattr(self, 'proj_acc_checklist_layout'):
+            return
+        while self.proj_acc_checklist_layout.count():
+            item = self.proj_acc_checklist_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self.proj_acc_checkboxes = []
+        if not self.accounts_list:
+            lbl = QLabel("⚠️ No Facebook accounts saved yet. Please add accounts in Accounts Manager.")
+            lbl.setStyleSheet("color: #f59e0b; font-size: 11px;")
+            self.proj_acc_checklist_layout.addWidget(lbl)
+            return
+
+        for acc in self.accounts_list:
+            name = acc.get("name", "Account")
+            cookies = acc.get("cookies", "")
+            proxy = acc.get("proxy", "Direct")
+            chk = QCheckBox(f"{name} (Proxy: {proxy})")
+            chk.setChecked(True)
+            chk.setProperty("account_data", acc)
+            chk.setStyleSheet("font-size: 12px; font-weight: 600; color: #f1f5f9;")
+            self.proj_acc_checklist_layout.addWidget(chk)
+            self.proj_acc_checkboxes.append(chk)
+
+    def select_all_project_accounts(self):
+        if hasattr(self, 'proj_acc_checkboxes'):
+            for chk in self.proj_acc_checkboxes:
+                chk.setChecked(True)
+
+    def clear_all_project_accounts(self):
+        if hasattr(self, 'proj_acc_checkboxes'):
+            for chk in self.proj_acc_checkboxes:
+                chk.setChecked(False)
+
+    def get_selected_project_accounts(self):
+        selected = []
+        if hasattr(self, 'proj_acc_checkboxes'):
+            for chk in self.proj_acc_checkboxes:
+                if chk.isChecked():
+                    acc_data = chk.property("account_data")
+                    if acc_data:
+                        selected.append(acc_data)
+        return selected
+
+    def start_project_automation(self):
+        self.save_current_project_tab_state()
+        proj = self.get_project_by_id(self.current_editing_project_id)
+        if not proj:
+            QMessageBox.warning(self, "No Project Selected", "Please select a valid project folder.")
+            return
+
+        selected_accounts = self.get_selected_project_accounts()
+        if not selected_accounts:
+            QMessageBox.warning(
+                self,
+                "No Accounts Selected",
+                "Please check at least one Facebook Account from the Target Accounts checklist."
+            )
+            return
+
+        missing_cookies = [acc.get("name", "Account") for acc in selected_accounts if not acc.get("cookies")]
+        if missing_cookies:
+            QMessageBox.warning(
+                self,
+                "Account Cookies Missing",
+                f"The following account(s) do not have cookies configured:\n\n" +
+                "\n".join(missing_cookies)
+            )
+            return
+
+        project_tabs = proj.get("tabs", [])
+        if not project_tabs:
+            QMessageBox.warning(self, "No Tabs Configured", "This project has no tab configurations to post.")
+            return
+
+        valid_tabs = [t for t in project_tabs if t.get("title", "").strip()]
+        if not valid_tabs:
+            QMessageBox.warning(self, "Missing Listing Title", "Please provide at least a Title for Tab 1 in this project.")
+            return
+
+        is_batch = len(selected_accounts) > 1
+
+        self.log_message("INFO", f"==================================================")
+        self.log_message("INFO", f"🚀 Starting Project Campaign Automation: '{proj.get('name')}'")
+        self.log_message("INFO", f"📑 Project Multi-Tab Setup: {len(project_tabs)} Tab(s) per Facebook ID")
+        self.log_message("INFO", f"👥 Queue: {len(selected_accounts)} Account(s) Selected")
+
+        main_loc = proj.get("main_location", "").strip()
+        if hasattr(self, 'proj_main_loc_input') and self.proj_main_loc_input.text().strip():
+            main_loc = self.proj_main_loc_input.text().strip()
+
+        payload = {
+            "title": project_tabs[0].get("title", "Project Campaign"),
+            "price": project_tabs[0].get("price", "0"),
+            "category": project_tabs[0].get("category", "Household"),
+            "location": project_tabs[0].get("location", "Local Radius"),
+            "project_main_location": main_loc,
+            "description": project_tabs[0].get("description", ""),
+            "tabs_count": len(project_tabs),
+            "posts_per_id": len(project_tabs),
+            "method": "Project Campaign Mode",
+            "account": "Batch Runner" if is_batch else selected_accounts[0].get("name", "Account"),
+            "account_data": selected_accounts[0],
+            "is_batch": is_batch,
+            "batch_accounts": selected_accounts,
+            "images": project_tabs[0].get("images", []),
+            "anti_dup_shield": True,
+            "anti_dup_rotate": True,
+            "wipe_exif": True,
+            "anti_dup_noise": False,
+            "project_name": proj.get("name"),
+            "project_tabs": project_tabs
+        }
+
+        speed = "Normal"
+        if hasattr(self, 'speed_select') and "Slow" in self.speed_select.currentText():
+            speed = "Slow"
+        elif hasattr(self, 'speed_select') and "Fast" in self.speed_select.currentText():
+            speed = "Fast"
+
+        if hasattr(self, 'start_btn'):
+            self.start_btn.setEnabled(False)
+        if hasattr(self, 'stop_btn'):
+            self.stop_btn.setEnabled(True)
+        if hasattr(self, 'top_proj_btn_start'):
+            self.top_proj_btn_start.setEnabled(False)
+        if hasattr(self, 'top_proj_btn_stop'):
+            self.top_proj_btn_stop.setEnabled(True)
+        if hasattr(self, 'proj_btn_start_automation'):
+            self.proj_btn_start_automation.setEnabled(False)
+        if hasattr(self, 'proj_btn_stop_automation'):
+            self.proj_btn_stop_automation.setEnabled(True)
+
+        self.engine_status_lbl.setText("● PROJECT AUTOMATION")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #818cf8;")
+
+        self.worker = AutomationWorker(payload, speed_mode=speed)
+        self.worker.log_signal.connect(self.log_message)
+        self.worker.progress_signal.connect(self.update_progress)
+        self.worker.finished_signal.connect(self.on_automation_finished)
+        self.worker.start()
+
+    def stop_project_automation(self):
+        if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
+            self.log_message("WARNING", "🛑 Stop command sent to Project Campaign Automation...")
+            self.worker.stop()
+
+        if hasattr(self, 'start_btn'):
+            self.start_btn.setEnabled(True)
+        if hasattr(self, 'stop_btn'):
+            self.stop_btn.setEnabled(False)
+        if hasattr(self, 'top_proj_btn_start'):
+            self.top_proj_btn_start.setEnabled(True)
+        if hasattr(self, 'top_proj_btn_stop'):
+            self.top_proj_btn_stop.setEnabled(False)
+        if hasattr(self, 'proj_btn_start_automation'):
+            self.proj_btn_start_automation.setEnabled(True)
+        if hasattr(self, 'proj_btn_stop_automation'):
+            self.proj_btn_stop_automation.setEnabled(False)
+
+        self.engine_status_lbl.setText("● IDLE")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
 
     def browse_images(self):
         files, _ = QFileDialog.getOpenFileNames(
@@ -3916,7 +4739,7 @@ class FBAutoBotMainWindow(QMainWindow):
             return
 
         is_batch = len(selected_accounts) > 1
-        chosen_method = self.method_select.currentText()
+        chosen_method = self.method_select.currentText() if hasattr(self, 'method_select') and self.method_select else "Standard Auto Posting"
 
         tabs_count = self.tabs_count_spin.value() if hasattr(self, 'tabs_count_spin') else 1
 
@@ -3972,6 +4795,14 @@ class FBAutoBotMainWindow(QMainWindow):
     def on_automation_finished(self, success, message):
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
+        if hasattr(self, 'top_proj_btn_start'):
+            self.top_proj_btn_start.setEnabled(True)
+        if hasattr(self, 'top_proj_btn_stop'):
+            self.top_proj_btn_stop.setEnabled(False)
+        if hasattr(self, 'proj_btn_start_automation'):
+            self.proj_btn_start_automation.setEnabled(True)
+        if hasattr(self, 'proj_btn_stop_automation'):
+            self.proj_btn_stop_automation.setEnabled(False)
         self.engine_status_lbl.setText("● READY FOR TASKS")
         self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
         if success:
@@ -4046,6 +4877,49 @@ class FBAutoBotMainWindow(QMainWindow):
 
         layout.addWidget(acc_card)
 
+        # ----------------------------------------------------------------------
+        # [UNIFIED ACTION BAR: Single Start / Stop Button for Group Automation - AT TOP]
+        # ----------------------------------------------------------------------
+        action_card = QFrame()
+        action_card.setProperty("class", "glassCard")
+        action_card.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(15, 23, 42, 0.95), stop:1 rgba(30, 41, 59, 0.95)); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; padding: 14px;")
+        ac_layout = QVBoxLayout(action_card)
+        ac_layout.setSpacing(10)
+
+        # Step Workflow Banner
+        workflow_banner = QLabel("⚡ <b>FEWFEED Automated Sequence:</b> Mobile Chrome opens → Runs <b>Auto Join</b> (Card #2) if group list is provided → Then opens <b>Auto Post</b> (Card #1), injects descriptions/links, selects all groups, and submits post.")
+        workflow_banner.setStyleSheet("color: #e0e7ff; font-size: 12px; line-height: 1.4;")
+        workflow_banner.setWordWrap(True)
+        ac_layout.addWidget(workflow_banner)
+
+        # Single Unified Start & Stop Buttons
+        u_btn_row = QHBoxLayout()
+        u_btn_row.setSpacing(12)
+
+        self.btn_start_grp_unified = QPushButton("🚀 START FB GROUP AUTOMATION (FEWFEED)")
+        self.btn_start_grp_unified.setProperty("class", "primaryBtn")
+        self.btn_start_grp_unified.setCursor(Qt.PointingHandCursor)
+        self.btn_start_grp_unified.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #059669); color: #ffffff; font-weight: 800; font-size: 14px; padding: 14px; border-radius: 8px;")
+        self.btn_start_grp_unified.clicked.connect(self.start_unified_group_automation)
+        u_btn_row.addWidget(self.btn_start_grp_unified, stretch=3)
+
+        self.btn_stop_grp_unified = QPushButton("🛑 STOP")
+        self.btn_stop_grp_unified.setProperty("class", "dangerBtn")
+        self.btn_stop_grp_unified.setEnabled(False)
+        self.btn_stop_grp_unified.setCursor(Qt.PointingHandCursor)
+        self.btn_stop_grp_unified.setStyleSheet("font-size: 13px; font-weight: 700; padding: 14px; border-radius: 8px;")
+        self.btn_stop_grp_unified.clicked.connect(self.stop_group_automation)
+        u_btn_row.addWidget(self.btn_stop_grp_unified, stretch=1)
+
+        ac_layout.addLayout(u_btn_row)
+        layout.addWidget(action_card)
+
+        # Compatibility aliases
+        self.btn_start_grp_post = self.btn_start_grp_unified
+        self.btn_stop_grp_post = self.btn_stop_grp_unified
+        self.btn_start_grp_join = self.btn_start_grp_unified
+        self.btn_stop_grp_join = self.btn_stop_grp_unified
+
         # Main Splitter: Left Section (Posting Panel) vs Right Section (Group Joining Panel)
         panels_row = QHBoxLayout()
         panels_row.setSpacing(14)
@@ -4098,7 +4972,7 @@ class FBAutoBotMainWindow(QMainWindow):
         p_thread_col = QVBoxLayout()
         p_thread_col.addWidget(QLabel("🧵 Threads (Concurrent Browsers):"))
         self.grp_post_thread_spin = QSpinBox()
-        self.grp_post_thread_spin.setRange(1, 10)
+        self.grp_post_thread_spin.setRange(1, 50)
         self.grp_post_thread_spin.setValue(1)
         self.grp_post_thread_spin.setStyleSheet("font-weight: 700; color: #38bdf8;")
         p_thread_col.addWidget(self.grp_post_thread_spin)
@@ -4107,8 +4981,8 @@ class FBAutoBotMainWindow(QMainWindow):
         p_delay_col = QVBoxLayout()
         p_delay_col.addWidget(QLabel("⏳ Post Delay Interval (Seconds):"))
         self.grp_post_delay_spin = QSpinBox()
-        self.grp_post_delay_spin.setRange(5, 600)
-        self.grp_post_delay_spin.setValue(30)
+        self.grp_post_delay_spin.setRange(1, 50)
+        self.grp_post_delay_spin.setValue(15)
         self.grp_post_delay_spin.setSuffix(" sec")
         self.grp_post_delay_spin.setStyleSheet("font-weight: 700; color: #10b981;")
         p_delay_col.addWidget(self.grp_post_delay_spin)
@@ -4139,7 +5013,7 @@ class FBAutoBotMainWindow(QMainWindow):
         j_layout.addWidget(QLabel("📋 Target Group Codes / URLs to Join (1 per line):"))
         self.grp_join_codes_input = QTextEdit()
         self.grp_join_codes_input.setPlaceholderText("e.g.\nhttps://www.facebook.com/groups/112233445566/\nfacebook.com/groups/auto_parts_marketplace\n554433221100998")
-        self.grp_join_codes_input.setFixedHeight(140)
+        self.grp_join_codes_input.setFixedHeight(75)
         j_layout.addWidget(self.grp_join_codes_input)
 
         # Settings: Thread & Delay for Joining
@@ -4148,7 +5022,7 @@ class FBAutoBotMainWindow(QMainWindow):
         j_thread_col = QVBoxLayout()
         j_thread_col.addWidget(QLabel("🧵 Threads (Concurrent Browsers):"))
         self.grp_join_thread_spin = QSpinBox()
-        self.grp_join_thread_spin.setRange(1, 10)
+        self.grp_join_thread_spin.setRange(1, 50)
         self.grp_join_thread_spin.setValue(1)
         self.grp_join_thread_spin.setStyleSheet("font-weight: 700; color: #38bdf8;")
         j_thread_col.addWidget(self.grp_join_thread_spin)
@@ -4157,7 +5031,7 @@ class FBAutoBotMainWindow(QMainWindow):
         j_delay_col = QVBoxLayout()
         j_delay_col.addWidget(QLabel("⏳ Join Delay Interval (Seconds):"))
         self.grp_join_delay_spin = QSpinBox()
-        self.grp_join_delay_spin.setRange(5, 600)
+        self.grp_join_delay_spin.setRange(1, 50)
         self.grp_join_delay_spin.setValue(15)
         self.grp_join_delay_spin.setSuffix(" sec")
         self.grp_join_delay_spin.setStyleSheet("font-weight: 700; color: #10b981;")
@@ -4182,49 +5056,6 @@ class FBAutoBotMainWindow(QMainWindow):
         panels_row.addWidget(join_panel, stretch=1)
 
         layout.addLayout(panels_row)
-
-        # ----------------------------------------------------------------------
-        # [UNIFIED ACTION BAR: Single Start / Stop Button for Group Automation]
-        # ----------------------------------------------------------------------
-        action_card = QFrame()
-        action_card.setProperty("class", "glassCard")
-        action_card.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(15, 23, 42, 0.95), stop:1 rgba(30, 41, 59, 0.95)); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; padding: 14px;")
-        ac_layout = QVBoxLayout(action_card)
-        ac_layout.setSpacing(10)
-
-        # Step Workflow Banner
-        workflow_banner = QLabel("⚡ <b>FEWFEED Automated Sequence:</b> Mobile Chrome opens → Runs <b>Auto Join</b> (Card #2) if group list is provided → Then opens <b>Auto Post</b> (Card #1), injects descriptions/links, selects all groups, and submits post.")
-        workflow_banner.setStyleSheet("color: #e0e7ff; font-size: 12px; line-height: 1.4;")
-        workflow_banner.setWordWrap(True)
-        ac_layout.addWidget(workflow_banner)
-
-        # Single Unified Start & Stop Buttons
-        u_btn_row = QHBoxLayout()
-        u_btn_row.setSpacing(12)
-
-        self.btn_start_grp_unified = QPushButton("🚀 START FB GROUP AUTOMATION (FEWFEED)")
-        self.btn_start_grp_unified.setProperty("class", "primaryBtn")
-        self.btn_start_grp_unified.setCursor(Qt.PointingHandCursor)
-        self.btn_start_grp_unified.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #059669); color: #ffffff; font-weight: 800; font-size: 14px; padding: 14px; border-radius: 8px;")
-        self.btn_start_grp_unified.clicked.connect(self.start_unified_group_automation)
-        u_btn_row.addWidget(self.btn_start_grp_unified, stretch=3)
-
-        self.btn_stop_grp_unified = QPushButton("🛑 STOP")
-        self.btn_stop_grp_unified.setProperty("class", "dangerBtn")
-        self.btn_stop_grp_unified.setEnabled(False)
-        self.btn_stop_grp_unified.setCursor(Qt.PointingHandCursor)
-        self.btn_stop_grp_unified.setStyleSheet("font-size: 13px; font-weight: 700; padding: 14px; border-radius: 8px;")
-        self.btn_stop_grp_unified.clicked.connect(self.stop_group_automation)
-        u_btn_row.addWidget(self.btn_stop_grp_unified, stretch=1)
-
-        ac_layout.addLayout(u_btn_row)
-        layout.addWidget(action_card)
-
-        # Compatibility aliases
-        self.btn_start_grp_post = self.btn_start_grp_unified
-        self.btn_stop_grp_post = self.btn_stop_grp_unified
-        self.btn_start_grp_join = self.btn_start_grp_unified
-        self.btn_stop_grp_join = self.btn_stop_grp_unified
 
         scroll.setWidget(container)
 
@@ -4379,8 +5210,28 @@ class FBAutoBotMainWindow(QMainWindow):
         threads = max(self.grp_post_thread_spin.value(), self.grp_join_thread_spin.value())
         delay = self.grp_post_delay_spin.value()
 
+        cf_email = "codeabm71@gmail.com"
+        cf_pass = "Fewfeew"
+
+        # Save CueFeed login details globally
+        try:
+            cfg_dir = os.path.join(get_base_dir(), "config")
+            os.makedirs(cfg_dir, exist_ok=True)
+            cfg_file = os.path.join(cfg_dir, "group_settings.json")
+            with open(cfg_file, "w", encoding="utf-8") as f:
+                json.dump({"cuefeed_email": cf_email, "cuefeed_pass": cf_pass}, f, indent=2)
+        except Exception:
+            pass
+
+        # Attach CueFeed credentials to accounts payload
+        for acc in accounts:
+            acc["cuefeed_email"] = cf_email
+            acc["cuefeed_pass"] = cf_pass
+
         payload = {
             "accounts": accounts,
+            "cuefeed_email": cf_email,
+            "cuefeed_pass": cf_pass,
             "group_codes": post_codes or join_codes,
             "join_group_codes": join_codes,
             "post_group_codes": post_codes,

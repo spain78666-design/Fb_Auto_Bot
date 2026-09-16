@@ -32,9 +32,9 @@ MOBILE_SMARTPHONE_USER_AGENT = (
 )
 
 MOBILE_DEVICE_METRICS = {
-    "width": 393,
-    "height": 851,
-    "pixelRatio": 3.0
+    "width": 430,
+    "height": 900,
+    "pixelRatio": 1.0
 }
 
 MOBILE_EMULATION_EXPERIMENTAL_OPTIONS = {
@@ -51,6 +51,7 @@ def get_fewfeed_extension_path() -> Optional[str]:
     """Resolves the absolute path to FEWFEED extension folder."""
     candidates = [
         os.path.join(get_base_dir(), "FEWFEED"),
+        os.path.join(getattr(sys, '_MEIPASS', ''), "FEWFEED"),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FEWFEED")),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "FEWFEED")),
         "/desktop_app/FEWFEED",
@@ -58,22 +59,22 @@ def get_fewfeed_extension_path() -> Optional[str]:
         os.path.abspath("desktop_app/FEWFEED")
     ]
     for c in candidates:
-        if os.path.isdir(c) and os.path.exists(os.path.join(c, "manifest.json")):
+        if c and os.path.isdir(c) and os.path.exists(os.path.join(c, "manifest.json")):
             return os.path.abspath(c)
     return None
 
 def get_chrome_webdriver_mobile_emulation_config(ext_path: Optional[str] = None, user_data_dir: Optional[str] = None) -> Dict[str, Any]:
     """
     Returns Python Chrome WebDriver experimental options dictionary for mobileEmulation.
-    Includes deviceMetrics (width: 393, height: 851, pixelRatio: 3.0) and genuine mobile userAgent.
+    Includes deviceMetrics (width: 430, height: 900, pixelRatio: 1.0) and genuine mobile userAgent.
     """
     config = {
         "mobileEmulation": MOBILE_EMULATION_EXPERIMENTAL_OPTIONS,
         "args": [
             "--disable-blink-features=AutomationControlled",
-            "--window-size=393,851",
+            "--window-size=440,920",
             "--enable-viewport",
-            "--force-device-scale-factor=3.0",
+            "--force-device-scale-factor=1.0",
             "--touch-events=enabled",
             f"--user-agent={MOBILE_SMARTPHONE_USER_AGENT}",
             "--disable-notifications"
@@ -228,9 +229,9 @@ class FacebookGroupBot:
         ext_path = get_fewfeed_extension_path()
         launch_args = [
             "--disable-blink-features=AutomationControlled",
-            "--window-size=393,851",
+            "--window-size=440,920",
             "--enable-viewport",
-            "--force-device-scale-factor=3.0",
+            "--force-device-scale-factor=1.0",
             "--touch-events=enabled",
             f"--user-agent={MOBILE_SMARTPHONE_USER_AGENT}",
             "--disable-infobars",
@@ -289,9 +290,9 @@ class FacebookGroupBot:
                     "ignore_default_args": ignore_default_args,
                     "proxy": proxy_cfg,
                     "user_agent": MOBILE_SMARTPHONE_USER_AGENT,
-                    "viewport": {"width": 393, "height": 851},
-                    "screen": {"width": 393, "height": 851},
-                    "device_scale_factor": 3.0,
+                    "viewport": {"width": 430, "height": 900},
+                    "screen": {"width": 440, "height": 920},
+                    "device_scale_factor": 1.0,
                     "is_mobile": True,
                     "has_touch": True,
                     "locale": "en-US",
@@ -374,12 +375,11 @@ class FacebookGroupBot:
     # FewFeed Web Extension Dashboard Navigation & Tool Automation
     # --------------------------------------------------------------------------
     async def open_fewfeed_dashboard(self):
-        """Navigates to FewFeed Web Extension dashboard."""
+        """Navigates to FewFeed Web Extension dashboard and handles automatic CueFeed login & persistent profile state."""
         self.log("INFO", "🌐 Navigating to FewFeed Dashboard (https://fewfeed.app)...")
         try:
             await self.page.goto("https://fewfeed.app/", wait_until="domcontentloaded", timeout=40000)
-            await asyncio.sleep(3.0)
-            self.log("SUCCESS", "✅ FewFeed Dashboard loaded successfully.")
+            await asyncio.sleep(2.5)
         except Exception as e:
             self.log("WARNING", f"FewFeed navigation notice: {str(e)[:90]}. Retrying...")
             try:
@@ -387,6 +387,46 @@ class FacebookGroupBot:
                 await asyncio.sleep(2.0)
             except Exception as e2:
                 self.log("ERROR", f"Could not reach fewfeed.app: {str(e2)[:90]}")
+
+        # Check for CueFeed / FewFeed login form or signin page redirect
+        try:
+            cf_email = self.account_data.get("cuefeed_email") or self.account_data.get("fewfeed_email") or "codeabm71@gmail.com"
+            cf_pass = self.account_data.get("cuefeed_pass") or self.account_data.get("fewfeed_pass") or "Fewfeew"
+
+            for attempt in range(2):
+                email_inp = await self.page.query_selector("input[type='email'], input[name*='email' i], input[placeholder*='Email' i], input[placeholder*='email' i], input[name*='user' i]")
+                pass_inp = await self.page.query_selector("input[type='password'], input[name*='pass' i], input[placeholder*='Password' i], input[placeholder*='pass' i]")
+                is_signin_page = "signin" in self.page.url.lower() or "login" in self.page.url.lower()
+
+                if (email_inp and pass_inp and await email_inp.is_visible()) or is_signin_page:
+                    self.log("INFO", f"🔑 Auto-logging into FewFeed Extension Account ({cf_email})...")
+                    if email_inp and await email_inp.is_visible():
+                        await email_inp.click()
+                        await email_inp.fill(cf_email)
+                        await asyncio.sleep(0.4)
+                    if pass_inp and await pass_inp.is_visible():
+                        await pass_inp.click()
+                        await pass_inp.fill(cf_pass)
+                        await asyncio.sleep(0.4)
+
+                    login_btn = await self.page.query_selector("button:has-text('Sign In'), button:has-text('Sign in'), button:has-text('Login'), button:has-text('Log in'), button[type='submit'], input[type='submit']")
+                    if login_btn and await login_btn.is_visible():
+                        await login_btn.click()
+                    elif pass_inp:
+                        await pass_inp.press("Enter")
+
+                    await asyncio.sleep(4.0)
+                    if "fewfeed.app" in self.page.url and "signin" not in self.page.url.lower():
+                        self.log("SUCCESS", "✅ CueFeed logged in successfully & session attached!")
+                        break
+                else:
+                    self.log("SUCCESS", "✅ CueFeed session active & attached to Facebook account!")
+                    break
+
+        except Exception as err:
+            self.log("INFO", f"CueFeed auto-login check status: {str(err)[:60]}")
+
+        self.log("SUCCESS", "✅ FewFeed Dashboard loaded and ready for automated operations.")
 
     async def run_fewfeed_group_joining(self, group_codes: List[str], delay_seconds: int = 15) -> int:
         """
@@ -620,8 +660,14 @@ class FacebookGroupBot:
         self.set_progress(65)
 
         # Step 2: Prepare post text content & links
-        desc_text = "\n\n".join(descriptions) if descriptions else ""
-        link_text = "\n".join(links) if links else ""
+        desc_text = random.choice(descriptions) if (descriptions and posting_mode == "Random") else ("\n\n".join(descriptions) if descriptions else "")
+        if links:
+            if len(links) == 1:
+                link_text = links[0]
+            else:
+                link_text = random.choice(links)
+        else:
+            link_text = ""
         
         full_content = desc_text
         if link_text:

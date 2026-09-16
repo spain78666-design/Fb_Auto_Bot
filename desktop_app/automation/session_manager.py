@@ -16,6 +16,7 @@ import os
 import sys
 import json
 import time
+import random
 import uuid
 import shutil
 import asyncio
@@ -40,8 +41,16 @@ logger = logging.getLogger("FBAutoBot.SessionManager")
 
 DEFAULT_ACCOUNTS_SEED: List[Dict[str, Any]] = []
 
+def get_base_dir() -> str:
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
 def get_fewfeed_extension_path() -> Optional[str]:
     candidates = [
+        os.path.join(get_base_dir(), "FEWFEED"),
+        os.path.join(getattr(sys, '_MEIPASS', ''), "FEWFEED"),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FEWFEED")),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "FEWFEED")),
         "/desktop_app/FEWFEED",
@@ -49,7 +58,7 @@ def get_fewfeed_extension_path() -> Optional[str]:
         os.path.abspath("desktop_app/FEWFEED")
     ]
     for c in candidates:
-        if os.path.isdir(c) and os.path.exists(os.path.join(c, "manifest.json")):
+        if c and os.path.isdir(c) and os.path.exists(os.path.join(c, "manifest.json")):
             return os.path.abspath(c)
     return None
 
