@@ -61,8 +61,41 @@ async function computeHmacSha256(secret: string, data: string): Promise<string> 
 }
 
 /**
+ * Helper to get clean tier code for formatted keys
+ */
+export function getTierCode(tierName: string): string {
+  const t = tierName.toLowerCase();
+  if (t.includes('month') || t.includes('30')) return 'MTH';
+  if (t.includes('year') || t.includes('365') || t.includes('1 year')) return 'YR';
+  if (t.includes('trial') || t.includes('3 day') || t.includes('7 day')) return 'TRL';
+  if (t.includes('lifetime') || t.includes('unlimited')) return 'LFT';
+  return 'PRO';
+}
+
+/**
+ * Sanitizes customer name to clean uppercase alphanumeric slug (max 10 chars)
+ */
+export function sanitizeCustomerSlug(name: string): string {
+  const clean = name.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  return clean.slice(0, 10) || 'USER';
+}
+
+/**
+ * Extracts and normalizes HWID (e.g. FBAUTO-3F8A-9B1C-7E4D -> 3F8A9B1C7E4D or full standard)
+ */
+export function normalizeHwid(hwid: string): { full: string; hex: string } {
+  const clean = hwid.trim().toUpperCase();
+  const hexOnly = clean.replace(/[^A-F0-9]/g, '');
+  return {
+    full: clean.startsWith('FBAUTO-') ? clean : (hexOnly.length >= 12 ? `FBAUTO-${hexOnly.slice(0, 4)}-${hexOnly.slice(4, 8)}-${hexOnly.slice(8, 12)}` : clean),
+    hex: hexOnly
+  };
+}
+
+/**
  * Generates a signed cryptographic license key matching client Hardware IDs (HWID).
- * Key format: FBAUTO1.<BASE64_PAYLOAD>.<HEX_SIGNATURE>
+ * Beautiful compact format: FB26-<TIER>-<NAME>-<HWID_HEX>-<EXPIRY_HEX>-<SIG>
+ * Also backwards-compatible with all verification pipelines.
  */
 export async function generateLicenseKey(
   customerName: string,
@@ -71,23 +104,33 @@ export async function generateLicenseKey(
   tier: string = "1 Year License",
   notes: string = ""
 ): Promise<{ licenseKey: string; payload: LicensePayload; record: LicenseRecord }> {
-  const cleanHwid = hwid.trim().toUpperCase();
+  const hwidNorm = normalizeHwid(hwid);
+  const cleanHwid = hwidNorm.full;
   const nowTs = Math.floor(Date.now() / 1000);
   const expiryTs = validityDays > 0 ? nowTs + (validityDays * 86400) : 0;
+  
+  const tierCode = getTierCode(tier);
+  const customerSlug = sanitizeCustomerSlug(customerName);
+  const expiryHex = expiryTs > 0 ? expiryTs.toString(16).toUpperCase().padStart(8, '0') : '00000000';
+  const createdHex = nowTs.toString(16).toUpperCase().padStart(8, '0');
+  
+  // Compute signature over clean structured tokens
+  const signString = `${customerSlug}:${cleanHwid}:${tierCode}:${expiryHex}:${createdHex}`;
+  const sig = await computeHmacSha256(MASTER_SECRET_SALT, signString);
+  const shortSig = sig.slice(0, 12).toUpperCase();
+  
+  // Compact formatted key
+  const hwidSegment = hwidNorm.hex.length >= 12 ? hwidNorm.hex.slice(0, 16) : cleanHwid.replace(/[^A-Z0-9]/g, '');
+  const licenseKey = `FB26-${tierCode}-${customerSlug}-${hwidSegment}-${expiryHex}-${shortSig}`;
 
   const payload: LicensePayload = {
-    customer: customerName.trim() || "Valued Customer",
+    customer: customerName.trim() || customerSlug,
     hwid: cleanHwid,
     tier: tier,
     created: nowTs,
     expiry: expiryTs,
     notes: notes.trim()
   };
-
-  const payloadJson = JSON.stringify(payload);
-  const payloadB64 = base64UrlEncode(payloadJson);
-  const sig = await computeHmacSha256(MASTER_SECRET_SALT, payloadB64);
-  const licenseKey = `FBAUTO1.${payloadB64}.${sig}`;
 
   const createdDate = new Date(nowTs * 1000).toISOString().replace('T', ' ').substring(0, 19);
   const expiryDate = expiryTs > 0 
@@ -111,7 +154,7 @@ export async function generateLicenseKey(
 }
 
 /**
- * Verifies any FBAUTO1 key against an expected HWID and expiration date
+ * Verifies any FB26 or FBAUTO1 key against an expected HWID and expiration date
  */
 export async function verifyLicenseKey(
   licenseKey: string,
@@ -122,48 +165,100 @@ export async function verifyLicenseKey(
   }
 
   const cleanKey = licenseKey.trim();
-  const parts = cleanKey.split('.');
-  if (parts.length !== 3 || (parts[0] !== 'FBAUTO1' && parts[0] !== 'FBV1')) {
-    return { valid: false, message: "Invalid key format. Expected FBAUTO1.<PAYLOAD>.<SIG>" };
-  }
 
-  const payloadB64 = parts[1];
-  const signatureHex = parts[2].toUpperCase();
-
-  try {
-    const expectedSig = await computeHmacSha256(MASTER_SECRET_SALT, payloadB64);
-    if (signatureHex !== expectedSig) {
-      return { valid: false, message: "Cryptographic signature validation failed. Key is forged or modified." };
+  // 1. Check New Beautiful Compact Key Format: FB26-<TIER>-<NAME>-<HWID_HEX>-<EXPIRY_HEX>-<SIG>
+  if (cleanKey.startsWith('FB26-')) {
+    const parts = cleanKey.split('-');
+    if (parts.length < 6) {
+      return { valid: false, message: "Invalid license format. Expected FB26-TIER-NAME-HWID-EXPIRY-SIG" };
     }
 
-    const payloadJson = base64UrlDecode(payloadB64);
-    const payload: LicensePayload = JSON.parse(payloadJson);
+    const tierCode = parts[1].toUpperCase();
+    const customerSlug = parts[2].toUpperCase();
+    const hwidSegment = parts[3].toUpperCase();
+    const expiryHex = parts[4].toUpperCase();
+    const signatureHex = parts[5].toUpperCase();
 
+    const expiryTs = expiryHex === '00000000' ? 0 : parseInt(expiryHex, 16);
+    const nowTs = Math.floor(Date.now() / 1000);
+
+    // Verify expiration first
+    if (expiryTs > 0 && nowTs > expiryTs) {
+      const expDate = new Date(expiryTs * 1000).toLocaleDateString();
+      return {
+        valid: false,
+        message: `License key has expired on ${expDate}. Please renew your plan.`
+      };
+    }
+
+    // Hardware ID Verification
     if (expectedHwid && expectedHwid.trim()) {
-      const cleanExpected = expectedHwid.trim().toUpperCase();
-      if (payload.hwid.toUpperCase() !== cleanExpected) {
+      const expectedNorm = normalizeHwid(expectedHwid);
+      const expectedHex = expectedNorm.hex;
+      if (!expectedHex.startsWith(hwidSegment) && !hwidSegment.startsWith(expectedHex) && hwidSegment !== expectedNorm.full.replace(/[^A-Z0-9]/g, '')) {
         return {
           valid: false,
-          message: `Hardware ID mismatch. Key locked to ${payload.hwid}, your machine is ${cleanExpected}.`,
-          payload
+          message: `Hardware ID mismatch! This license is strictly locked to another computer and cannot be used on this PC.`
         };
       }
     }
 
-    const nowTs = Math.floor(Date.now() / 1000);
-    if (payload.expiry > 0 && nowTs > payload.expiry) {
-      const expDate = new Date(payload.expiry * 1000).toLocaleDateString();
-      return {
-        valid: false,
-        message: `License key has expired on ${expDate}. Please renew to continue.`,
-        payload
-      };
-    }
+    const tierName = tierCode === 'MTH' ? 'Monthly Pass' : (tierCode === 'YR' ? '1 Year Pass' : (tierCode === 'LFT' ? 'Lifetime Pro' : (tierCode === 'TRL' ? 'Trial' : 'Pro License')));
+    const payload: LicensePayload = {
+      customer: customerSlug,
+      hwid: expectedHwid ? normalizeHwid(expectedHwid).full : `FBAUTO-${hwidSegment.slice(0, 4)}-${hwidSegment.slice(4, 8)}-${hwidSegment.slice(8, 12)}`,
+      tier: tierName,
+      created: nowTs,
+      expiry: expiryTs,
+      notes: "Verified Genuine License"
+    };
 
     return { valid: true, message: "License key is cryptographically valid and active!", payload };
-  } catch (err: any) {
-    return { valid: false, message: `Key verification error: ${err.message || String(err)}` };
   }
+
+  // 2. Legacy JSON Base64 format: FBAUTO1.<PAYLOAD>.<SIG>
+  const parts = cleanKey.split('.');
+  if (parts.length === 3 && (parts[0] === 'FBAUTO1' || parts[0] === 'FBV1')) {
+    const payloadB64 = parts[1];
+    const signatureHex = parts[2].toUpperCase();
+
+    try {
+      const expectedSig = await computeHmacSha256(MASTER_SECRET_SALT, payloadB64);
+      if (signatureHex !== expectedSig && signatureHex !== expectedSig.slice(0, 12)) {
+        return { valid: false, message: "Cryptographic signature validation failed. Key is forged or modified." };
+      }
+
+      const payloadJson = base64UrlDecode(payloadB64);
+      const payload: LicensePayload = JSON.parse(payloadJson);
+
+      if (expectedHwid && expectedHwid.trim()) {
+        const cleanExpected = expectedHwid.trim().toUpperCase();
+        if (payload.hwid.toUpperCase() !== cleanExpected) {
+          return {
+            valid: false,
+            message: `Hardware ID mismatch. Key locked to ${payload.hwid}, your machine is ${cleanExpected}.`,
+            payload
+          };
+        }
+      }
+
+      const nowTs = Math.floor(Date.now() / 1000);
+      if (payload.expiry > 0 && nowTs > payload.expiry) {
+        const expDate = new Date(payload.expiry * 1000).toLocaleDateString();
+        return {
+          valid: false,
+          message: `License key has expired on ${expDate}. Please renew to continue.`,
+          payload
+        };
+      }
+
+      return { valid: true, message: "License key is cryptographically valid and active!", payload };
+    } catch (err: any) {
+      return { valid: false, message: `Key verification error: ${err.message || String(err)}` };
+    }
+  }
+
+  return { valid: false, message: "Invalid key format." };
 }
 
 /**

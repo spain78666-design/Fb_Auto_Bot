@@ -650,8 +650,8 @@ class FacebookMarketplaceBot:
 
         self.set_progress(20)
 
-    async def verify_session_health(self):
-        """Navigates to Facebook home to verify if the injected session is active."""
+    async def verify_session_health(self, account_data: Optional[Dict[str, Any]] = None):
+        """Navigates to Facebook home to verify if the injected session is active. Auto-logs in if credentials are provided."""
         self.log("INFO", "Validating Facebook session authentication...")
         self.set_progress(25)
 
@@ -665,23 +665,89 @@ class FacebookMarketplaceBot:
         except PlaywrightTimeoutError:
             raise NavigationTimeoutError("Facebook failed to load within 35 seconds. Check proxy latency.")
 
-        current_url = self.page.url
-        self.log("INFO", f"Facebook responded on URL: {current_url}")
+        current_url = self.page.url.lower()
+        self.log("INFO", f"Facebook responded on URL: {self.page.url}")
 
-        # Check for login redirection
-        if "login" in current_url or "checkpoint" in current_url:
-            if "checkpoint" in current_url:
+        content = await self.page.content()
+        is_login_page = "login" in current_url or "login_form" in content or "login_button" in content
+        is_checkpoint = "checkpoint" in current_url
+
+        if is_login_page or is_checkpoint:
+            # Check if account_data provides UID/Email + Password for automatic authentication
+            uid_email = (account_data.get("uid") or account_data.get("email") or "") if account_data else ""
+            pwd = account_data.get("password", "") if account_data else ""
+            two_fa = account_data.get("two_factor_secret", "") if account_data else ""
+
+            if uid_email and pwd and not is_checkpoint:
+                self.log("INFO", f"🔑 Session expired or not active. Performing auto-login with UID/Email ({uid_email})...")
+                try:
+                    if "/login" not in current_url:
+                        await self.page.goto("https://www.facebook.com/login", wait_until="domcontentloaded", timeout=30000)
+                        await self.sleep(1.5)
+
+                    email_el = await self.page.wait_for_selector('input[name="email"], input#email', timeout=10000)
+                    if email_el:
+                        await email_el.fill(uid_email)
+                        await self.sleep(0.4)
+
+                    pass_el = await self.page.wait_for_selector('input[name="pass"], input#pass', timeout=8000)
+                    if pass_el:
+                        await pass_el.fill(pwd)
+                        await self.sleep(0.5)
+
+                    btn = await self.page.query_selector('button[name="login"], button#loginbutton, input[type="submit"]')
+                    if btn:
+                        await btn.click()
+                    else:
+                        await self.page.keyboard.press("Enter")
+
+                    await self.sleep(3.0)
+
+                    # Handle 2FA TOTP
+                    if "checkpoint" in self.page.url.lower() or "two_step" in self.page.url.lower():
+                        if two_fa:
+                            try:
+                                from automation.session_manager import generate_totp
+                                code = generate_totp(two_fa)
+                                if code:
+                                    self.log("INFO", f"Generated 6-digit TOTP code ({code}). Submitting to 2FA...")
+                                    c_inp = await self.page.wait_for_selector('input[name="approvals_code"], input[name="code"]', timeout=8000)
+                                    if c_inp:
+                                        await c_inp.fill(code)
+                                        await self.sleep(0.5)
+                                        s_btn = await self.page.query_selector('button#checkpointSubmitButton, button[type="submit"]')
+                                        if s_btn:
+                                            await s_btn.click()
+                                        else:
+                                            await self.page.keyboard.press("Enter")
+                                        await self.sleep(3.0)
+                            except Exception as totp_e:
+                                self.log("WARNING", f"2FA Auto-submission notice: {totp_e}")
+
+                    # Check new cookies
+                    fresh_cookies = await self.context.cookies()
+                    if any(c.get("name") == "c_user" for c in fresh_cookies):
+                        self.log("SUCCESS", f"🎉 Auto-login successful! Captured fresh session cookies for {uid_email}")
+                        try:
+                            from automation.session_manager import get_session_manager, SessionCookieParser
+                            sm = get_session_manager()
+                            if sm and account_data.get("id"):
+                                c_str = SessionCookieParser.cookies_to_semicolon_string(fresh_cookies)
+                                sm.save_account(account_id=account_data["id"], cookies=c_str, status="Healthy")
+                        except Exception:
+                            pass
+                        self.set_progress(35)
+                        return
+                except Exception as auto_log_err:
+                    self.log("ERROR", f"Auto-login failed: {auto_log_err}")
+
+            if "checkpoint" in self.page.url.lower():
                 raise CheckpointDetectedError(
                     "Facebook Security Checkpoint triggered! Account requires manual verification or 2FA."
                 )
             raise InvalidSessionError(
-                "Session not logged in or expired. Please click 'Launch Manual Login' in Accounts Tab to log into this Facebook profile."
+                "Session not logged in or expired. Please click 'Auto-Login Selected' or 'Launch Manual Login' in Accounts Tab."
             )
-
-        # Check for profile navigation indicator or marketplace presence
-        content = await self.page.content()
-        if "login_form" in content or "login_button" in content:
-            raise InvalidSessionError("Facebook displayed login prompt. Please log in via Accounts Tab first.")
 
         self.log("SUCCESS", "Session authenticated successfully! Active Facebook profile confirmed.")
         self.set_progress(35)

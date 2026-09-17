@@ -747,9 +747,37 @@
         notes: notes
       };
 
-      const payloadB64 = base64UrlEncode(JSON.stringify(payload));
-      const sig = await computeHmacSha256(MASTER_SECRET_SALT, payloadB64);
-      const licenseKey = `FBAUTO1.${payloadB64}.${sig}`;
+      function getTierCode(t) {
+        const lower = t.toLowerCase();
+        if (lower.includes('month') || lower.includes('30')) return 'MTH';
+        if (lower.includes('year') || lower.includes('365') || lower.includes('1 year')) return 'YR';
+        if (lower.includes('trial') || lower.includes('7') || lower.includes('3 day')) return 'TRL';
+        if (lower.includes('lifetime') || lower.includes('unlimited')) return 'LFT';
+        return 'PRO';
+      }
+
+      function sanitizeSlug(n) {
+        const clean = n.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+        return clean.slice(0, 10) || 'USER';
+      }
+
+      function normalizeHwidHex(h) {
+        const clean = h.trim().toUpperCase();
+        const hex = clean.replace(/[^A-F0-9]/g, '');
+        return hex.length >= 12 ? hex.slice(0, 16) : clean.replace(/[^A-Z0-9]/g, '');
+      }
+
+      const tierCode = getTierCode(tier);
+      const customerSlug = sanitizeSlug(name);
+      const hwidHex = normalizeHwidHex(hwid);
+      const expiryHex = expiryTs > 0 ? expiryTs.toString(16).toUpperCase().padStart(8, '0') : '00000000';
+      const createdHex = nowTs.toString(16).toUpperCase().padStart(8, '0');
+
+      const signString = `${customerSlug}:${hwid}:${tierCode}:${expiryHex}:${createdHex}`;
+      const fullSig = await computeHmacSha256(MASTER_SECRET_SALT, signString);
+      const shortSig = fullSig.slice(0, 12).toUpperCase();
+
+      const licenseKey = `FB26-${tierCode}-${customerSlug}-${hwidHex}-${expiryHex}-${shortSig}`;
 
       const expDate = expiryTs > 0 
         ? new Date(expiryTs * 1000).toISOString().substring(0, 10)

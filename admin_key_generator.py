@@ -22,17 +22,40 @@ MASTER_SECRET_SALT = b"FBAUTO_BOT_MASTER_SECURE_SALT_2026_V9X_MARKETPLACE_AUTOMA
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "admin_keys_db.json")
 
 
+def get_tier_code(tier: str) -> str:
+    t = tier.lower()
+    if "month" in t or "30" in t:
+        return "MTH"
+    if "year" in t or "365" in t or "1 year" in t:
+        return "YR"
+    if "trial" in t or "3 day" in t or "7 day" in t:
+        return "TRL"
+    if "lifetime" in t or "unlimited" in t:
+        return "LFT"
+    return "PRO"
+
+
+def sanitize_slug(name: str) -> str:
+    clean = "".join(c for c in name if c.isalnum()).upper()
+    return clean[:10] if clean else "USER"
+
+
+def normalize_hwid_hex(hwid: str) -> str:
+    clean = hwid.strip().upper()
+    hex_only = "".join(c for c in clean if c in "0123456789ABCDEF")
+    return hex_only[:16] if hex_only else clean.replace("-", "")
+
+
 def generate_license_key(
     customer_name: str,
     hwid: str,
-    validity_days: int = 365,
-    tier: str = "Standard",
+    validity_days: int = 30,
+    tier: str = "Monthly License",
     notes: str = ""
 ) -> Tuple[str, Dict[str, Any]]:
     """
-    Creates a cryptographically signed license key string for a customer's HWID.
-    validity_days = -1 or 0 signifies Lifetime.
-    Key format: FBAUTO1.<BASE64_PAYLOAD>.<HEX_SIGNATURE>
+    Creates a clean, beautiful, HWID-locked license key string for a customer's HWID.
+    Format: FB26-<TIER>-<NAME>-<HWID_HEX>-<EXPIRY_HEX>-<SIG>
     """
     clean_hwid = hwid.strip().upper()
     now_ts = int(time.time())
@@ -42,23 +65,25 @@ def generate_license_key(
     else:
         expiry_ts = 0  # 0 indicates Lifetime
 
+    tier_code = get_tier_code(tier)
+    customer_slug = sanitize_slug(customer_name)
+    hwid_hex = normalize_hwid_hex(clean_hwid)
+    expiry_hex = f"{expiry_ts:08X}" if expiry_ts > 0 else "00000000"
+    created_hex = f"{now_ts:08X}"
+
+    sign_string = f"{customer_slug}:{clean_hwid}:{tier_code}:{expiry_hex}:{created_hex}"
+    sig = hmac.new(MASTER_SECRET_SALT, sign_string.encode('utf-8'), hashlib.sha256).hexdigest()[:12].upper()
+
+    license_key = f"FB26-{tier_code}-{customer_slug}-{hwid_hex}-{expiry_hex}-{sig}"
+
     payload = {
-        "customer": customer_name.strip(),
+        "customer": customer_name.strip() or customer_slug,
         "hwid": clean_hwid,
         "tier": tier,
         "created": now_ts,
         "expiry": expiry_ts,
         "notes": notes.strip()
     }
-
-    # Encode payload as URL-safe Base64
-    payload_json = json.dumps(payload, separators=(',', ':'))
-    payload_b64 = base64.urlsafe_b64encode(payload_json.encode('utf-8')).decode('utf-8').rstrip('=')
-
-    # Generate HMAC-SHA256 signature
-    sig = hmac.new(MASTER_SECRET_SALT, payload_b64.encode('utf-8'), hashlib.sha256).hexdigest()[:16].upper()
-
-    license_key = f"FBAUTO1.{payload_b64}.{sig}"
 
     # Log into admin_keys_db.json
     log_issued_key(license_key, payload)

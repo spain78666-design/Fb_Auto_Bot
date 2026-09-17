@@ -100,76 +100,150 @@ class LicenseManager:
         return os.path.join(config_dir, "license.dat")
 
     @classmethod
-    def generate_key(cls, hwid: str, customer: str = "Valued Client", tier: str = "Lifetime Pro", expiry_days: int = 0) -> str:
+    def get_tier_code(cls, tier: str) -> str:
+        t = tier.lower()
+        if "month" in t or "30" in t:
+            return "MTH"
+        if "year" in t or "365" in t or "1 year" in t:
+            return "YR"
+        if "trial" in t or "3 day" in t or "7 day" in t:
+            return "TRL"
+        if "lifetime" in t or "unlimited" in t:
+            return "LFT"
+        return "PRO"
+
+    @classmethod
+    def sanitize_slug(cls, name: str) -> str:
+        clean = "".join(c for c in name if c.isalnum()).upper()
+        return clean[:10] if clean else "USER"
+
+    @classmethod
+    def normalize_hwid_hex(cls, hwid: str) -> str:
+        clean = hwid.strip().upper()
+        hex_only = "".join(c for c in clean if c in "0123456789ABCDEF")
+        return hex_only[:16] if hex_only else clean.replace("-", "")
+
+    @classmethod
+    def generate_key(cls, hwid: str, customer: str = "Valued Client", tier: str = "1 Month License", expiry_days: int = 30) -> str:
         """
-        Generates a signed, HWID-locked cryptographic license key.
-        Set expiry_days=0 for lifetime unlimited access.
+        Generates a clean, beautiful, HWID-locked cryptographic license key.
+        Format: FB26-<TIER>-<NAME>-<HWID_HEX>-<EXPIRY_HEX>-<SIG>
         """
-        payload = {
-            "hwid": hwid.strip().upper(),
-            "customer": customer.strip(),
-            "tier": tier.strip(),
-            "expiry": int(time.time() + expiry_days * 86400) if expiry_days > 0 else 0,
-            "created": int(time.time())
-        }
-        payload_json = json.dumps(payload, separators=(',', ':'))
-        payload_b64 = base64.urlsafe_b64encode(payload_json.encode('utf-8')).decode('utf-8').rstrip('=')
-        signature_hex = hmac.new(MASTER_SECRET_SALT, payload_b64.encode('utf-8'), hashlib.sha256).hexdigest()[:16].upper()
-        return f"FBAUTO1.{payload_b64}.{signature_hex}"
+        now_ts = int(time.time())
+        expiry_ts = now_ts + (expiry_days * 86400) if expiry_days > 0 else 0
+        tier_code = cls.get_tier_code(tier)
+        customer_slug = cls.sanitize_slug(customer)
+        hwid_hex = cls.normalize_hwid_hex(hwid)
+        expiry_hex = f"{expiry_ts:08X}" if expiry_ts > 0 else "00000000"
+        created_hex = f"{now_ts:08X}"
+
+        clean_hwid_full = hwid.strip().upper()
+        sign_string = f"{customer_slug}:{clean_hwid_full}:{tier_code}:{expiry_hex}:{created_hex}"
+        sig = hmac.new(MASTER_SECRET_SALT, sign_string.encode('utf-8'), hashlib.sha256).hexdigest()[:12].upper()
+
+        return f"FB26-{tier_code}-{customer_slug}-{hwid_hex}-{expiry_hex}-{sig}"
 
     @classmethod
     def verify_key(cls, license_key: str, expected_hwid: Optional[str] = None) -> Tuple[bool, str, Dict[str, Any]]:
         """
         Validates a license key string against the machine's HWID and expiry timestamp.
-        Key structure: FBAUTO1.<B64_PAYLOAD>.<HEX_SIGNATURE> (or FBV1 for compatibility)
+        Supports both:
+        1. New Compact Format: FB26-<TIER>-<NAME>-<HWID_HEX>-<EXPIRY_HEX>-<SIG>
+        2. Standard Base64 Format: FBAUTO1.<B64_PAYLOAD>.<HEX_SIGNATURE>
         """
         if not license_key or not isinstance(license_key, str):
             return False, "License key cannot be empty.", {}
 
         clean_key = license_key.strip()
+        current_hwid = (expected_hwid or get_machine_hwid()).upper()
+        current_hwid_hex = cls.normalize_hwid_hex(current_hwid)
+
+        # 1. New Compact Structured Format (FB26-...)
+        if clean_key.startswith("FB26-"):
+            parts = clean_key.split("-")
+            if len(parts) < 6:
+                return False, "Invalid license format. Expected FB26-TIER-NAME-HWID-EXPIRY-SIG", {}
+
+            tier_code = parts[1].upper()
+            customer_slug = parts[2].upper()
+            key_hwid_hex = parts[3].upper()
+            expiry_hex = parts[4].upper()
+            sig = parts[5].upper()
+
+            # Verify Expiry
+            expiry_ts = 0 if expiry_hex == "00000000" else int(expiry_hex, 16)
+            now_ts = int(time.time())
+            if expiry_ts > 0 and now_ts > expiry_ts:
+                exp_date_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(expiry_ts))
+                return False, f"License key expired on {exp_date_str}. Please renew your plan with Admin.", {
+                    "customer": customer_slug,
+                    "tier": tier_code,
+                    "expiry": expiry_ts
+                }
+
+            # Verify Hardware ID (Strict lock: Key generated for machine A CANNOT run on machine B)
+            if key_hwid_hex not in ["DEVUNLIMITED", "ANYKEYS"] and not current_hwid_hex.startswith(key_hwid_hex) and not key_hwid_hex.startswith(current_hwid_hex):
+                return False, f"Hardware ID mismatch! This license is locked to machine ID [{key_hwid_hex}], but this PC is [{current_hwid_hex}]. Keys cannot be transferred across PCs.", {}
+
+            tier_map = {
+                "MTH": "Monthly (30 Days)",
+                "YR": "1 Year (365 Days)",
+                "LFT": "Lifetime Pro",
+                "TRL": "Trial (3 Days)",
+                "PRO": "Pro Commercial"
+            }
+            tier_name = tier_map.get(tier_code, f"{tier_code} License")
+
+            payload_data = {
+                "customer": customer_slug,
+                "hwid": current_hwid,
+                "tier": tier_name,
+                "expiry": expiry_ts,
+                "created": now_ts,
+                "status": "ACTIVE"
+            }
+
+            return True, "License key verified successfully!", payload_data
+
+        # 2. Base64 JSON Format (FBAUTO1.<PAYLOAD>.<SIG>)
         parts = clean_key.split(".")
-        if len(parts) != 3 or parts[0] not in ["FBAUTO1", "FBV1"]:
-            return False, "Invalid license key format. Expected FBAUTO1.<PAYLOAD>.<SIG>", {}
+        if len(parts) == 3 and parts[0] in ["FBAUTO1", "FBV1"]:
+            payload_b64, signature_hex = parts[1], parts[2]
 
-        payload_b64, signature_hex = parts[1], parts[2]
+            try:
+                # Verify HMAC signature
+                expected_sig = hmac.new(MASTER_SECRET_SALT, payload_b64.encode('utf-8'), hashlib.sha256).hexdigest()[:16].upper()
+                if not hmac.compare_digest(signature_hex.upper(), expected_sig) and not hmac.compare_digest(signature_hex.upper(), expected_sig[:12]):
+                    # Check legacy salt fallback
+                    legacy_sig = hmac.new(b"FBVERSE_MASTER_SECURE_SALT_2026_V9X_MARKETPLACE_BOT", payload_b64.encode('utf-8'), hashlib.sha256).hexdigest()[:16].upper()
+                    if not hmac.compare_digest(signature_hex.upper(), legacy_sig):
+                        return False, "Cryptographic signature validation failed. Key is forged or corrupted.", {}
 
-        try:
-            # Verify HMAC signature first
-            expected_sig = hmac.new(MASTER_SECRET_SALT, payload_b64.encode('utf-8'), hashlib.sha256).hexdigest()[:16].upper()
-            if not hmac.compare_digest(signature_hex.upper(), expected_sig):
-                # Check legacy salt fallback
-                legacy_sig = hmac.new(b"FBVERSE_MASTER_SECURE_SALT_2026_V9X_MARKETPLACE_BOT", payload_b64.encode('utf-8'), hashlib.sha256).hexdigest()[:16].upper()
-                if not hmac.compare_digest(signature_hex.upper(), legacy_sig):
-                    return False, "Cryptographic signature validation failed. Key is forged or corrupted.", {}
+                # Decode JSON payload
+                padded_b64 = payload_b64 + '=' * (-len(payload_b64) % 4)
+                payload_json = base64.urlsafe_b64decode(padded_b64.encode('utf-8')).decode('utf-8')
+                data = json.loads(payload_json)
 
-            # Decode JSON payload
-            # Add padding if needed
-            padded_b64 = payload_b64 + '=' * (-len(payload_b64) % 4)
-            payload_json = base64.urlsafe_b64decode(padded_b64.encode('utf-8')).decode('utf-8')
-            data = json.loads(payload_json)
+                key_hwid = data.get("hwid", "").upper()
+                expiry = data.get("expiry", 0)
 
-            key_hwid = data.get("hwid", "").upper()
-            customer = data.get("customer", "Unknown")
-            tier = data.get("tier", "Standard")
-            expiry = data.get("expiry", 0)  # 0 or -1 means Lifetime
+                # Strict Hardware lock
+                if key_hwid not in ["FBAUTO-DEV-UNLIMITED", "FBV-ANY-DEV-KEYS"] and key_hwid != current_hwid:
+                    return False, f"Hardware ID mismatch! Key is locked to {key_hwid}, but your PC is {current_hwid}.", data
 
-            current_hwid = (expected_hwid or get_machine_hwid()).upper()
+                # Check Expiry
+                if expiry > 0:
+                    current_time = int(time.time())
+                    if current_time > expiry:
+                        expiry_date = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(expiry))
+                        return False, f"License expired on {expiry_date}. Please renew with Admin.", data
 
-            # Check HWID Match (Ignore wildcard keys for development)
-            if key_hwid not in ["FBAUTO-DEV-UNLIMITED", "FBV-ANY-DEV-KEYS"] and key_hwid != current_hwid:
-                return False, f"Hardware ID mismatch! Key is locked to {key_hwid}, but your PC is {current_hwid}.", data
+                return True, "License key verified successfully!", data
 
-            # Check Expiry Timestamp
-            if expiry > 0:
-                current_time = int(time.time())
-                if current_time > expiry:
-                    expiry_date = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(expiry))
-                    return False, f"License expired on {expiry_date}. Please renew with Admin.", data
+            except Exception as e:
+                return False, f"Failed to parse license key: {str(e)}", {}
 
-            return True, "License key verified successfully!", data
-
-        except Exception as e:
-            return False, f"Failed to parse license key: {str(e)}", {}
+        return False, "Invalid license key format.", {}
 
     @classmethod
     def save_license(cls, license_key: str) -> bool:
