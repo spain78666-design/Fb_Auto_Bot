@@ -2670,10 +2670,26 @@ class FBAutoBotMainWindow(QMainWindow):
         # Splitter: Left = Import Form, Right = Accounts Table
         splitter = QSplitter(Qt.Horizontal)
 
-        # Left Card: Import / Add Profile with Stacked View (Single vs Bulk)
+        # Left Card: Import / Add Profile with Stacked View (Single vs Bulk) & ScrollArea
         left_card = QFrame()
         left_card.setProperty("class", "glassCard")
-        form_outer_layout = QVBoxLayout(left_card)
+        left_card_layout = QVBoxLayout(left_card)
+        left_card_layout.setContentsMargins(0, 0, 0, 0)
+        left_card_layout.setSpacing(0)
+
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QFrame.NoFrame)
+        left_scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollBar:vertical { width: 8px; background: rgba(15, 23, 42, 0.6); border-radius: 4px; }"
+            "QScrollBar::handle:vertical { background: #334155; border-radius: 4px; min-height: 25px; }"
+            "QScrollBar::handle:vertical:hover { background: #38bdf8; }"
+        )
+
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("background: transparent;")
+        form_outer_layout = QVBoxLayout(scroll_content)
         form_outer_layout.setContentsMargins(12, 12, 12, 12)
         form_outer_layout.setSpacing(10)
 
@@ -2692,6 +2708,13 @@ class FBAutoBotMainWindow(QMainWindow):
         form_title.setProperty("class", "cardTitle")
         title_row.addWidget(form_title)
         title_row.addStretch()
+
+        btn_new_acc = QPushButton("➕ New Account (Clear)")
+        btn_new_acc.setStyleSheet("background-color: #334155; color: #38bdf8; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 6px; border: 1px solid #0284c7;")
+        btn_new_acc.setCursor(Qt.PointingHandCursor)
+        btn_new_acc.setToolTip("Clears all form fields to enter a fresh new account")
+        btn_new_acc.clicked.connect(self.clear_account_form)
+        title_row.addWidget(btn_new_acc)
 
         btn_go_bulk = QPushButton("📦 Bulk Add Mode")
         btn_go_bulk.setStyleSheet("background-color: #4f46e5; color: #ffffff; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
@@ -2720,6 +2743,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Stack for Single Auth Method
         self.single_auth_stack = QStackedWidget()
+        self.single_auth_stack.setMinimumHeight(210)
 
         # Auth Method Page 0: UID / Email & Password
         uid_pass_page = QWidget()
@@ -2729,6 +2753,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         uid_pass_layout.addWidget(QLabel("Facebook UID / Gmail / Phone:"))
         self.acc_uid_input = QLineEdit()
+        self.acc_uid_input.setFixedHeight(36)
         self.acc_uid_input.setPlaceholderText("e.g. 1000849201948 or user@gmail.com")
         uid_pass_layout.addWidget(self.acc_uid_input)
 
@@ -2743,12 +2768,14 @@ class FBAutoBotMainWindow(QMainWindow):
         uid_pass_layout.addLayout(pass_label_row)
 
         self.acc_pass_input = QLineEdit()
+        self.acc_pass_input.setFixedHeight(36)
         self.acc_pass_input.setEchoMode(QLineEdit.Password)
         self.acc_pass_input.setPlaceholderText("Account password")
         uid_pass_layout.addWidget(self.acc_pass_input)
 
         uid_pass_layout.addWidget(QLabel("2FA Secret Key / 2-Step Code (Optional for Auto TOTP):"))
         self.acc_2fa_input = QLineEdit()
+        self.acc_2fa_input.setFixedHeight(36)
         self.acc_2fa_input.setPlaceholderText("e.g. JBSWY3DPEHPK3PXP (Auto generates 6-digit 2FA)")
         uid_pass_layout.addWidget(self.acc_2fa_input)
 
@@ -2771,7 +2798,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         self.acc_cookies_input = QTextEdit()
         self.acc_cookies_input.setPlaceholderText('Paste JSON cookie array or raw string (c_user=...; xs=...)...')
-        self.acc_cookies_input.setFixedHeight(75)
+        self.acc_cookies_input.setFixedHeight(85)
         cookie_layout.addWidget(self.acc_cookies_input)
 
         self.single_auth_stack.addWidget(cookie_page) # Index 1
@@ -2781,6 +2808,7 @@ class FBAutoBotMainWindow(QMainWindow):
         # Common Profile Fields
         form_layout.addWidget(QLabel("Profile Alias / Name (Optional - Auto-detected from Facebook):"))
         self.acc_name_input = QLineEdit()
+        self.acc_name_input.setFixedHeight(36)
         self.acc_name_input.setPlaceholderText("Optional (Leave blank to auto-detect)")
         form_layout.addWidget(self.acc_name_input)
 
@@ -2790,7 +2818,9 @@ class FBAutoBotMainWindow(QMainWindow):
         self.proxy_type = QComboBox()
         self.proxy_type.addItems(["HTTP", "SOCKS5"])
         self.proxy_type.setFixedWidth(90)
+        self.proxy_type.setFixedHeight(36)
         self.proxy_host = QLineEdit()
+        self.proxy_host.setFixedHeight(36)
         self.proxy_host.setPlaceholderText("192.168.1.100:8080 or Direct")
         proxy_row1.addWidget(self.proxy_type)
         proxy_row1.addWidget(self.proxy_host)
@@ -2798,8 +2828,10 @@ class FBAutoBotMainWindow(QMainWindow):
 
         proxy_row2 = QHBoxLayout()
         self.proxy_user = QLineEdit()
+        self.proxy_user.setFixedHeight(36)
         self.proxy_user.setPlaceholderText("Proxy User (Optional)")
         self.proxy_pass = QLineEdit()
+        self.proxy_pass.setFixedHeight(36)
         self.proxy_pass.setPlaceholderText("Proxy Pass (Optional)")
         self.proxy_pass.setEchoMode(QLineEdit.Password)
         proxy_row2.addWidget(self.proxy_user)
@@ -2808,28 +2840,38 @@ class FBAutoBotMainWindow(QMainWindow):
 
         form_layout.addWidget(QLabel("Profile Notes (Optional):"))
         self.acc_notes_input = QLineEdit()
+        self.acc_notes_input.setFixedHeight(36)
         self.acc_notes_input.setPlaceholderText("e.g., Verified US seller account")
         form_layout.addWidget(self.acc_notes_input)
 
         # Single Form Actions
         btn_row = QHBoxLayout()
         self.btn_single_login = QPushButton("⚡ Login & Extract Cookie")
-        self.btn_single_login.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: 700; font-size: 11px; padding: 6px 12px; border-radius: 6px;")
+        self.btn_single_login.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: 700; font-size: 11px; padding: 8px 12px; border-radius: 6px;")
         self.btn_single_login.setCursor(Qt.PointingHandCursor)
         self.btn_single_login.setToolTip("Automatically logs into Facebook using UID/Password, generates fresh cookies, and sets status to Healthy.")
         self.btn_single_login.clicked.connect(self.login_single_account)
 
-        add_btn = QPushButton("💾 Save Profile")
-        add_btn.setProperty("class", "primaryBtn")
-        add_btn.setToolTip("Saves account credentials and generates session cookies in background.")
+        add_btn = QPushButton("➕ Add Account")
+        add_btn.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 12px; padding: 8px 14px; border-radius: 6px;")
+        add_btn.setCursor(Qt.PointingHandCursor)
+        add_btn.setToolTip("Saves account credentials, clears the form immediately for the next account, and tests session.")
         add_btn.clicked.connect(self.save_account)
+
+        btn_clear = QPushButton("🧹 Clear")
+        btn_clear.setProperty("class", "secondaryBtn")
+        btn_clear.setStyleSheet("font-size: 11px; padding: 8px 10px;")
+        btn_clear.setToolTip("Clear all fields in this form")
+        btn_clear.clicked.connect(self.clear_account_form)
 
         test_btn = QPushButton("Test Proxy")
         test_btn.setProperty("class", "secondaryBtn")
+        test_btn.setStyleSheet("font-size: 11px; padding: 8px 10px;")
         test_btn.clicked.connect(self.test_proxy)
 
         btn_row.addWidget(self.btn_single_login)
         btn_row.addWidget(add_btn)
+        btn_row.addWidget(btn_clear)
         btn_row.addWidget(test_btn)
         form_layout.addLayout(btn_row)
         form_layout.addStretch()
@@ -2892,7 +2934,9 @@ class FBAutoBotMainWindow(QMainWindow):
         self.bulk_proxy_type = QComboBox()
         self.bulk_proxy_type.addItems(["HTTP", "SOCKS5"])
         self.bulk_proxy_type.setFixedWidth(90)
+        self.bulk_proxy_type.setFixedHeight(36)
         self.bulk_proxy_host = QLineEdit()
+        self.bulk_proxy_host.setFixedHeight(36)
         self.bulk_proxy_host.setPlaceholderText("192.168.1.100:8080 or Direct (No Proxy)")
         bproxy_row.addWidget(self.bulk_proxy_type)
         bproxy_row.addWidget(self.bulk_proxy_host)
@@ -2924,6 +2968,8 @@ class FBAutoBotMainWindow(QMainWindow):
         self.acc_mode_stack.addWidget(bulk_form_widget)   # Index 1
 
         form_outer_layout.addWidget(self.acc_mode_stack)
+        left_scroll.setWidget(scroll_content)
+        left_card_layout.addWidget(left_scroll)
         splitter.addWidget(left_card)
 
         # Right Card: Accounts Table & Multi-Account Action Suite
@@ -3021,7 +3067,38 @@ class FBAutoBotMainWindow(QMainWindow):
             self.acc_pass_input.setEchoMode(QLineEdit.Password)
             self.btn_toggle_pass.setText("👁️ Show")
 
+    def clear_account_form(self):
+        """Resets all input fields on the account addition form for rapid entry of the next account."""
+        self._suppress_form_autofill = True
+        try:
+            if hasattr(self, 'accounts_table'):
+                self.accounts_table.clearSelection()
+            if hasattr(self, 'acc_name_input'):
+                self.acc_name_input.clear()
+            if hasattr(self, 'acc_uid_input'):
+                self.acc_uid_input.clear()
+            if hasattr(self, 'acc_pass_input'):
+                self.acc_pass_input.clear()
+            if hasattr(self, 'acc_2fa_input'):
+                self.acc_2fa_input.clear()
+            if hasattr(self, 'acc_cookies_input'):
+                self.acc_cookies_input.clear()
+            if hasattr(self, 'proxy_host'):
+                self.proxy_host.clear()
+            if hasattr(self, 'proxy_user'):
+                self.proxy_user.clear()
+            if hasattr(self, 'proxy_pass'):
+                self.proxy_pass.clear()
+            if hasattr(self, 'acc_notes_input'):
+                self.acc_notes_input.clear()
+            if hasattr(self, 'acc_uid_input'):
+                self.acc_uid_input.setFocus()
+        finally:
+            self._suppress_form_autofill = False
+
     def populate_form_from_selected_account(self):
+        if getattr(self, '_suppress_form_autofill', False):
+            return
         acc = self._get_selected_account()
         if not acc:
             return
@@ -3050,58 +3127,64 @@ class FBAutoBotMainWindow(QMainWindow):
         self.acc_notes_input.setText(notes)
 
     def refresh_accounts_table(self):
-        if self.session_manager:
-            self.accounts_list = self.session_manager.list_accounts()
+        self._suppress_form_autofill = True
+        try:
+            if self.session_manager:
+                self.accounts_list = self.session_manager.list_accounts()
 
-        self.accounts_table.setRowCount(len(self.accounts_list))
-        if hasattr(self, 'vault_stats_lbl'):
-            self.vault_stats_lbl.setText(f"{len(self.accounts_list)} Profile(s) Loaded")
+            self.accounts_table.blockSignals(True)
+            self.accounts_table.setRowCount(len(self.accounts_list))
+            if hasattr(self, 'vault_stats_lbl'):
+                self.vault_stats_lbl.setText(f"{len(self.accounts_list)} Profile(s) Loaded")
 
-        for row, acc in enumerate(self.accounts_list):
-            name = acc.get("name", "Account")
-            uid_or_email = acc.get("uid") or acc.get("email") or ""
-            if not uid_or_email:
-                c_match = re.search(r'c_user[":=]+(\d+)', acc.get("cookies", ""))
-                if c_match:
-                    uid_or_email = c_match.group(1)
+            for row, acc in enumerate(self.accounts_list):
+                name = acc.get("name", "Account")
+                uid_or_email = acc.get("uid") or acc.get("email") or ""
+                if not uid_or_email:
+                    c_match = re.search(r'c_user[":=]+(\d+)', acc.get("cookies", ""))
+                    if c_match:
+                        uid_or_email = c_match.group(1)
 
-            auth_mode = "🔑 UID+Pass" if (acc.get("password") or (acc.get("uid") and not acc.get("cookies"))) else "🍪 Cookie"
-            status = acc.get("status", "Healthy")
-            proxy = acc.get("proxy", "Direct (No Proxy)")
-            last_checked = acc.get("last_checked", "Never")
-            if last_checked and " " in last_checked:
-                last_checked = last_checked.split(" ")[1]
+                auth_mode = "🔑 UID+Pass" if (acc.get("password") or (acc.get("uid") and not acc.get("cookies"))) else "🍪 Cookie"
+                status = acc.get("status", "Healthy")
+                proxy = acc.get("proxy", "Direct (No Proxy)")
+                last_checked = acc.get("last_checked", "Never")
+                if last_checked and " " in last_checked:
+                    last_checked = last_checked.split(" ")[1]
 
-            name_item = QTableWidgetItem(name)
-            name_item.setData(Qt.UserRole, acc.get("id", name))
+                name_item = QTableWidgetItem(name)
+                name_item.setData(Qt.UserRole, acc.get("id", name))
 
-            uid_item = QTableWidgetItem(uid_or_email or "N/A")
-            uid_item.setForeground(QColor("#38bdf8"))
+                uid_item = QTableWidgetItem(uid_or_email or "N/A")
+                uid_item.setForeground(QColor("#38bdf8"))
 
-            auth_item = QTableWidgetItem(auth_mode)
-            auth_item.setForeground(QColor("#a855f7") if "UID" in auth_mode else QColor("#e2e8f0"))
+                auth_item = QTableWidgetItem(auth_mode)
+                auth_item.setForeground(QColor("#a855f7") if "UID" in auth_mode else QColor("#e2e8f0"))
 
-            status_item = QTableWidgetItem(f"● {status}")
-            if status in ("Healthy", "Active"):
-                status_item.setForeground(QColor("#10b981"))
-            elif status == "Needs Login":
-                status_item.setForeground(QColor("#ef4444"))
-            elif status == "Checkpoint":
-                status_item.setForeground(QColor("#f59e0b"))
-            elif "Logging" in status or "Testing" in status:
-                status_item.setForeground(QColor("#3b82f6"))
-            else:
-                status_item.setForeground(QColor("#94a3b8"))
+                status_item = QTableWidgetItem(f"● {status}")
+                if status in ("Healthy", "Active"):
+                    status_item.setForeground(QColor("#10b981"))
+                elif status == "Needs Login":
+                    status_item.setForeground(QColor("#ef4444"))
+                elif status == "Checkpoint":
+                    status_item.setForeground(QColor("#f59e0b"))
+                elif "Logging" in status or "Testing" in status:
+                    status_item.setForeground(QColor("#3b82f6"))
+                else:
+                    status_item.setForeground(QColor("#94a3b8"))
 
-            proxy_item = QTableWidgetItem(proxy)
-            time_item = QTableWidgetItem(last_checked)
+                proxy_item = QTableWidgetItem(proxy)
+                time_item = QTableWidgetItem(last_checked)
 
-            self.accounts_table.setItem(row, 0, name_item)
-            self.accounts_table.setItem(row, 1, uid_item)
-            self.accounts_table.setItem(row, 2, auth_item)
-            self.accounts_table.setItem(row, 3, status_item)
-            self.accounts_table.setItem(row, 4, proxy_item)
-            self.accounts_table.setItem(row, 5, time_item)
+                self.accounts_table.setItem(row, 0, name_item)
+                self.accounts_table.setItem(row, 1, uid_item)
+                self.accounts_table.setItem(row, 2, auth_item)
+                self.accounts_table.setItem(row, 3, status_item)
+                self.accounts_table.setItem(row, 4, proxy_item)
+                self.accounts_table.setItem(row, 5, time_item)
+        finally:
+            self.accounts_table.blockSignals(False)
+            self._suppress_form_autofill = False
 
     def _get_selected_account(self):
         """Helper to get currently selected account dict from table."""
@@ -3148,6 +3231,7 @@ class FBAutoBotMainWindow(QMainWindow):
             self.accounts_list = self.session_manager.list_accounts()
 
         self.refresh_accounts_table()
+        self.clear_account_form()
         self.log_message("INFO", f"🔑 Initiating Facebook automated login & cookie extraction for [{name}]...")
 
         self.cred_worker = CredentialLoginWorker(acc_id, headless=False)
@@ -3459,7 +3543,8 @@ class FBAutoBotMainWindow(QMainWindow):
             self.refresh_accounts_table()
             self.update_account_dropdown()
             self.refresh_dashboard_metrics()
-            self.log_message("SUCCESS", f"Account '{name}' saved to vault!")
+            self.clear_account_form()
+            self.log_message("SUCCESS", f"✅ Account '{name}' added successfully to vault! Form reset for next account.")
 
             # If UID/Password was provided without cookies, trigger auto-login to generate cookies
             if uid and pwd and not cookies:
@@ -3474,23 +3559,6 @@ class FBAutoBotMainWindow(QMainWindow):
                 self.health_worker.log_signal.connect(self.log_message)
                 self.health_worker.finished_signal.connect(self.on_session_health_finished)
                 self.health_worker.start()
-
-            # Clear inputs
-            self.acc_name_input.clear()
-            self.acc_uid_input.clear()
-            self.acc_pass_input.clear()
-            self.acc_2fa_input.clear()
-            self.acc_cookies_input.clear()
-            self.proxy_host.clear()
-            self.proxy_user.clear()
-            self.proxy_pass.clear()
-            self.acc_notes_input.clear()
-
-            QMessageBox.information(
-                self,
-                "Account Saved",
-                f"Account '{name}' has been saved to the vault!\n\nSession cookies and live profile status are being synchronized."
-            )
         except Exception as e:
             self.log_message("ERROR", f"Failed to save account profile: {str(e)}")
             QMessageBox.critical(self, "Save Error", f"Could not save profile: {str(e)}")
@@ -5259,9 +5327,9 @@ class FBAutoBotMainWindow(QMainWindow):
         workflow_banner.setWordWrap(True)
         ac_layout.addWidget(workflow_banner)
 
-        # Single Unified Start & Stop Buttons
+        # Single Unified Start & Stop Buttons + Session Sync
         u_btn_row = QHBoxLayout()
-        u_btn_row.setSpacing(12)
+        u_btn_row.setSpacing(10)
 
         self.btn_start_grp_unified = QPushButton("🚀 START FB GROUP AUTOMATION (FEWFEED)")
         self.btn_start_grp_unified.setProperty("class", "primaryBtn")
@@ -5269,6 +5337,13 @@ class FBAutoBotMainWindow(QMainWindow):
         self.btn_start_grp_unified.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #059669); color: #ffffff; font-weight: 800; font-size: 14px; padding: 14px; border-radius: 8px;")
         self.btn_start_grp_unified.clicked.connect(self.start_unified_group_automation)
         u_btn_row.addWidget(self.btn_start_grp_unified, stretch=3)
+
+        self.btn_sync_fewfeed_session = QPushButton("🔄 Sync Saved Login To All Profiles")
+        self.btn_sync_fewfeed_session.setStyleSheet("background-color: #4338ca; color: #ffffff; font-weight: 700; font-size: 11px; padding: 14px; border-radius: 8px;")
+        self.btn_sync_fewfeed_session.setCursor(Qt.PointingHandCursor)
+        self.btn_sync_fewfeed_session.setToolTip("Copies your active FewFeed and Google login session across all account browser profiles so every browser opens already logged in.")
+        self.btn_sync_fewfeed_session.clicked.connect(self.sync_fewfeed_to_all_profiles)
+        u_btn_row.addWidget(self.btn_sync_fewfeed_session, stretch=2)
 
         self.btn_stop_grp_unified = QPushButton("🛑 STOP")
         self.btn_stop_grp_unified.setProperty("class", "dangerBtn")
@@ -5632,6 +5707,51 @@ class FBAutoBotMainWindow(QMainWindow):
         if self.group_worker:
             self.group_worker.stop()
             self.btn_stop_grp_unified.setEnabled(False)
+
+    def sync_fewfeed_to_all_profiles(self):
+        """Copies the active FewFeed/Google session from master profile to all existing account browser profiles."""
+        try:
+            from automation.group_bot import get_master_fewfeed_source_dir, copy_fewfeed_session_data, save_as_master_fewfeed_template
+        except ImportError:
+            QMessageBox.warning(self, "Module Error", "Group automation module not loaded.")
+            return
+
+        base_profiles = os.path.join(get_base_dir(), "profiles")
+        if not os.path.isdir(base_profiles):
+            QMessageBox.information(self, "No Profiles", "No browser profiles found yet. Please run or log into at least one browser first.")
+            return
+
+        src_master = get_master_fewfeed_source_dir()
+        if not src_master:
+            QMessageBox.warning(
+                self,
+                "No Saved FewFeed Login",
+                "Could not find a browser profile with an existing saved FewFeed / Google login session.\n\n"
+                "Please open a browser profile, log into FewFeed with your Gmail/credentials once, and click this button again to clone it across all accounts."
+            )
+            return
+
+        # Save to master template first
+        save_as_master_fewfeed_template(src_master)
+
+        copied_count = 0
+        try:
+            for entry in os.listdir(base_profiles):
+                target_p = os.path.join(base_profiles, entry)
+                if os.path.isdir(target_p) and os.path.abspath(target_p) != os.path.abspath(src_master) and entry not in ["fewfeed_shared", "fewfeed_master"]:
+                    copy_fewfeed_session_data(src_master, target_p)
+                    copied_count += 1
+        except Exception as e:
+            self.log_message("WARNING", f"Session sync notice: {str(e)}")
+
+        self.log_message("SUCCESS", f"🔄 FewFeed & Google login session cloned from [{os.path.basename(src_master)}] to {copied_count} account profile(s)!")
+        QMessageBox.information(
+            self,
+            "FewFeed Session Synchronized",
+            f"✅ FewFeed & Google login session successfully cloned from:\n'{os.path.basename(src_master)}'\n\n"
+            f"to {copied_count} account profile(s)!\n\n"
+            f"Now all browser instances will open already logged into FewFeed automatically."
+        )
 
     def on_group_automation_finished(self, success: bool, message: str):
         self.btn_start_grp_unified.setEnabled(True)

@@ -11,6 +11,7 @@ import json
 import time
 import random
 import asyncio
+import shutil
 from typing import List, Dict, Any, Optional, Callable
 
 try:
@@ -46,6 +47,144 @@ def get_base_dir() -> str:
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
     return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+def get_master_fewfeed_source_dir() -> Optional[str]:
+    """
+    Finds the most recent and complete FewFeed/Google session data directory across all browser profiles.
+    """
+    base_profiles = os.path.join(get_base_dir(), "profiles")
+    if not os.path.isdir(base_profiles):
+        return None
+
+    # Priority 1: dedicated shared template
+    shared_dir = os.path.join(base_profiles, "fewfeed_shared")
+    if os.path.isdir(shared_dir):
+        def_dir = os.path.join(shared_dir, "Default")
+        if os.path.isdir(os.path.join(def_dir, "Local Storage")) or os.path.isfile(os.path.join(def_dir, "Network", "Cookies")) or os.path.isfile(os.path.join(def_dir, "Cookies")):
+            return shared_dir
+
+    # Priority 2: dedicated master template
+    master_dir = os.path.join(base_profiles, "fewfeed_master")
+    if os.path.isdir(master_dir):
+        def_dir = os.path.join(master_dir, "Default")
+        if os.path.isdir(os.path.join(def_dir, "Local Storage")) or os.path.isfile(os.path.join(def_dir, "Network", "Cookies")) or os.path.isfile(os.path.join(def_dir, "Cookies")):
+            return master_dir
+
+    # Priority 3: Search all profile directories for the one with the latest modified session data
+    candidates = []
+    try:
+        for entry in os.listdir(base_profiles):
+            p_dir = os.path.join(base_profiles, entry)
+            if not os.path.isdir(p_dir):
+                continue
+            default_dir = os.path.join(p_dir, "Default") if os.path.isdir(os.path.join(p_dir, "Default")) else p_dir
+            
+            ls_dir = os.path.join(default_dir, "Local Storage")
+            net_cookie = os.path.join(default_dir, "Network", "Cookies")
+            flat_cookie = os.path.join(default_dir, "Cookies")
+            idb_dir = os.path.join(default_dir, "IndexedDB")
+
+            has_session = False
+            mtime = 0
+            if os.path.isdir(ls_dir) and os.listdir(ls_dir):
+                has_session = True
+                try: mtime = max(mtime, os.path.getmtime(ls_dir))
+                except Exception: pass
+            if os.path.isfile(net_cookie) and os.path.getsize(net_cookie) > 2048:
+                has_session = True
+                try: mtime = max(mtime, os.path.getmtime(net_cookie))
+                except Exception: pass
+            if os.path.isfile(flat_cookie) and os.path.getsize(flat_cookie) > 2048:
+                has_session = True
+                try: mtime = max(mtime, os.path.getmtime(flat_cookie))
+                except Exception: pass
+            if os.path.isdir(idb_dir) and os.listdir(idb_dir):
+                has_session = True
+                try: mtime = max(mtime, os.path.getmtime(idb_dir))
+                except Exception: pass
+
+            if has_session:
+                candidates.append((mtime, p_dir))
+    except Exception:
+        pass
+
+    if candidates:
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates[0][1]
+
+    return None
+
+def copy_fewfeed_session_data(src_profile_dir: str, dst_profile_dir: str):
+    """
+    Copies FewFeed and Google session artifacts from source profile to target profile.
+    """
+    if not src_profile_dir or not dst_profile_dir or os.path.abspath(src_profile_dir) == os.path.abspath(dst_profile_dir):
+        return
+
+    os.makedirs(dst_profile_dir, exist_ok=True)
+    
+    src_default = os.path.join(src_profile_dir, "Default") if os.path.isdir(os.path.join(src_profile_dir, "Default")) else src_profile_dir
+    dst_default = os.path.join(dst_profile_dir, "Default")
+    os.makedirs(dst_default, exist_ok=True)
+
+    items_to_copy = [
+        ("Local Storage", "dir"),
+        ("IndexedDB", "dir"),
+        ("Session Storage", "dir"),
+        ("Storage", "dir"),
+        ("Local Extension Settings", "dir"),
+        ("Sync Extension Settings", "dir"),
+        ("Network", "dir"),
+        ("Cookies", "file"),
+        ("Preferences", "file"),
+        ("Secure Preferences", "file"),
+        ("Web Data", "file"),
+    ]
+
+    for item_name, item_type in items_to_copy:
+        src_path = os.path.join(src_default, item_name)
+        dst_path = os.path.join(dst_default, item_name)
+        if not os.path.exists(src_path):
+            continue
+        try:
+            if item_type == "dir" and os.path.isdir(src_path):
+                if os.path.exists(dst_path):
+                    shutil.rmtree(dst_path, ignore_errors=True)
+                shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
+            elif item_type == "file" and os.path.isfile(src_path):
+                os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                shutil.copy2(src_path, dst_path)
+        except Exception:
+            pass
+
+    src_ls = os.path.join(src_profile_dir, "Local State")
+    dst_ls = os.path.join(dst_profile_dir, "Local State")
+    if os.path.isfile(src_ls):
+        try:
+            shutil.copy2(src_ls, dst_ls)
+        except Exception:
+            pass
+
+    for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
+        fpath = os.path.join(dst_profile_dir, fname)
+        if os.path.exists(fpath) or os.path.islink(fpath):
+            try:
+                if os.path.islink(fpath) or os.path.isfile(fpath):
+                    os.unlink(fpath)
+                elif os.path.isdir(fpath):
+                    shutil.rmtree(fpath, ignore_errors=True)
+            except Exception:
+                pass
+
+def save_as_master_fewfeed_template(source_profile_dir: str):
+    """
+    Saves the specified profile as the master template (profiles/fewfeed_shared)
+    so all newly created browser profiles will automatically inherit it.
+    """
+    if not source_profile_dir or not os.path.isdir(source_profile_dir):
+        return
+    shared_dir = os.path.join(get_base_dir(), "profiles", "fewfeed_shared")
+    copy_fewfeed_session_data(source_profile_dir, shared_dir)
 
 def get_fewfeed_extension_path() -> Optional[str]:
     """Resolves the absolute path to FEWFEED extension folder."""
@@ -279,6 +418,30 @@ class FacebookGroupBot:
 
         if profile_dir:
             os.makedirs(profile_dir, exist_ok=True)
+            self.profile_dir = profile_dir
+
+            # Check if this profile has FewFeed/Google session data
+            dst_default = os.path.join(profile_dir, "Default")
+            ls_path = os.path.join(dst_default, "Local Storage")
+            net_path = os.path.join(dst_default, "Network", "Cookies")
+            flat_cookie = os.path.join(dst_default, "Cookies")
+            idb_path = os.path.join(dst_default, "IndexedDB")
+
+            has_session = False
+            if os.path.isdir(ls_path) and os.listdir(ls_path):
+                has_session = True
+            elif (os.path.isfile(net_path) and os.path.getsize(net_path) > 2048) or (os.path.isfile(flat_cookie) and os.path.getsize(flat_cookie) > 2048):
+                has_session = True
+            elif os.path.isdir(idb_path) and os.listdir(idb_path):
+                has_session = True
+
+            if not has_session:
+                # Synchronize from master/shared FewFeed profile template
+                src_master = get_master_fewfeed_source_dir()
+                if src_master and os.path.abspath(src_master) != os.path.abspath(profile_dir):
+                    self.log("INFO", f"🔄 Synchronizing saved FewFeed/Google session from master profile into {os.path.basename(profile_dir)}...")
+                    copy_fewfeed_session_data(src_master, profile_dir)
+                    self.log("SUCCESS", "✅ FewFeed & Google authentication state cloned successfully across browser.")
 
         # Clear profile locks to prevent SingletonLock errors
         if profile_dir and os.path.exists(profile_dir):
@@ -1134,6 +1297,11 @@ class FacebookGroupBot:
     async def close(self):
         """Closes browser context and Playwright instance cleanly."""
         try:
+            if hasattr(self, 'profile_dir') and self.profile_dir and os.path.isdir(self.profile_dir):
+                try:
+                    save_as_master_fewfeed_template(self.profile_dir)
+                except Exception:
+                    pass
             if self.page and not self.page.is_closed():
                 await self.page.close()
             if self.context:

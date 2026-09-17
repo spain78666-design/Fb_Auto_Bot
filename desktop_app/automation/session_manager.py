@@ -606,6 +606,18 @@ class SessionManager:
 
         profile_dir = self.get_profile_dir(account["id"])
 
+        # Purge singleton lockfiles to ensure clean browser boot
+        for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
+            fpath = os.path.join(profile_dir, fname)
+            if os.path.exists(fpath) or os.path.islink(fpath):
+                try:
+                    if os.path.islink(fpath) or os.path.isfile(fpath):
+                        os.unlink(fpath)
+                    elif os.path.isdir(fpath):
+                        shutil.rmtree(fpath, ignore_errors=True)
+                except Exception:
+                    pass
+
         proxy_cfg = None
         raw_proxy = account.get("proxy", "").strip()
         if raw_proxy and "direct" not in raw_proxy.lower() and "no proxy" not in raw_proxy.lower() and "no_proxy" not in raw_proxy.lower():
@@ -694,10 +706,10 @@ class SessionManager:
 
                 # Monitor cookies while window stays open
                 captured = False
-                while True:
+                for _ in range(300): # Keep open up to 10 minutes or until closed
                     await asyncio.sleep(2.0)
                     try:
-                        if page.is_closed():
+                        if page.is_closed() or not context.pages:
                             break
                         live_cookies = await context.cookies()
                         has_c_user = any(c.get("name") == "c_user" for c in live_cookies)
@@ -708,6 +720,24 @@ class SessionManager:
                             account["cookies"] = captured_cookie_str
                             account["status"] = "Healthy"
                             account["last_checked"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                            # Try extracting profile name
+                            try:
+                                detected_name = await page.evaluate("""() => {
+                                    const link = document.querySelector('a[href*="/me/"], a[aria-label*="Your profile"]');
+                                    if (link) {
+                                        const aria = link.getAttribute('aria-label');
+                                        if (aria && !aria.toLowerCase().includes('your profile')) return aria.trim();
+                                        const txt = link.innerText;
+                                        if (txt && txt.trim().length > 1) return txt.trim();
+                                    }
+                                    return null;
+                                }""")
+                                if detected_name and len(str(detected_name).strip()) > 1:
+                                    account["name"] = str(detected_name).strip()
+                            except Exception:
+                                pass
+
                             self.add_or_update_account(account)
                             captured = True
                             log("SUCCESS", f"🎉 Session active and verified HEALTHY for '{acc_name}'!")
@@ -771,6 +801,18 @@ class SessionManager:
             return True, "Successfully logged in and generated session cookies!", account
 
         profile_dir = self.get_profile_dir(account["id"])
+
+        # Purge singleton lockfiles
+        for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
+            fpath = os.path.join(profile_dir, fname)
+            if os.path.exists(fpath) or os.path.islink(fpath):
+                try:
+                    if os.path.islink(fpath) or os.path.isfile(fpath):
+                        os.unlink(fpath)
+                    elif os.path.isdir(fpath):
+                        shutil.rmtree(fpath, ignore_errors=True)
+                except Exception:
+                    pass
 
         proxy_cfg = None
         raw_proxy = account.get("proxy", "").strip()
@@ -837,8 +879,11 @@ class SessionManager:
                     await stealth_async(page)
 
                 log("INFO", "Navigating to Facebook login portal (https://www.facebook.com/login)...")
-                await page.goto("https://www.facebook.com/login", wait_until="domcontentloaded", timeout=45000)
-                await asyncio.sleep(1.5)
+                try:
+                    await page.goto("https://www.facebook.com/login", wait_until="domcontentloaded", timeout=45000)
+                except Exception as ge:
+                    log("WARNING", f"Page load note: {str(ge)[:60]}")
+                await asyncio.sleep(2.0)
 
                 # Check if already authenticated
                 live_cookies = await context.cookies()
@@ -846,56 +891,120 @@ class SessionManager:
                 if has_c_user:
                     log("SUCCESS", f"Profile '{acc_name}' is already logged into Facebook!")
                 else:
+                    # Dismiss cookie consent dialog if shown
+                    try:
+                        cookie_consent_selectors = [
+                            'button[data-cookiebanner="accept_button"]',
+                            'button[data-cookiebanner="accept_only_essential_button"]',
+                            'button[title="Allow all cookies"]',
+                            'button[title="Accept all"]',
+                            'button:has-text("Allow all cookies")',
+                            'button:has-text("Accept all")',
+                            'button:has-text("Only allow essential cookies")',
+                            'button:has-text("Decline optional cookies")',
+                            'button:has-text("Allow essential and optional cookies")',
+                            'div[aria-label*="cookie" i] button'
+                        ]
+                        for c_sel in cookie_consent_selectors:
+                            c_btn = await page.query_selector(c_sel)
+                            if c_btn and await c_btn.is_visible():
+                                await c_btn.click()
+                                await asyncio.sleep(1.0)
+                                break
+                    except Exception:
+                        pass
+
                     # Fill UID / Email
                     log("INFO", f"Entering UID/Email: {uid_or_email}...")
-                    email_field = await page.wait_for_selector('input[name="email"], input#email', timeout=12000)
+                    email_selectors = [
+                        'input[name="email"]',
+                        'input#email',
+                        'input[type="text"][autocomplete="username"]',
+                        'input[data-testid="royal_email"]',
+                        'input[aria-label*="Email" i]',
+                        'input[aria-label*="phone" i]',
+                        'input[placeholder*="Email" i]'
+                    ]
+                    email_field = None
+                    for es in email_selectors:
+                        email_field = await page.query_selector(es)
+                        if email_field and await email_field.is_visible():
+                            break
+
                     if email_field:
+                        await email_field.click()
                         await email_field.fill(uid_or_email)
                         await asyncio.sleep(0.4)
+                    else:
+                        log("WARNING", "Could not locate email field with standard selectors; attempting fallback...")
+                        await page.keyboard.type(uid_or_email, delay=30)
 
                     # Fill Password
                     log("INFO", "Entering Facebook Password...")
-                    pass_field = await page.wait_for_selector('input[name="pass"], input#pass', timeout=8000)
+                    pass_selectors = [
+                        'input[name="pass"]',
+                        'input#pass',
+                        'input[type="password"]',
+                        'input[data-testid="royal_pass"]',
+                        'input[aria-label*="Password" i]',
+                        'input[placeholder*="Password" i]'
+                    ]
+                    pass_field = None
+                    for ps in pass_selectors:
+                        pass_field = await page.query_selector(ps)
+                        if pass_field and await pass_field.is_visible():
+                            break
+
                     if pass_field:
+                        await pass_field.click()
                         await pass_field.fill(password)
                         await asyncio.sleep(0.5)
 
                     # Click Login
                     log("INFO", "Submitting Facebook credentials...")
-                    login_btn = await page.query_selector('button[name="login"], button#loginbutton, input[type="submit"]')
+                    login_btn = await page.query_selector('button[name="login"], button#loginbutton, button[data-testid="royal_login_button"], button[type="submit"], input[type="submit"]')
                     if login_btn:
                         await login_btn.click()
                     else:
                         await page.keyboard.press("Enter")
 
-                    await asyncio.sleep(3.0)
+                    # Wait and monitor for 2FA challenge, checkpoints, or successful cookies
+                    log("INFO", "Waiting for Facebook session verification & token generation...")
+                    for check_round in range(20): # Check every 1.5s up to 30s
+                        await asyncio.sleep(1.5)
+                        curr_cookies = await context.cookies()
+                        if any(c.get("name") == "c_user" for c in curr_cookies) and any(c.get("name") == "xs" for c in curr_cookies):
+                            break
 
-                    # Handle 2FA Challenge if prompted
-                    current_url = page.url.lower()
-                    if "checkpoint" in current_url or "two_step_verification" in current_url or await page.query_selector('input[name="approvals_code"], input[name="code"]'):
-                        log("WARNING", "2FA Verification requested by Facebook...")
-                        if two_factor_secret:
-                            totp_code = generate_totp(two_factor_secret)
-                            if totp_code:
-                                log("INFO", f"Generated 6-digit TOTP Code ({totp_code}). Submitting to 2FA prompt...")
-                                code_input = await page.wait_for_selector('input[name="approvals_code"], input[name="code"], input[type="number"], input[type="text"]', timeout=10000)
-                                if code_input:
-                                    await code_input.fill(totp_code)
-                                    await asyncio.sleep(0.5)
-                                    submit_2fa = await page.query_selector('button#checkpointSubmitButton, button[type="submit"]')
-                                    if submit_2fa:
-                                        await submit_2fa.click()
-                                    else:
-                                        await page.keyboard.press("Enter")
-                                    await asyncio.sleep(3.0)
-                        else:
-                            log("INFO", "Please approve the login or enter 2FA code in the browser window if open...")
-                            # Wait up to 30 seconds for manual 2FA approval
-                            for _ in range(15):
-                                await asyncio.sleep(2.0)
-                                check_cookies = await context.cookies()
-                                if any(c.get("name") == "c_user" for c in check_cookies):
-                                    break
+                        current_url = page.url.lower()
+                        # Check if 2FA TOTP prompt is visible
+                        if "checkpoint" in current_url or "two_step_verification" in current_url or await page.query_selector('input[name="approvals_code"], input[name="code"], input#approvals_code'):
+                            if two_factor_secret:
+                                totp_code = generate_totp(two_factor_secret)
+                                if totp_code:
+                                    log("INFO", f"🔑 Generated 6-digit TOTP Code ({totp_code}). Submitting to 2FA challenge...")
+                                    code_input = await page.query_selector('input[name="approvals_code"], input[name="code"], input#approvals_code, input[type="number"], input[type="text"]')
+                                    if code_input and await code_input.is_visible():
+                                        await code_input.fill(totp_code)
+                                        await asyncio.sleep(0.5)
+                                        submit_2fa = await page.query_selector('button#checkpointSubmitButton, button[type="submit"], button:has-text("Continue"), button:has-text("Submit")')
+                                        if submit_2fa:
+                                            await submit_2fa.click()
+                                        else:
+                                            await page.keyboard.press("Enter")
+                                        await asyncio.sleep(2.0)
+                            else:
+                                if check_round == 2:
+                                    log("WARNING", "⚠️ Facebook requires 2FA confirmation or checkpoint resolution.")
+                                    log("INFO", "If browser is open, please enter your code or confirm login on your mobile device...")
+
+                        # Handle "Remember browser" or "Save login info" prompt
+                        save_btn = await page.query_selector('button:has-text("Save"), button:has-text("Not Now"), a:has-text("Not Now"), button:has-text("Continue")')
+                        if save_btn and await save_btn.is_visible():
+                            try:
+                                await save_btn.click()
+                            except Exception:
+                                pass
 
                 # Inspect Final Cookies
                 final_cookies = await context.cookies()
@@ -932,11 +1041,12 @@ class SessionManager:
                     return True, "Login successful & cookies extracted!", account
                 else:
                     curr_url = page.url
-                    log("ERROR", f"Login did not yield valid session cookies. Current page URL: {curr_url}")
+                    log("WARNING", f"Session cookie extraction pending. Current page URL: {curr_url}")
+                    # If user has entered UID/Pass but c_user cookie hasn't arrived, keep account ready
                     account["status"] = "Needs Login"
                     self.add_or_update_account(account)
                     await context.close()
-                    return False, f"Login failed or checkpoint required. Page URL: {curr_url}", account
+                    return False, f"Login incomplete or 2FA approval required. (URL: {curr_url})", account
 
             except Exception as login_ex:
                 log("ERROR", f"Credential login error: {str(login_ex)}")
