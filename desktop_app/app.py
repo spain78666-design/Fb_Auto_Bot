@@ -1552,7 +1552,6 @@ class FBAutoBotMainWindow(QMainWindow):
         self.pages_stack = QStackedWidget()
         self.page_dashboard = self.create_dashboard_page()
         self.page_accounts = self.create_accounts_page()
-        self.page_methods = self.create_methods_page()
         self.page_automation = self.create_automation_page()
         self.page_project_listing = self.create_project_listing_page()
         self.page_group_posting = self.create_group_automation_page()
@@ -1562,13 +1561,12 @@ class FBAutoBotMainWindow(QMainWindow):
 
         self.pages_stack.addWidget(self.page_dashboard)       # Index 0
         self.pages_stack.addWidget(self.page_accounts)        # Index 1
-        self.pages_stack.addWidget(self.page_methods)         # Index 2
-        self.pages_stack.addWidget(self.page_automation)      # Index 3 (Standard Listing Marketplace)
-        self.pages_stack.addWidget(self.page_project_listing) # Index 4 (Project Listing Marketplace)
-        self.pages_stack.addWidget(self.page_group_posting)   # Index 5 (FB Group Posting)
-        self.pages_stack.addWidget(self.page_ai)              # Index 6 (AI Content Spinner)
-        self.pages_stack.addWidget(self.page_settings)        # Index 7 (Settings & Stealth)
-        self.pages_stack.addWidget(self.page_profile)         # Index 8 (User Profile & Activity Logs)
+        self.pages_stack.addWidget(self.page_automation)      # Index 2 (Standard Listing Marketplace)
+        self.pages_stack.addWidget(self.page_project_listing) # Index 3 (Project Listing Marketplace)
+        self.pages_stack.addWidget(self.page_group_posting)   # Index 4 (FB Group Posting)
+        self.pages_stack.addWidget(self.page_ai)              # Index 5 (AI Content Spinner)
+        self.pages_stack.addWidget(self.page_settings)        # Index 6 (Settings & Stealth)
+        self.pages_stack.addWidget(self.page_profile)         # Index 7 (User Profile & Activity Logs)
 
         content_layout.addWidget(self.pages_stack, stretch=7)
 
@@ -1641,7 +1639,7 @@ class FBAutoBotMainWindow(QMainWindow):
             font-weight: 700;
             padding: 4px 10px;
         """)
-        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(8)
+        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(7)
         right_layout.addWidget(self.header_countdown_pill)
 
         # User Profile Chip
@@ -1665,7 +1663,7 @@ class FBAutoBotMainWindow(QMainWindow):
                 border: 1px solid rgba(255, 255, 255, 0.25);
             }
         """)
-        self.header_user_chip.clicked.connect(lambda: self.switch_tab(8))
+        self.header_user_chip.clicked.connect(lambda: self.switch_tab(7))
         right_layout.addWidget(self.header_user_chip)
 
         # Quick Key Button
@@ -1754,18 +1752,17 @@ class FBAutoBotMainWindow(QMainWindow):
         version_lbl.setStyleSheet("font-size: 10px; font-weight: 700; color: #6366f1; letter-spacing: 1px; margin-bottom: 16px;")
         layout.addWidget(version_lbl)
 
-        # Navigation Buttons (9 Tabs)
+        # Navigation Buttons (8 Tabs)
         self.nav_buttons = []
         nav_items = [
             ("📊 Dashboard", 0),
             ("👥 Accounts Manager", 1),
-            ("🎯 Methods Manager", 2),
-            ("⚡ Standard & Bulk Listing", 3),
-            ("📁 Project Listing", 4),
-            ("📢 FB Group Posting", 5),
-            ("🧠 AI Content Spinner", 6),
-            ("⚙️ Settings & Stealth", 7),
-            ("👤 User Profile & Logs", 8),
+            ("⚡ Standard & Bulk Listing", 2),
+            ("📁 Project Listing", 3),
+            ("📢 FB Group Posting", 4),
+            ("🧠 AI Content Spinner", 5),
+            ("⚙️ Settings & Stealth", 6),
+            ("👤 User Profile & Logs", 7),
         ]
 
         for text, index in nav_items:
@@ -1808,7 +1805,6 @@ class FBAutoBotMainWindow(QMainWindow):
         tab_names = [
             "Operational Dashboard",
             "Accounts & Session Manager",
-            "Methods & Macro Recorder",
             "Standard & Bulk Listing Marketplace",
             "Project Listing Marketplace",
             "Facebook Group Automation",
@@ -1820,7 +1816,7 @@ class FBAutoBotMainWindow(QMainWindow):
             self.header_page_title.setText(tab_names[index])
 
         # If switching to profile page, ensure data is fresh
-        if index == 8 and hasattr(self, 'update_profile_page_data'):
+        if index == 7 and hasattr(self, 'update_profile_page_data'):
             self.update_profile_page_data()
 
     # --------------------------------------------------------------------------
@@ -2068,7 +2064,7 @@ class FBAutoBotMainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         b1 = QPushButton("⚡ Launch New Auto-Listing")
         b1.setProperty("class", "primaryBtn")
-        b1.clicked.connect(lambda: self.switch_tab(3))
+        b1.clicked.connect(lambda: self.switch_tab(2))
 
         b2 = QPushButton("👥 Import New Account Session")
         b2.setProperty("class", "secondaryBtn")
@@ -3363,307 +3359,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.log_message("SUCCESS", f"Proxy {proxy} responding: Latency 42ms, Location: Ashburn US (Residential).")
 
     # --------------------------------------------------------------------------
-    # Tab 3: Methods Manager (Phase 6 - Macro Recorder & Method Storage)
-    # --------------------------------------------------------------------------
-    def create_methods_page(self):
-        page = QWidget()
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; } QScrollBar { background: transparent; }")
-
-        container = QWidget()
-        container.setStyleSheet("background: transparent;")
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
-
-        # Title
-        title = QLabel("🎯 FB Group Automation Methods Manager")
-        title.setProperty("class", "pageTitle")
-        sub = QLabel("Record, manage, and inspect custom posting workflows specifically for Facebook Group Automation.")
-        sub.setProperty("class", "pageSubtitle")
-        layout.addWidget(title)
-        layout.addWidget(sub)
-
-        # Top Bar
-        grp_top_bar = QFrame()
-        grp_top_bar.setProperty("class", "glassCard")
-        gtb_layout = QHBoxLayout(grp_top_bar)
-        gtb_layout.setContentsMargins(12, 10, 12, 10)
-
-        self.btn_record_new_grp_method_top = QPushButton("🔴 Record FB Group Method (Open Chrome)")
-        self.btn_record_new_grp_method_top.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: 700; border-radius: 8px; padding: 8px 18px;")
-        self.btn_record_new_grp_method_top.setCursor(Qt.PointingHandCursor)
-        self.btn_record_new_grp_method_top.setToolTip("Opens Chrome full-screen to record FB Group posting steps. Stored strictly in config/group_methods/.")
-        self.btn_record_new_grp_method_top.clicked.connect(self.record_new_group_macro_method)
-        gtb_layout.addWidget(self.btn_record_new_grp_method_top)
-
-        self.btn_refresh_grp_methods = QPushButton("🔄 Refresh FB Group Methods")
-        self.btn_refresh_grp_methods.setProperty("class", "secondaryBtn")
-        self.btn_refresh_grp_methods.setCursor(Qt.PointingHandCursor)
-        self.btn_refresh_grp_methods.clicked.connect(self.refresh_group_methods_table)
-        gtb_layout.addWidget(self.btn_refresh_grp_methods)
-
-        gtb_layout.addStretch()
-
-        grp_methods_hint = QLabel("💡 Stored in config/group_methods/")
-        grp_methods_hint.setStyleSheet("color: #38bdf8; font-size: 11px;")
-        gtb_layout.addWidget(grp_methods_hint)
-
-        layout.addWidget(grp_top_bar)
-
-        # Group Methods Table Card
-        grp_table_card = QFrame()
-        grp_table_card.setProperty("class", "glassCard")
-        gt_layout = QVBoxLayout(grp_table_card)
-        gt_layout.setSpacing(10)
-
-        gt_title = QLabel("📢 Saved Facebook Group Posting Methods")
-        gt_title.setStyleSheet("font-size: 14px; font-weight: 700; color: #ffffff;")
-        gt_layout.addWidget(gt_title)
-
-        self.group_methods_table = QTableWidget()
-        self.group_methods_table.setColumnCount(5)
-        self.group_methods_table.setHorizontalHeaderLabels([
-            "Group Method Name", "Total Steps", "Created Date", "Description", "Actions"
-        ])
-        self.group_methods_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.group_methods_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.group_methods_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.group_methods_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        self.group_methods_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self.group_methods_table.verticalHeader().setVisible(False)
-        self.group_methods_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.group_methods_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.group_methods_table.setMinimumHeight(280)
-
-        gt_layout.addWidget(self.group_methods_table)
-        layout.addWidget(grp_table_card)
-
-        # Group Guide Card
-        grp_guide_card = QFrame()
-        grp_guide_card.setStyleSheet("background-color: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 14px;")
-        gg_layout = QVBoxLayout(grp_guide_card)
-        gg_layout.setSpacing(6)
-        gg_title = QLabel("📖 How FB Group Method Recording Works:")
-        gg_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #10b981;")
-        gg_layout.addWidget(gg_title)
-        grp_steps_text = (
-            "1. Click 'Record FB Group Method' and enter a method name (e.g., 'Feed_Direct_Post', 'Discussion_Photo_Share', 'Anonymous_Post').\n"
-            "2. Chrome opens in full-screen on Facebook Groups feed. Perform your exact posting clicks, composer triggers, and sample text.\n"
-            "3. Close the Chrome browser when finished — steps are saved separately in config/group_methods/.\n"
-            "4. Go to 'FB Group Posting' page to pick your saved Group method for execution!"
-        )
-        gg_lbl = QLabel(grp_steps_text)
-        gg_lbl.setStyleSheet("color: #cbd5e1; font-size: 12px; line-height: 1.5;")
-        gg_layout.addWidget(gg_lbl)
-        layout.addWidget(grp_guide_card)
-
-        scroll.setWidget(container)
-        outer_layout = QVBoxLayout(page)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.addWidget(scroll)
-
-        self.refresh_group_methods_table()
-        return page
-
-    def switch_to_group_methods(self):
-        """Switches to Methods Manager and opens the FB Group Methods sub-tab."""
-        self.switch_tab(2)
-        if hasattr(self, 'methods_subtabs'):
-            self.methods_subtabs.setCurrentIndex(1)
-
-    def refresh_methods_table(self):
-        """Populates the marketplace methods table with saved JSON methods from config/methods/."""
-        if not hasattr(self, 'methods_table'):
-            return
-
-        methods = MacroMethodManager.list_methods() if HAS_MACRO_RECORDER else ["Default Item Listing (Standard)"]
-        self.methods_table.setRowCount(len(methods))
-
-        for row, method_name in enumerate(methods):
-            data = MacroMethodManager.load_method_data(method_name) if HAS_MACRO_RECORDER else {}
-            actions = data.get("actions", [])
-            total_steps = len(actions)
-            created_at = data.get("created_at", "System Default")
-            desc = data.get("description", "Standard Facebook Marketplace item flow")
-
-            name_item = QTableWidgetItem(f"📁 {method_name}")
-            name_item.setForeground(QColor("#f8fafc"))
-            name_item.setFont(QFont("Segoe UI", 10, QFont.Bold))
-
-            steps_item = QTableWidgetItem(f"⚡ {total_steps} Actions")
-            steps_item.setForeground(QColor("#38bdf8"))
-
-            date_item = QTableWidgetItem(created_at)
-            date_item.setForeground(QColor("#94a3b8"))
-
-            desc_item = QTableWidgetItem(desc)
-            desc_item.setForeground(QColor("#cbd5e1"))
-
-            # Actions widget with Inspect and Delete buttons
-            actions_widget = QWidget()
-            act_layout = QHBoxLayout(actions_widget)
-            act_layout.setContentsMargins(4, 2, 4, 2)
-            act_layout.setSpacing(6)
-
-            btn_inspect = QPushButton("👁️ Inspect Steps")
-            btn_inspect.setStyleSheet("background-color: #334155; color: #f8fafc; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
-            btn_inspect.setCursor(Qt.PointingHandCursor)
-            btn_inspect.clicked.connect(lambda checked, m=method_name: self.inspect_method_steps(m))
-            act_layout.addWidget(btn_inspect)
-
-            if method_name not in ("Default Item Listing (Standard)", "Standard Marketplace Item"):
-                btn_del = QPushButton("🗑️ Delete")
-                btn_del.setStyleSheet("background-color: #ef4444; color: #ffffff; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
-                btn_del.setCursor(Qt.PointingHandCursor)
-                btn_del.clicked.connect(lambda checked, m=method_name: self.delete_selected_method(m))
-                act_layout.addWidget(btn_del)
-
-            self.methods_table.setItem(row, 0, name_item)
-            self.methods_table.setItem(row, 1, steps_item)
-            self.methods_table.setItem(row, 2, date_item)
-            self.methods_table.setItem(row, 3, desc_item)
-            self.methods_table.setCellWidget(row, 4, actions_widget)
-
-    def refresh_group_methods_table(self):
-        """Populates the group methods table with saved JSON methods from config/group_methods/."""
-        if not hasattr(self, 'group_methods_table'):
-            return
-
-        methods = GroupMethodManager.list_methods() if HAS_MACRO_RECORDER else ["Standard Group Post (Feed)"]
-        self.group_methods_table.setRowCount(len(methods))
-
-        for row, method_name in enumerate(methods):
-            data = GroupMethodManager.load_method_data(method_name) if HAS_MACRO_RECORDER else {}
-            actions = data.get("actions", [])
-            total_steps = len(actions)
-            created_at = data.get("created_at", "System Default")
-            desc = data.get("description", "Standard Facebook Group posting workflow")
-
-            name_item = QTableWidgetItem(f"📢 {method_name}")
-            name_item.setForeground(QColor("#f8fafc"))
-            name_item.setFont(QFont("Segoe UI", 10, QFont.Bold))
-
-            steps_item = QTableWidgetItem(f"⚡ {total_steps} Actions")
-            steps_item.setForeground(QColor("#38bdf8"))
-
-            date_item = QTableWidgetItem(created_at)
-            date_item.setForeground(QColor("#94a3b8"))
-
-            desc_item = QTableWidgetItem(desc)
-            desc_item.setForeground(QColor("#cbd5e1"))
-
-            # Actions widget with Inspect and Delete buttons
-            actions_widget = QWidget()
-            act_layout = QHBoxLayout(actions_widget)
-            act_layout.setContentsMargins(4, 2, 4, 2)
-            act_layout.setSpacing(6)
-
-            btn_inspect = QPushButton("👁️ Inspect Steps")
-            btn_inspect.setStyleSheet("background-color: #334155; color: #f8fafc; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
-            btn_inspect.setCursor(Qt.PointingHandCursor)
-            btn_inspect.clicked.connect(lambda checked, m=method_name: self.inspect_group_method_steps(m))
-            act_layout.addWidget(btn_inspect)
-
-            if method_name not in ("Standard Group Post (Feed)", "Standard Group Post"):
-                btn_del = QPushButton("🗑️ Delete")
-                btn_del.setStyleSheet("background-color: #ef4444; color: #ffffff; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
-                btn_del.setCursor(Qt.PointingHandCursor)
-                btn_del.clicked.connect(lambda checked, m=method_name: self.delete_selected_group_method(m))
-                act_layout.addWidget(btn_del)
-
-            self.group_methods_table.setItem(row, 0, name_item)
-            self.group_methods_table.setItem(row, 1, steps_item)
-            self.group_methods_table.setItem(row, 2, date_item)
-            self.group_methods_table.setItem(row, 3, desc_item)
-            self.group_methods_table.setCellWidget(row, 4, actions_widget)
-
-    def inspect_group_method_steps(self, method_name: str):
-        """Displays a sleek dialog displaying all recorded steps in the FB Group method."""
-        clean_name = method_name.replace("📢 ", "").replace("📁 ", "").strip()
-        data = GroupMethodManager.load_method_data(clean_name) if HAS_MACRO_RECORDER else {}
-        actions = data.get("actions", [])
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"FB Group Method Inspection: {clean_name}")
-        dialog.resize(650, 480)
-        dialog.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-family: 'Segoe UI', sans-serif;")
-
-        d_layout = QVBoxLayout(dialog)
-        d_layout.setContentsMargins(20, 20, 20, 20)
-        d_layout.setSpacing(12)
-
-        header = QLabel(f"📢 FB Group Action Steps for '{clean_name}' ({len(actions)} steps):")
-        header.setStyleSheet("font-size: 15px; font-weight: 700; color: #38bdf8;")
-        d_layout.addWidget(header)
-
-        list_widget = QListWidget()
-        list_widget.setStyleSheet("""
-            QListWidget {
-                background-color: rgba(30, 41, 59, 0.7);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
-                padding: 10px;
-                font-size: 12px;
-            }
-            QListWidget::item {
-                padding: 8px;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            }
-        """)
-
-        if not actions:
-            list_widget.addItem("No action steps found in this group method.")
-        else:
-            for idx, act in enumerate(actions, 1):
-                act_type = act.get("action_type", "click").upper()
-                selector = act.get("selector", "")
-                field_type = act.get("field_type", "custom")
-                sample_val = act.get("sample_value", "")
-                text = act.get("text", "")
-                delay = act.get("delay_ms", 1000)
-
-                if act_type == "CLICK":
-                    item_str = f"Step #{idx} [CLICK] ➔ Click element: '{text or selector[:40]}' (Delay: {delay}ms)"
-                elif act_type == "TYPE":
-                    item_str = f"Step #{idx} [TYPE] ➔ Dynamic Injection [{field_type.upper()}]: '{sample_val}' into '{selector[:35]}...' (Delay: {delay}ms)"
-                else:
-                    item_str = f"Step #{idx} [{act_type}] ➔ Selector: {selector[:40]}"
-
-                list_widget.addItem(item_str)
-
-        d_layout.addWidget(list_widget)
-
-        btn_box = QHBoxLayout()
-        btn_box.addStretch()
-        btn_close = QPushButton("Close")
-        btn_close.setStyleSheet("background-color: #3b82f6; color: white; font-weight: 700; border-radius: 6px; padding: 6px 20px;")
-        btn_close.clicked.connect(dialog.accept)
-        btn_box.addWidget(btn_close)
-        d_layout.addLayout(btn_box)
-
-        dialog.exec_()
-
-    def delete_selected_group_method(self, method_name: str):
-        """Deletes a custom FB group macro method from config/group_methods/."""
-        reply = QMessageBox.question(
-            self,
-            "Delete FB Group Method",
-            f"Are you sure you want to permanently delete FB Group method '{method_name}'?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        if reply == QMessageBox.Yes:
-            if HAS_MACRO_RECORDER:
-                GroupMethodManager.delete_method(method_name)
-            self.refresh_group_methods_table()
-            self.refresh_group_methods_dropdown()
-            self.log_message("INFO", f"Deleted custom FB Group method '{method_name}'.")
-
-    # --------------------------------------------------------------------------
-    # Tab 4: Automation Engine (Sequential Multi-Account Batch Posting)
+    # Tab 3: Automation Engine (Sequential Multi-Account Batch Posting)
     # --------------------------------------------------------------------------
     def create_automation_page(self):
         page = QWidget()
@@ -3985,158 +3681,6 @@ class FBAutoBotMainWindow(QMainWindow):
                     if acc_data:
                         selected.append(acc_data)
         return selected
-
-    def refresh_methods_dropdown(self):
-        if hasattr(self, 'method_select'):
-            self.method_select.clear()
-            methods = MacroMethodManager.list_methods() if HAS_MACRO_RECORDER else ["Default Item Listing (Standard)"]
-            for m in methods:
-                self.method_select.addItem(f"📁 {m}")
-
-    def record_new_macro_method(self):
-        """Phase 6: Prompts for a method name & target account, launches an interactive browser, and records all clicks."""
-        try:
-            name, ok = QInputDialog.getText(
-                self,
-                "New Posting Method Recorder",
-                "Enter a name for this custom posting method:\n(e.g., Vehicle_Transmission, Home_Rentals, Appliances)",
-                QLineEdit.Normal,
-                "Custom_Marketplace_Flow"
-            )
-            if not ok or not name.strip():
-                return
-
-            method_name = re.sub(r'[^a-zA-Z0-9_-]', '_', name.strip())
-
-            # Select account profile for recording session
-            selected_account_data = {}
-            if self.accounts_list:
-                account_options = ["🌐 Generic Browser (Fresh / No Saved Cookies)"]
-                for a in self.accounts_list:
-                    a_name = a.get("name", "Account")
-                    a_status = a.get("status", "Healthy")
-                    account_options.append(f"👤 {a_name} [{a_status}]")
-
-                acc_choice, acc_ok = QInputDialog.getItem(
-                    self,
-                    "Select Account for Recording",
-                    f"Choose an account profile to log into Facebook automatically for '{method_name}':",
-                    account_options,
-                    0,
-                    False
-                )
-                if not acc_ok:
-                    return
-
-                if acc_choice != account_options[0]:
-                    chosen_idx = account_options.index(acc_choice) - 1
-                    if 0 <= chosen_idx < len(self.accounts_list):
-                        selected_account_data = self.accounts_list[chosen_idx]
-                        self.log_message("INFO", f"Selected account profile '{selected_account_data.get('name')}' for recording session.")
-
-            self.log_message("INFO", f"🔴 Initializing Macro Click Recorder for: '{method_name}'...")
-            self.log_message("INFO", "A full-screen browser will open shortly. Manually click your exact steps (Facebook -> Marketplace -> Create Ad -> Next).")
-            self.log_message("INFO", "When you are done, simply CLOSE the browser window and your method will be saved automatically!")
-
-            if hasattr(self, 'btn_record_method'):
-                self.btn_record_method.setEnabled(False)
-                self.btn_record_method.setText("🔴 Recording Live...")
-
-            self.macro_worker = MacroRecordWorker(method_name, account_data=selected_account_data)
-            self.macro_worker.log_signal.connect(self.log_message)
-            self.macro_worker.finished_signal.connect(self.on_macro_recording_finished)
-            self.macro_worker.start()
-        except Exception as e:
-            self.log_message("ERROR", f"Macro Recorder error: {str(e)}")
-            QMessageBox.critical(self, "Recording Error", f"Could not start recorder:\n\n{str(e)}")
-            if hasattr(self, 'btn_record_method'):
-                self.btn_record_method.setEnabled(True)
-                self.btn_record_method.setText("🔴 Record New Method (Chrome)")
-
-    def on_macro_recording_finished(self, success: bool, method_name: str):
-        if hasattr(self, 'btn_record_method'):
-            self.btn_record_method.setEnabled(True)
-            self.btn_record_method.setText("🔴 Record New Method (Chrome)")
-        if success:
-            self.log_message("SUCCESS", f"🎉 Method '{method_name}' successfully learned and registered in the vault!")
-            self.refresh_methods_dropdown()
-            self.refresh_methods_table()
-            # Auto-select newly recorded method in dropdown
-            for idx in range(self.method_select.count()):
-                if method_name in self.method_select.itemText(idx):
-                    self.method_select.setCurrentIndex(idx)
-                    break
-        else:
-            self.log_message("WARNING", f"Recording ended or cancelled for '{method_name}'.")
-
-    def record_new_group_macro_method(self):
-        """Prompts for an FB group method name & target account, launches an interactive browser, and records FB Group actions."""
-        try:
-            name, ok = QInputDialog.getText(
-                self,
-                "New FB Group Method Recorder",
-                "Enter a name for this custom FB Group posting method:\n(e.g., Car_Dealers_Group, Real_Estate_Group_Post)",
-                QLineEdit.Normal,
-                "Custom_FBGroup_Flow"
-            )
-            if not ok or not name.strip():
-                return
-
-            method_name = re.sub(r'[^a-zA-Z0-9_-]', '_', name.strip())
-
-            selected_account_data = {}
-            if self.accounts_list:
-                account_options = ["🌐 Generic Browser (Fresh / No Saved Cookies)"]
-                for a in self.accounts_list:
-                    a_name = a.get("name", "Account")
-                    a_status = a.get("status", "Healthy")
-                    account_options.append(f"👤 {a_name} [{a_status}]")
-
-                acc_choice, acc_ok = QInputDialog.getItem(
-                    self,
-                    "Select Account for Group Recording",
-                    f"Choose an account profile to log into Facebook automatically for '{method_name}':",
-                    account_options,
-                    0,
-                    False
-                )
-                if not acc_ok:
-                    return
-
-                if acc_choice != account_options[0]:
-                    chosen_idx = account_options.index(acc_choice) - 1
-                    if 0 <= chosen_idx < len(self.accounts_list):
-                        selected_account_data = self.accounts_list[chosen_idx]
-                        self.log_message("INFO", f"Selected account profile '{selected_account_data.get('name')}' for FB Group recording session.")
-
-            self.log_message("INFO", f"🔴 Initializing FB Group Click Recorder for: '{method_name}'...")
-            self.log_message("INFO", "A full-screen browser will open shortly. Manually click your exact FB Group posting steps.")
-            self.log_message("INFO", "When finished, simply CLOSE the browser window and your FB Group method will be saved automatically in config/group_methods/!")
-
-            if hasattr(self, 'btn_record_new_grp_method_top'):
-                self.btn_record_new_grp_method_top.setEnabled(False)
-                self.btn_record_new_grp_method_top.setText("🔴 Recording FB Group Flow...")
-
-            self.group_macro_worker = GroupMacroRecordWorker(method_name, account_data=selected_account_data)
-            self.group_macro_worker.log_signal.connect(self.log_message)
-            self.group_macro_worker.finished_signal.connect(self.on_group_macro_recording_finished)
-            self.group_macro_worker.start()
-        except Exception as e:
-            self.log_message("ERROR", f"FB Group Macro Recorder error: {str(e)}")
-            QMessageBox.critical(self, "Recording Error", f"Could not start FB Group recorder:\n\n{str(e)}")
-            if hasattr(self, 'btn_record_new_grp_method_top'):
-                self.btn_record_new_grp_method_top.setEnabled(True)
-                self.btn_record_new_grp_method_top.setText("🔴 Record FB Group Method (Open Chrome)")
-
-    def on_group_macro_recording_finished(self, success: bool, method_name: str):
-        if hasattr(self, 'btn_record_new_grp_method_top'):
-            self.btn_record_new_grp_method_top.setEnabled(True)
-            self.btn_record_new_grp_method_top.setText("🔴 Record FB Group Method (Open Chrome)")
-        if success:
-            self.log_message("SUCCESS", f"🎉 FB Group Method '{method_name}' successfully learned and registered in config/group_methods/!")
-            self.refresh_group_methods_table()
-        else:
-            self.log_message("WARNING", f"FB Group Recording ended or cancelled for '{method_name}'.")
 
     def update_account_dropdown(self):
         self.populate_accounts_checklist()
@@ -6086,7 +5630,7 @@ class FBAutoBotMainWindow(QMainWindow):
         elif self.ai_base_desc_input.toPlainText().strip():
             self.desc_input.setPlainText(self.ai_base_desc_input.toPlainText().strip())
 
-        self.switch_tab(3)
+        self.switch_tab(2)
         self.log_message("SUCCESS", "Applied generated AI title & description to Automation tab!")
 
     # --------------------------------------------------------------------------

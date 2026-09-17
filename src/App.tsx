@@ -25,7 +25,10 @@ import {
   ExternalLink,
   Zap,
   Cloud,
-  Key
+  Key,
+  Smartphone,
+  Monitor,
+  RotateCw
 } from 'lucide-react';
 import { browserBotCodeSnippet, appPyCodeSnippet, imageProcessorSnippet, sessionManagerSnippet, aiSpinnerSnippet, requirementsSnippet, landingPageSnippet, installerSetupSnippet, buildInstallerSnippet } from './data/codeSnippets';
 import AdminPanel from './components/AdminPanel';
@@ -41,6 +44,9 @@ export default function App() {
     }
     return 'landing-page';
   });
+
+  const [landingPreviewMode, setLandingPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
+  const [iframeKey, setIframeKey] = useState(0);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -1163,31 +1169,86 @@ export default function App() {
               </div>
             </div>
 
-            {/* Live Interactive Iframe Frame */}
+            {/* Live Interactive Iframe Frame with Device Switcher */}
             <div className="rounded-2xl border border-slate-700/80 bg-slate-950 overflow-hidden shadow-2xl">
               {/* Browser bar */}
-              <div className="h-10 bg-slate-900/90 px-4 flex items-center justify-between border-b border-slate-800">
+              <div className="h-11 bg-slate-900/90 px-4 flex flex-wrap items-center justify-between border-b border-slate-800 gap-2">
                 <div className="flex items-center space-x-2">
                   <span className="w-3 h-3 rounded-full bg-rose-500/80"></span>
                   <span className="w-3 h-3 rounded-full bg-amber-500/80"></span>
                   <span className="w-3 h-3 rounded-full bg-emerald-500/80"></span>
-                  <div className="ml-3 flex items-center space-x-2 bg-slate-950 px-3 py-1 rounded-md border border-slate-800 text-[11px] font-mono text-slate-400 w-80 truncate">
+                  <div className="ml-3 flex items-center space-x-2 bg-slate-950 px-3 py-1 rounded-md border border-slate-800 text-[11px] font-mono text-slate-400 w-56 sm:w-72 truncate">
                     <Globe className="h-3 w-3 text-indigo-400 shrink-0" />
                     <span>https://fbverse.pages.dev</span>
                   </div>
                 </div>
-                <div className="flex items-center space-x-3 text-[11px] font-mono text-emerald-400">
-                  <span>HTML5 • TAILWIND CDN • ZERO DEPENDENCIES</span>
+
+                {/* Viewport Mode Switcher (Desktop PC vs Real Mobile) */}
+                <div className="flex items-center space-x-2">
+                  <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800">
+                    <button
+                      onClick={() => setLandingPreviewMode('desktop')}
+                      className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                        landingPreviewMode === 'desktop'
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Monitor className="h-3.5 w-3.5" />
+                      <span>PC Preview</span>
+                    </button>
+                    <button
+                      onClick={() => setLandingPreviewMode('mobile')}
+                      className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                        landingPreviewMode === 'mobile'
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <Smartphone className="h-3.5 w-3.5" />
+                      <span>Mobile Preview (390px)</span>
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => setIframeKey(k => k + 1)}
+                    title="Reload Preview Frame"
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all"
+                  >
+                    <RotateCw className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               </div>
 
-              {/* Embedded Iframe */}
-              <div className="w-full h-[700px] bg-[#0b0f19]">
-                <iframe
-                  src="/landing.html"
-                  title="FB Auto Bot Landing Page Preview"
-                  className="w-full h-full border-0"
-                />
+              {/* Embedded Iframe - Adaptive Viewport */}
+              <div className={`w-full bg-[#070b14] flex items-center justify-center transition-all ${
+                landingPreviewMode === 'mobile' ? 'py-8 px-4 bg-slate-950/80' : ''
+              }`}>
+                {landingPreviewMode === 'mobile' ? (
+                  <div className="w-[392px] max-w-full rounded-[44px] bg-slate-900 border-4 border-slate-700 shadow-2xl overflow-hidden p-2.5 relative">
+                    {/* Simulated Smartphone Speaker Notch */}
+                    <div className="w-28 h-4 bg-slate-800 rounded-full mx-auto mb-2 flex items-center justify-center">
+                      <div className="w-3 h-3 rounded-full bg-slate-900"></div>
+                    </div>
+                    <div className="w-full h-[690px] rounded-[32px] overflow-hidden bg-[#060911] border border-slate-800">
+                      <iframe
+                        key={`mobile-${iframeKey}`}
+                        src="/landing.html"
+                        title="FB Auto Bot Mobile Viewport Preview"
+                        className="w-full h-full border-0"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="w-full h-[720px] bg-[#060911]">
+                    <iframe
+                      key={`desktop-${iframeKey}`}
+                      src="/landing.html"
+                      title="FB Auto Bot Desktop Preview"
+                      className="w-full h-full border-0"
+                    />
+                  </div>
+                )}
               </div>
             </div>
 
