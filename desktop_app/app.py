@@ -2794,12 +2794,30 @@ class FBAutoBotMainWindow(QMainWindow):
         extract_btn.setToolTip("Open a stealth browser window to log in manually and auto-capture session cookies.")
         extract_btn.clicked.connect(self.extract_cookies_for_form)
         cookie_header_layout.addWidget(extract_btn)
+
+        btn_cookie_add = QPushButton("➕ Add Account")
+        btn_cookie_add.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: 800; font-size: 11px; padding: 5px 12px; border-radius: 6px;")
+        btn_cookie_add.setCursor(Qt.PointingHandCursor)
+        btn_cookie_add.setToolTip("Saves account credentials/cookies and resets form for next account.")
+        btn_cookie_add.clicked.connect(self.save_account)
+        cookie_header_layout.addWidget(btn_cookie_add)
+
         cookie_layout.addLayout(cookie_header_layout)
 
         self.acc_cookies_input = QTextEdit()
         self.acc_cookies_input.setPlaceholderText('Paste JSON cookie array or raw string (c_user=...; xs=...)...')
         self.acc_cookies_input.setFixedHeight(85)
         cookie_layout.addWidget(self.acc_cookies_input)
+
+        cookie_action_row = QHBoxLayout()
+        quick_add_btn = QPushButton("➕ Add Account Now")
+        quick_add_btn.setStyleSheet("background-color: #10b981; color: #ffffff; font-weight: 800; font-size: 12px; padding: 7px 16px; border-radius: 6px;")
+        quick_add_btn.setCursor(Qt.PointingHandCursor)
+        quick_add_btn.setToolTip("Saves cookies immediately and adds account to table")
+        quick_add_btn.clicked.connect(self.save_account)
+        cookie_action_row.addWidget(quick_add_btn)
+        cookie_action_row.addStretch()
+        cookie_layout.addLayout(cookie_action_row)
 
         self.single_auth_stack.addWidget(cookie_page) # Index 1
 
@@ -3141,9 +3159,22 @@ class FBAutoBotMainWindow(QMainWindow):
                 name = acc.get("name", "Account")
                 uid_or_email = acc.get("uid") or acc.get("email") or ""
                 if not uid_or_email:
-                    c_match = re.search(r'c_user[":=]+(\d+)', acc.get("cookies", ""))
+                    c_match = re.search(r'c_user[":=\s]+(\d+)', str(acc.get("cookies", "")))
                     if c_match:
                         uid_or_email = c_match.group(1)
+                    else:
+                        # Attempt JSON array parsing
+                        try:
+                            cks = acc.get("cookies", "")
+                            if str(cks).strip().startswith("["):
+                                cdata = json.loads(cks)
+                                if isinstance(cdata, list):
+                                    for ci in cdata:
+                                        if isinstance(ci, dict) and ci.get("name") == "c_user":
+                                            uid_or_email = str(ci.get("value", ""))
+                                            break
+                        except Exception:
+                            pass
 
                 auth_mode = "🔑 UID+Pass" if (acc.get("password") or (acc.get("uid") and not acc.get("cookies"))) else "🍪 Cookie"
                 status = acc.get("status", "Healthy")
@@ -3491,11 +3522,16 @@ class FBAutoBotMainWindow(QMainWindow):
                 QMessageBox.warning(self, "Validation Notice", "Please provide either Facebook UID & Password OR Session Cookies.")
                 return
 
+            if not uid and cookies:
+                c_match = re.search(r'c_user[":=\s]+(\d+)', cookies)
+                if c_match:
+                    uid = c_match.group(1)
+
             if not name:
                 if uid:
                     name = f"FB_{uid}"
                 elif cookies:
-                    c_match = re.search(r'c_user[":=]+(\d+)', cookies)
+                    c_match = re.search(r'c_user[":=\s]+(\d+)', cookies)
                     name = f"FB_{c_match.group(1)}" if c_match else f"FB_Account_{datetime.now().strftime('%M%S')}"
                 else:
                     name = f"FB_Account_{datetime.now().strftime('%M%S')}"
@@ -3855,6 +3891,13 @@ class FBAutoBotMainWindow(QMainWindow):
         ab_header.addWidget(QLabel("👥 Target Facebook Accounts:"))
         ab_header.addStretch()
 
+        self.btn_refresh_acc = QPushButton("🔄 Refresh")
+        self.btn_refresh_acc.setStyleSheet("background-color: #059669; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
+        self.btn_refresh_acc.setCursor(Qt.PointingHandCursor)
+        self.btn_refresh_acc.setToolTip("Reload active accounts from Account Manager")
+        self.btn_refresh_acc.clicked.connect(self.reload_accounts_from_manager)
+        ab_header.addWidget(self.btn_refresh_acc)
+
         self.btn_select_all_acc = QPushButton("⚡ Select All")
         self.btn_select_all_acc.setStyleSheet("background-color: #3b82f6; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
         self.btn_select_all_acc.setCursor(Qt.PointingHandCursor)
@@ -3946,8 +3989,19 @@ class FBAutoBotMainWindow(QMainWindow):
         top_split_row.addWidget(img_box, stretch=1)
         f_layout.addLayout(top_split_row)
 
-        # Row 2: Category, Title & Multi-Tab Configuration
+        # Row 2: Listing Type, Category, Title & Multi-Tab Configuration
         row2 = QHBoxLayout()
+
+        col_ltype = QVBoxLayout()
+        col_ltype.addWidget(QLabel("Listing Type / Option:"))
+        self.listing_type_select = QComboBox()
+        self.listing_type_select.addItems([
+            "Item for sale",
+            "Vehicle for sale",
+            "Property for sale or rent"
+        ])
+        col_ltype.addWidget(self.listing_type_select)
+        row2.addLayout(col_ltype, stretch=2)
         
         col_tabs = QVBoxLayout()
         col_tabs.addWidget(QLabel("📑 Tabs / Posts per ID:"))
@@ -4034,8 +4088,28 @@ class FBAutoBotMainWindow(QMainWindow):
         self.populate_accounts_checklist()
         return page
 
+    def get_active_accounts(self) -> List[dict]:
+        """Returns only accounts that are in Active or Healthy or Ready state for posting operations."""
+        if not hasattr(self, 'accounts_list') or not self.accounts_list:
+            return []
+        active = []
+        for acc in self.accounts_list:
+            st = (acc.get("status") or "").strip()
+            if st in ("Needs Login", "Checkpoint", "Deactivated", "Banned", "Disabled", "Expired"):
+                continue
+            active.append(acc)
+        return active
+
+    def reload_accounts_from_manager(self):
+        """Reloads accounts directly from session manager and refreshes all active account lists in job forms."""
+        if hasattr(self, 'session_manager') and self.session_manager:
+            self.accounts_list = self.session_manager.list_accounts()
+        self.refresh_accounts_table()
+        self.update_account_dropdown()
+        self.log_message("INFO", "🔄 Account list refreshed! Only Active accounts are displayed in posting forms.")
+
     def populate_accounts_checklist(self):
-        """Populates the multi-account checkbox list with styled account items."""
+        """Populates the multi-account checkbox list with styled active account items."""
         if not hasattr(self, 'acc_checklist_layout'):
             return
 
@@ -4046,26 +4120,25 @@ class FBAutoBotMainWindow(QMainWindow):
                 item.widget().deleteLater()
 
         self.acc_checkboxes = []
+        active_accounts = self.get_active_accounts()
 
-        if not self.accounts_list:
-            lbl = QLabel("No Facebook accounts configured yet. Add them in 'Accounts Manager'.")
+        if not active_accounts:
+            lbl = QLabel("⚠️ No Active Facebook accounts available. (Add or log in accounts in Accounts Manager)")
             lbl.setStyleSheet("color: #94a3b8; font-style: italic; font-size: 11px;")
             self.acc_checklist_layout.addWidget(lbl)
             self.update_account_selection_summary()
             return
 
-        for acc in self.accounts_list:
+        for acc in active_accounts:
             name = acc.get("name", "Account")
             status = acc.get("status", "Healthy")
             proxy = acc.get("proxy", "Direct")
-            acc_id = acc.get("id", name)
 
-            icon = "🟢" if status in ("Healthy", "Active") else ("🟡" if status == "Checkpoint" else "🔴")
+            icon = "🟢" if status in ("Healthy", "Active", "Ready", "Logged in") else "🟡"
             chk = QCheckBox(f"{icon} {name}  [{status}]  •  Proxy: {proxy}")
             chk.setStyleSheet("font-size: 12px; color: #f8fafc; padding: 2px 0;")
             chk.setProperty("account_data", acc)
-            # Default check healthy accounts
-            chk.setChecked(status in ("Healthy", "Active"))
+            chk.setChecked(True)
             chk.stateChanged.connect(self.update_account_selection_summary)
 
             self.acc_checklist_layout.addWidget(chk)
@@ -4111,15 +4184,16 @@ class FBAutoBotMainWindow(QMainWindow):
         self.refresh_project_accounts_checklist()
         if hasattr(self, 'target_acc_select'):
             self.target_acc_select.clear()
-            if not self.accounts_list:
-                self.target_acc_select.addItem("No accounts configured (Add in Accounts tab)")
+            active_accounts = self.get_active_accounts()
+            if not active_accounts:
+                self.target_acc_select.addItem("No active accounts configured (Add in Accounts tab)")
                 return
 
-            for acc in self.accounts_list:
+            for acc in active_accounts:
                 status = acc.get("status", "Healthy")
                 proxy = acc.get("proxy", "Direct")
                 name = acc.get("name", "Account")
-                icon = "🟢" if status in ("Healthy", "Active") else ("🟡" if status == "Checkpoint" else "🔴")
+                icon = "🟢" if status in ("Healthy", "Active") else "🟡"
                 self.target_acc_select.addItem(f"{icon} {name} [{status}] ({proxy})")
 
     # --------------------------------------------------------------------------
@@ -4562,6 +4636,13 @@ class FBAutoBotMainWindow(QMainWindow):
         ab_header.addWidget(QLabel("👥 Target Facebook Accounts (Queue):"))
         ab_header.addStretch()
 
+        btn_proj_refresh_acc = QPushButton("🔄 Refresh")
+        btn_proj_refresh_acc.setStyleSheet("background-color: #059669; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
+        btn_proj_refresh_acc.setCursor(Qt.PointingHandCursor)
+        btn_proj_refresh_acc.setToolTip("Reload active accounts from Account Manager")
+        btn_proj_refresh_acc.clicked.connect(self.reload_accounts_from_manager)
+        ab_header.addWidget(btn_proj_refresh_acc)
+
         btn_sel_all = QPushButton("⚡ Select All")
         btn_sel_all.setStyleSheet("background-color: #3b82f6; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
         btn_sel_all.setCursor(Qt.PointingHandCursor)
@@ -4647,7 +4728,7 @@ class FBAutoBotMainWindow(QMainWindow):
         f_layout = QVBoxLayout(form_card)
         f_layout.setSpacing(12)
 
-        # Row 1: Tab Name & Category
+        # Row 1: Tab Name, Listing Type & Category
         r1 = QHBoxLayout()
         col_tname = QVBoxLayout()
         col_tname.addWidget(QLabel("Tab Identifier / Name:"))
@@ -4655,6 +4736,17 @@ class FBAutoBotMainWindow(QMainWindow):
         self.proj_tab_name_input.setPlaceholderText("e.g. Tab 1 - Smartphone Promo")
         col_tname.addWidget(self.proj_tab_name_input)
         r1.addLayout(col_tname, stretch=2)
+
+        col_ltype = QVBoxLayout()
+        col_ltype.addWidget(QLabel("Listing Type / Option:"))
+        self.proj_listing_type_select = QComboBox()
+        self.proj_listing_type_select.addItems([
+            "Item for sale",
+            "Vehicle for sale",
+            "Property for sale or rent"
+        ])
+        col_ltype.addWidget(self.proj_listing_type_select)
+        r1.addLayout(col_ltype, stretch=2)
 
         col_cat = QVBoxLayout()
         col_cat.addWidget(QLabel("Marketplace Category:"))
@@ -4788,6 +4880,11 @@ class FBAutoBotMainWindow(QMainWindow):
         tdata = tabs[tab_index]
         self.proj_tab_name_input.setText(tdata.get("tab_name", f"Tab {tab_index+1}"))
 
+        ltype = tdata.get("listing_type", "Item for sale")
+        idx_ltype = self.proj_listing_type_select.findText(ltype)
+        if idx_ltype >= 0:
+            self.proj_listing_type_select.setCurrentIndex(idx_ltype)
+
         cat = tdata.get("category", "Household")
         idx = self.proj_category_select.findText(cat)
         if idx >= 0:
@@ -4823,6 +4920,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         tdata = {
             "tab_name": self.proj_tab_name_input.text().strip() or f"Tab {self.current_editing_tab_index+1}",
+            "listing_type": self.proj_listing_type_select.currentText(),
             "category": self.proj_category_select.currentText(),
             "title": self.proj_title_input.text().strip(),
             "price": self.proj_price_input.text().strip() or "0",
@@ -4945,17 +5043,20 @@ class FBAutoBotMainWindow(QMainWindow):
                 item.widget().deleteLater()
 
         self.proj_acc_checkboxes = []
-        if not self.accounts_list:
-            lbl = QLabel("⚠️ No Facebook accounts saved yet. Please add accounts in Accounts Manager.")
+        active_accounts = self.get_active_accounts()
+
+        if not active_accounts:
+            lbl = QLabel("⚠️ No Active Facebook accounts available. (Add or log in accounts in Accounts Manager)")
             lbl.setStyleSheet("color: #f59e0b; font-size: 11px;")
             self.proj_acc_checklist_layout.addWidget(lbl)
             return
 
-        for acc in self.accounts_list:
+        for acc in active_accounts:
             name = acc.get("name", "Account")
-            cookies = acc.get("cookies", "")
+            status = acc.get("status", "Healthy")
             proxy = acc.get("proxy", "Direct")
-            chk = QCheckBox(f"{name} (Proxy: {proxy})")
+            icon = "🟢" if status in ("Healthy", "Active", "Ready", "Logged in") else "🟡"
+            chk = QCheckBox(f"{icon} {name} [{status}] (Proxy: {proxy})")
             chk.setChecked(True)
             chk.setProperty("account_data", acc)
             chk.setStyleSheet("font-size: 12px; font-weight: 600; color: #f1f5f9;")
@@ -5169,6 +5270,7 @@ class FBAutoBotMainWindow(QMainWindow):
         payload = {
             "title": title,
             "price": price or "0",
+            "listing_type": self.listing_type_select.currentText(),
             "category": self.category_select.currentText(),
             "id_location": self.id_location_input.text().strip() if hasattr(self, 'id_location_input') else "",
             "location": self.location_input.toPlainText().strip() or "Local Radius",
@@ -5262,6 +5364,13 @@ class FBAutoBotMainWindow(QMainWindow):
         grp_acc_hdr = QHBoxLayout()
         grp_acc_hdr.addWidget(QLabel("👥 Target Accounts for Group Operations:"))
         grp_acc_hdr.addStretch()
+
+        self.btn_grp_refresh_acc = QPushButton("🔄 Refresh")
+        self.btn_grp_refresh_acc.setStyleSheet("background-color: #059669; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
+        self.btn_grp_refresh_acc.setCursor(Qt.PointingHandCursor)
+        self.btn_grp_refresh_acc.setToolTip("Reload active accounts from Account Manager")
+        self.btn_grp_refresh_acc.clicked.connect(self.reload_accounts_from_manager)
+        grp_acc_hdr.addWidget(self.btn_grp_refresh_acc)
 
         self.btn_grp_select_all = QPushButton("⚡ Select All")
         self.btn_grp_select_all.setStyleSheet("background-color: #3b82f6; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
@@ -5509,7 +5618,7 @@ class FBAutoBotMainWindow(QMainWindow):
         return page
 
     def populate_group_accounts_checklist(self):
-        """Populates the multi-account checkbox list for FB Group operations."""
+        """Populates the multi-account checkbox list for FB Group operations with active accounts."""
         if not hasattr(self, 'grp_acc_layout'):
             return
 
@@ -5519,24 +5628,25 @@ class FBAutoBotMainWindow(QMainWindow):
                 item.widget().deleteLater()
 
         self.grp_acc_checkboxes = []
+        active_accounts = self.get_active_accounts()
 
-        if not self.accounts_list:
-            lbl = QLabel("No Facebook accounts configured yet. Add them in 'Accounts Manager'.")
+        if not active_accounts:
+            lbl = QLabel("⚠️ No Active Facebook accounts available. (Add or log in accounts in Accounts Manager)")
             lbl.setStyleSheet("color: #94a3b8; font-style: italic; font-size: 11px;")
             self.grp_acc_layout.addWidget(lbl)
             self.update_group_account_selection_summary()
             return
 
-        for acc in self.accounts_list:
+        for acc in active_accounts:
             name = acc.get("name", "Account")
             status = acc.get("status", "Healthy")
             proxy = acc.get("proxy", "Direct")
-            icon = "🟢" if status in ("Healthy", "Active") else ("🟡" if status == "Checkpoint" else "🔴")
+            icon = "🟢" if status in ("Healthy", "Active", "Ready", "Logged in") else "🟡"
 
             chk = QCheckBox(f"{icon} {name}  [{status}]  •  Proxy: {proxy}")
             chk.setStyleSheet("font-size: 12px; color: #f8fafc; padding: 2px 0;")
             chk.setProperty("account_data", acc)
-            chk.setChecked(status in ("Healthy", "Active"))
+            chk.setChecked(True)
             chk.stateChanged.connect(self.update_group_account_selection_summary)
 
             self.grp_acc_layout.addWidget(chk)

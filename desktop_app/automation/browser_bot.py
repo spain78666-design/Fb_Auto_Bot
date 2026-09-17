@@ -998,44 +998,78 @@ class FacebookMarketplaceBot:
         success_count = 0
         self.log("INFO", f"📁 STEP-BY-STEP PARALLEL AUTOMATION: Processing all {tabs_count} tab(s) simultaneously...")
 
-        # Step 5a: Location Selection (Target Location / City First)
-        self.log("INFO", f"📍 Setting Target Locations simultaneously across all {tabs_count} tabs...")
-        async def _set_loc_task(i, p, payload):
-            loc = payload.get("location", "")
-            if loc:
-                self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Typing location '{loc}'")
-                await self._set_location_field(p, loc)
-        await asyncio.gather(*[_set_loc_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))])
-        await self.sleep(1.0)
+        # Step 5a: Upload Product Images first across all tabs
+        self.log("INFO", f"🖼️ Uploading product photos simultaneously across all {tabs_count} tabs...")
+        async def _upload_photos_task(i, p, payload):
+            try:
+                images = payload.get("images", [])
+                if images:
+                    valid_images = [os.path.abspath(img) for img in images if os.path.exists(img)]
+                    if valid_images:
+                        upload_files = valid_images
+                        anti_dup_shield = payload.get("anti_dup_shield", True) or payload.get("anti_dup_rotate", True)
+                        
+                        if anti_dup_shield and IMAGE_PROCESSOR_AVAILABLE:
+                            try:
+                                cfg = AntiDuplicateConfig(
+                                    strip_exif=payload.get("wipe_exif", True),
+                                    min_rotation=-0.5 if payload.get("anti_dup_rotate", True) else 0.0,
+                                    max_rotation=0.5 if payload.get("anti_dup_rotate", True) else 0.0,
+                                    contrast_jitter=0.02 if payload.get("anti_dup_noise", True) else 0.0,
+                                    brightness_jitter=0.02 if payload.get("anti_dup_noise", True) else 0.0
+                                )
+                                processor = AntiDuplicateImageProcessor(config=cfg)
+                                upload_files = processor.process_batch(valid_images, log_callback=self.log)
+                            except Exception as img_err:
+                                upload_files = valid_images
+                        self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Uploading {len(upload_files)} photo(s)")
+                        await self._upload_photos_to_page(p, upload_files)
+            except Exception as e:
+                self.log("WARNING", f"Tab [{i+1}] Photo upload notice: {str(e)}")
 
-        # Step 5b: Product Title (Targeting ONLY Title Input)
+        await asyncio.gather(*[_upload_photos_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
+        await self.sleep(1.5)
+
+        # Step 5b: Product Title
         self.log("INFO", f"✍️ Typing Titles simultaneously across all {tabs_count} tabs...")
         async def _set_title_task(i, p, payload):
-            title = payload.get("title", "")
-            if title:
-                self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Typing title '{title[:25]}...'")
-                await self._set_title_field(p, title)
-        await asyncio.gather(*[_set_title_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))])
-        await self.sleep(1.0)
+            try:
+                title = payload.get("title", "")
+                if title:
+                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Typing title '{title[:25]}...'")
+                    await self._set_title_field(p, title)
+            except Exception as e:
+                self.log("WARNING", f"Tab [{i+1}] Title notice: {str(e)}")
 
-        # Step 5c: Category Selection (Household, Appliances, Auto Parts, etc.)
-        self.log("INFO", f"🏷️ Selecting Categories simultaneously across all {tabs_count} tabs...")
-        async def _set_cat_task(i, p, payload):
-            cat = payload.get("category", "Household")
-            if cat:
-                self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Selecting category '{cat}'")
-                await self._set_category_field(p, cat)
-        await asyncio.gather(*[_set_cat_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))])
-        await self.sleep(1.0)
+        await asyncio.gather(*[_set_title_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
+        await self.sleep(0.8)
 
-        # Step 5d: Product Price (Targeting ONLY Price Input)
+        # Step 5c: Product Price
         self.log("INFO", f"💲 Setting Prices simultaneously across all {tabs_count} tabs...")
         async def _set_price_task(i, p, payload):
-            price = payload.get("price", "0")
-            clean_price = re.sub(r'[^0-9.]', '', str(price)) or "0"
-            self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Setting price ${clean_price}")
-            await self._set_price_field(p, clean_price)
-        await asyncio.gather(*[_set_price_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))])
+            try:
+                price = payload.get("price", "0")
+                clean_price = re.sub(r'[^0-9.]', '', str(price)) or "0"
+                self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Setting price ${clean_price}")
+                await self._set_price_field(p, clean_price)
+            except Exception as e:
+                self.log("WARNING", f"Tab [{i+1}] Price notice: {str(e)}")
+
+        await asyncio.gather(*[_set_price_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
+        await self.sleep(0.8)
+
+        # Step 5d: Category Selection
+        self.log("INFO", f"🏷️ Selecting Categories simultaneously across all {tabs_count} tabs...")
+        async def _set_cat_task(i, p, payload):
+            try:
+                cat = payload.get("category", "Household")
+                if cat:
+                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Selecting category '{cat}'")
+                    await self._set_category_field(p, cat)
+            except Exception as e:
+                self.log("WARNING", f"Tab [{i+1}] Category notice: {str(e)}")
+
+        await asyncio.gather(*[_set_cat_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
         await self.sleep(0.8)
 
         # Step 5e: Condition Selection ("New")
@@ -1045,52 +1079,47 @@ class FacebookMarketplaceBot:
                 await self._set_condition_field(p, "New")
             except Exception as cond_err:
                 self.log("WARNING", f"Tab [{i+1}] Condition notice: {str(cond_err)[:40]}")
-        await asyncio.gather(*[_set_cond_task(i, tabs[i]) for i in range(len(tabs))])
+
+        await asyncio.gather(*[_set_cond_task(i, tabs[i]) for i in range(len(tabs))], return_exceptions=True)
         await self.sleep(0.8)
 
-        # Step 5f: Description (Targeting ONLY Description Textarea)
+        # Step 5f: Description
         self.log("INFO", f"📝 Filling Descriptions simultaneously across all {tabs_count} tabs...")
         async def _set_desc_task(i, p, payload):
-            description = payload.get("description", "")
-            if description:
-                self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Typing description ({len(description)} chars)")
-                await self._set_description_field(p, description)
-        await asyncio.gather(*[_set_desc_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))])
-        await self.sleep(1.0)
+            try:
+                description = payload.get("description", "")
+                if description:
+                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Typing description ({len(description)} chars)")
+                    await self._set_description_field(p, description)
+            except Exception as e:
+                self.log("WARNING", f"Tab [{i+1}] Description notice: {str(e)}")
 
-        # Step 5g: Upload Product Images (Randomized Image from Pool)
-        self.log("INFO", f"🖼️ Uploading product photos simultaneously across all {tabs_count} tabs...")
-        async def _upload_photos_task(i, p, payload):
-            images = payload.get("images", [])
-            if images:
-                valid_images = [os.path.abspath(img) for img in images if os.path.exists(img)]
-                if valid_images:
-                    upload_files = valid_images
-                    anti_dup_shield = payload.get("anti_dup_shield", True) or payload.get("anti_dup_rotate", True)
-                    
-                    if anti_dup_shield and IMAGE_PROCESSOR_AVAILABLE:
-                        try:
-                            cfg = AntiDuplicateConfig(
-                                strip_exif=payload.get("wipe_exif", True),
-                                min_rotation=-0.5 if payload.get("anti_dup_rotate", True) else 0.0,
-                                max_rotation=0.5 if payload.get("anti_dup_rotate", True) else 0.0,
-                                contrast_jitter=0.02 if payload.get("anti_dup_noise", True) else 0.0,
-                                brightness_jitter=0.02 if payload.get("anti_dup_noise", True) else 0.0
-                            )
-                            processor = AntiDuplicateImageProcessor(config=cfg)
-                            upload_files = processor.process_batch(valid_images, log_callback=self.log)
-                        except Exception as img_err:
-                            upload_files = valid_images
-                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Uploading {len(upload_files)} photo(s)")
-                    await self._upload_photos_to_page(p, upload_files)
-        await asyncio.gather(*[_upload_photos_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))])
-        await self.sleep(2.0)
+        await asyncio.gather(*[_set_desc_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
+        await self.sleep(0.8)
+
+        # Step 5g: Location Selection
+        self.log("INFO", f"📍 Setting Target Locations simultaneously across all {tabs_count} tabs...")
+        async def _set_loc_task(i, p, payload):
+            try:
+                loc = payload.get("location", "")
+                if loc and loc != "Local Radius":
+                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Typing location '{loc}'")
+                    await self._set_location_field(p, loc)
+            except Exception as e:
+                self.log("WARNING", f"Tab [{i+1}] Location notice: {str(e)}")
+
+        await asyncio.gather(*[_set_loc_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
+        await self.sleep(1.0)
 
         # Step 5h: Advance through "Next" Step
         self.log("INFO", f"➡️ Clicking 'Next' simultaneously across all {tabs_count} tabs...")
         async def _next_task(i, p):
-            await self._click_button_with_text(p, ["Next", "اگلا"])
-        await asyncio.gather(*[_next_task(i, tabs[i]) for i in range(len(tabs))])
+            try:
+                await self._click_button_with_text(p, ["Next", "اگلا"])
+            except Exception as e:
+                self.log("WARNING", f"Tab [{i+1}] Next notice: {str(e)}")
+
+        await asyncio.gather(*[_next_task(i, tabs[i]) for i in range(len(tabs))], return_exceptions=True)
         await self.sleep(2.0)
 
         # Step 5i: 1 second pause before publishing all tabs simultaneously!
@@ -1098,16 +1127,20 @@ class FacebookMarketplaceBot:
             self.log("INFO", f"==================================================")
             self.log("INFO", f"🔥 ALL {len(tabs)} TABS ARE FULLY PREPARED ON THE PUBLISH SCREEN!")
             self.log("INFO", f"⏸️ Pausing exactly 1 second before clicking Publish for organic human realism...")
-            await asyncio.sleep(1.0) # Exact 1 second pause as requested!
+            await asyncio.sleep(1.0)
 
             self.log("INFO", f"🚀 CLICKING 'PUBLISH' BUTTON SIMULTANEOUSLY ACROSS ALL {len(tabs)} TABS...")
             async def publish_tab_simultaneously(t_idx, page_obj, p_load):
-                return await self.publish_marketplace_listing_on_page(page_obj, p_load)
+                try:
+                    return await self.publish_marketplace_listing_on_page(page_obj, p_load)
+                except Exception as ex:
+                    self.log("WARNING", f"Tab [{t_idx}] Publish notice: {str(ex)}")
+                    return False
 
             pub_results = await asyncio.gather(*[
                 publish_tab_simultaneously(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))
-            ])
-            success_count = sum(1 for r in pub_results if r)
+            ], return_exceptions=True)
+            success_count = sum(1 for r in pub_results if r is True)
             self.set_progress(100)
             self.log("SUCCESS", f"🎉 PARALLEL BATCH COMPLETE: {success_count}/{tabs_count} tabs published simultaneously in parallel!")
             return success_count
@@ -1190,37 +1223,68 @@ class FacebookMarketplaceBot:
         self.log("INFO", "Marketplace item creation interface loaded.")
 
         # ----------------------------------------------------------------------
-        # 1. Location Selection (Target Location / City First)
+        # 1. Upload Product Images First
         # ----------------------------------------------------------------------
-        if location:
-            self.log("INFO", f"📍 Setting Target Location / City: '{location}'...")
-            await self._set_location_field(page, location)
-            await self.sleep(random.uniform(0.6, 1.2))
+        if images:
+            try:
+                valid_images = [os.path.abspath(img) for img in images if os.path.exists(img)]
+                if valid_images:
+                    upload_files = valid_images
+                    anti_dup_shield = payload.get("anti_dup_shield", True) or payload.get("anti_dup_rotate", True)
+                    
+                    if anti_dup_shield and IMAGE_PROCESSOR_AVAILABLE:
+                        try:
+                            cfg = AntiDuplicateConfig(
+                                strip_exif=payload.get("wipe_exif", True),
+                                min_rotation=-0.5 if payload.get("anti_dup_rotate", True) else 0.0,
+                                max_rotation=0.5 if payload.get("anti_dup_rotate", True) else 0.0,
+                                contrast_jitter=0.02 if payload.get("anti_dup_noise", True) else 0.0,
+                                brightness_jitter=0.02 if payload.get("anti_dup_noise", True) else 0.0
+                            )
+                            processor = AntiDuplicateImageProcessor(config=cfg)
+                            upload_files = processor.process_batch(valid_images, log_callback=self.log)
+                        except Exception as img_err:
+                            upload_files = valid_images
+
+                    self.log("INFO", f"🖼️ Uploading {len(upload_files)} product photo(s)...")
+                    await self._upload_photos_to_page(page, upload_files)
+                    await self.sleep(random.uniform(2.0, 3.5))
+            except Exception as e:
+                self.log("WARNING", f"Photo upload notice: {str(e)}")
 
         # ----------------------------------------------------------------------
-        # 2. Product Title (Targeting ONLY Title Input)
+        # 2. Product Title
         # ----------------------------------------------------------------------
         if title:
-            self.log("INFO", f"✍️ Typing Title: '{title[:45]}...'")
-            await self._set_title_field(page, title)
-            await self.sleep(random.uniform(0.6, 1.2))
+            try:
+                self.log("INFO", f"✍️ Typing Title: '{title[:45]}...'")
+                await self._set_title_field(page, title)
+                await self.sleep(random.uniform(0.5, 1.0))
+            except Exception as e:
+                self.log("WARNING", f"Title entry notice: {str(e)}")
 
         # ----------------------------------------------------------------------
-        # 3. Category Selection (Household, Appliances, Auto Parts, etc.)
-        # ----------------------------------------------------------------------
-        if category:
-            self.log("INFO", f"🏷️ Selecting Category: '{category}'...")
-            await self._set_category_field(page, category)
-            await self.sleep(random.uniform(0.8, 1.4))
-
-        # ----------------------------------------------------------------------
-        # 4. Product Price (Targeting ONLY Price Input)
+        # 3. Product Price
         # ----------------------------------------------------------------------
         if price is not None:
-            clean_price = re.sub(r'[^0-9.]', '', str(price)) or "0"
-            self.log("INFO", f"💲 Setting Price: ${clean_price}")
-            await self._set_price_field(page, clean_price)
-            await self.sleep(random.uniform(0.5, 1.0))
+            try:
+                clean_price = re.sub(r'[^0-9.]', '', str(price)) or "0"
+                self.log("INFO", f"💲 Setting Price: ${clean_price}")
+                await self._set_price_field(page, clean_price)
+                await self.sleep(random.uniform(0.5, 1.0))
+            except Exception as e:
+                self.log("WARNING", f"Price entry notice: {str(e)}")
+
+        # ----------------------------------------------------------------------
+        # 4. Category Selection
+        # ----------------------------------------------------------------------
+        if category:
+            try:
+                self.log("INFO", f"🏷️ Selecting Category: '{category}'...")
+                await self._set_category_field(page, category)
+                await self.sleep(random.uniform(0.6, 1.2))
+            except Exception as e:
+                self.log("WARNING", f"Category selection notice: {str(e)}")
 
         # ----------------------------------------------------------------------
         # 5. Condition Selection ("New")
@@ -1228,53 +1292,42 @@ class FacebookMarketplaceBot:
         try:
             self.log("INFO", "⚙️ Setting Item Condition to 'New'...")
             await self._set_condition_field(page, "New")
-            await self.sleep(random.uniform(0.5, 0.9))
+            await self.sleep(random.uniform(0.4, 0.8))
         except Exception as cond_err:
             self.log("WARNING", f"Condition selection notice: {str(cond_err)}")
 
         # ----------------------------------------------------------------------
-        # 6. Description (Targeting ONLY Description Textarea)
+        # 6. Description
         # ----------------------------------------------------------------------
         if description:
-            self.log("INFO", f"📝 Filling Description ({len(description)} chars)...")
-            await self._set_description_field(page, description)
-            await self.sleep(random.uniform(0.8, 1.5))
+            try:
+                self.log("INFO", f"📝 Filling Description ({len(description)} chars)...")
+                await self._set_description_field(page, description)
+                await self.sleep(random.uniform(0.6, 1.2))
+            except Exception as e:
+                self.log("WARNING", f"Description entry notice: {str(e)}")
 
         # ----------------------------------------------------------------------
-        # 7. Upload Product Images (Randomized Image from Pool)
+        # 7. Location Selection
         # ----------------------------------------------------------------------
-        if images:
-            valid_images = [os.path.abspath(img) for img in images if os.path.exists(img)]
-            if valid_images:
-                upload_files = valid_images
-                anti_dup_shield = payload.get("anti_dup_shield", True) or payload.get("anti_dup_rotate", True)
-                
-                if anti_dup_shield and IMAGE_PROCESSOR_AVAILABLE:
-                    try:
-                        cfg = AntiDuplicateConfig(
-                            strip_exif=payload.get("wipe_exif", True),
-                            min_rotation=-0.5 if payload.get("anti_dup_rotate", True) else 0.0,
-                            max_rotation=0.5 if payload.get("anti_dup_rotate", True) else 0.0,
-                            contrast_jitter=0.02 if payload.get("anti_dup_noise", True) else 0.0,
-                            brightness_jitter=0.02 if payload.get("anti_dup_noise", True) else 0.0
-                        )
-                        processor = AntiDuplicateImageProcessor(config=cfg)
-                        upload_files = processor.process_batch(valid_images, log_callback=self.log)
-                    except Exception as img_err:
-                        self.log("WARNING", f"Anti-duplicate alteration notice: {str(img_err)}; using original images.")
-                        upload_files = valid_images
-
-                self.log("INFO", f"🖼️ Uploading {len(upload_files)} product photo(s)...")
-                await self._upload_photos_to_page(page, upload_files)
-                await self.sleep(random.uniform(2.5, 4.0))
+        if location and location != "Local Radius":
+            try:
+                self.log("INFO", f"📍 Setting Target Location / City: '{location}'...")
+                await self._set_location_field(page, location)
+                await self.sleep(random.uniform(0.6, 1.2))
+            except Exception as e:
+                self.log("WARNING", f"Location entry notice: {str(e)}")
 
         # ----------------------------------------------------------------------
         # 8. Advance through "Next" Step
         # ----------------------------------------------------------------------
         self.log("INFO", "➡️ Clicking 'Next' button...")
-        clicked_next = await self._click_button_with_text(page, ["Next", "اگلا"])
-        if clicked_next:
-            await self.sleep(random.uniform(2.5, 4.0))
+        try:
+            clicked_next = await self._click_button_with_text(page, ["Next", "اگلا"])
+            if clicked_next:
+                await self.sleep(random.uniform(2.0, 3.5))
+        except Exception as e:
+            self.log("WARNING", f"Next button notice: {str(e)}")
 
         if skip_publish:
             self.log("SUCCESS", f"✅ Form details filled & Next screen reached for '{title[:30]}...'")
@@ -1342,147 +1395,20 @@ class FacebookMarketplaceBot:
         selectors = [
             'label[aria-label="Title"] input',
             'label[aria-label*="Title"] input',
+            'label[aria-label*="Title" i] input',
             'label[aria-label*="عنوان"] input',
             'input[aria-label="Title"]',
             'input[aria-label*="Title"]',
+            'input[aria-label*="Title" i]',
+            'input[aria-label*="عنوان"]',
             'input[name="title"]',
             'label:has-text("Title") input',
-            'label:has-text("What are you selling") input'
+            'label:has-text("What are you selling") input',
+            'div[aria-label="Title"] input',
+            'div[aria-label*="Title"] input'
         ]
         input_el = None
-        for sel in selectors:
-            try:
-                el = await page.query_selector(sel)
-                if el and await el.is_visible():
-                    input_el = el
-                    break
-            except Exception:
-                continue
-
-        # XPath fallback for nested spans
-        if not input_el:
-            try:
-                input_el = await page.query_selector('xpath=//label[contains(translate(@aria-label, "TITLE", "title"), "title")]//input')
-            except Exception:
-                pass
-
-        if not input_el:
-            raise ListingSubmissionError("Could not locate the Title input field on Facebook Marketplace.")
-
-        await input_el.scroll_into_view_if_needed()
-        await input_el.click()
-        await self.sleep(random.uniform(0.2, 0.4))
-        await page.keyboard.press("Control+A")
-        await page.keyboard.press("Backspace")
-        await self._human_type(page, text, min_delay=30, max_delay=65)
-
-    async def _set_price_field(self, page: Page, price_str: str):
-        """Specifically locates and types into the Facebook Marketplace Price input."""
-        selectors = [
-            'label[aria-label="Price"] input',
-            'label[aria-label*="Price"] input',
-            'label[aria-label*="قیمت"] input',
-            'input[aria-label="Price"]',
-            'input[aria-label*="Price"]',
-            'input[name="price"]',
-            'label:has-text("Price") input'
-        ]
-        input_el = None
-        for sel in selectors:
-            try:
-                el = await page.query_selector(sel)
-                if el and await el.is_visible():
-                    input_el = el
-                    break
-            except Exception:
-                continue
-
-        if not input_el:
-            try:
-                input_el = await page.query_selector('xpath=//label[contains(translate(@aria-label, "PRICE", "price"), "price")]//input')
-            except Exception:
-                pass
-
-        if not input_el:
-            raise ListingSubmissionError("Could not locate the Price input field on Facebook Marketplace.")
-
-        await input_el.scroll_into_view_if_needed()
-        await input_el.click()
-        await self.sleep(random.uniform(0.2, 0.4))
-        await page.keyboard.press("Control+A")
-        await page.keyboard.press("Backspace")
-        await self._human_type(page, price_str, min_delay=35, max_delay=75)
-
-    async def _set_description_field(self, page: Page, text: str):
-        """Specifically locates and types into the Facebook Marketplace Description textarea."""
-        selectors = [
-            'label[aria-label="Description"] textarea',
-            'label[aria-label*="Description"] textarea',
-            'label[aria-label*="تفصیل"] textarea',
-            'textarea[aria-label="Description"]',
-            'textarea[aria-label*="Description"]',
-            'textarea[name="description"]',
-            'label:has-text("Description") textarea',
-            'textarea'
-        ]
-        input_el = None
-        for sel in selectors:
-            try:
-                el = await page.query_selector(sel)
-                if el and await el.is_visible():
-                    input_el = el
-                    break
-            except Exception:
-                continue
-
-        if not input_el:
-            try:
-                input_el = await page.query_selector('xpath=//label[contains(translate(@aria-label, "DESCRIPTION", "description"), "description")]//textarea')
-            except Exception:
-                pass
-
-        if not input_el:
-            self.log("WARNING", "Description textarea not found directly; skipping description.")
-            return
-
-        await input_el.scroll_into_view_if_needed()
-        await input_el.click()
-        await self.sleep(random.uniform(0.2, 0.4))
-        await page.keyboard.press("Control+A")
-        await page.keyboard.press("Backspace")
-        await self._human_type(page, text, min_delay=20, max_delay=55)
-
-    async def _set_location_field(self, page: Page, location_str: str):
-        """Specifically sets geographic location / city with autocomplete resolution."""
-        selectors = [
-            'label[aria-label="Location"] input',
-            'label[aria-label*="Location"] input',
-            'input[aria-label="Location"]',
-            'input[aria-label*="Location"]',
-            'label[aria-label*="لوکیشن"] input',
-            'label:has-text("Location") input',
-            'label:has-text("City") input'
-        ]
-        input_el = None
-        for sel in selectors:
-            try:
-                el = await page.query_selector(sel)
-                if el and await el.is_visible():
-                    input_el = el
-                    break
-            except Exception:
-                continue
-
-        if not input_el:
-            try:
-                input_el = await page.query_selector('xpath=//label[contains(translate(@aria-label, "LOCATION", "location"), "location")]//input')
-            except Exception:
-                pass
-
-        if not input_el:
-            self.log("WARNING", "Location input not visible on initial viewport; attempting scroll...")
-            await page.evaluate("window.scrollBy(0, 400)")
-            await self.sleep(0.4)
+        for attempt in range(3):
             for sel in selectors:
                 try:
                     el = await page.query_selector(sel)
@@ -1491,20 +1417,186 @@ class FacebookMarketplaceBot:
                         break
                 except Exception:
                     continue
+            if input_el:
+                break
+            try:
+                input_el = await page.query_selector('xpath=//label[contains(translate(@aria-label, "TITLE", "title"), "title")]//input')
+                if input_el and await input_el.is_visible():
+                    break
+                input_el = None
+            except Exception:
+                pass
+            await page.evaluate("window.scrollBy(0, 150)")
+            await self.sleep(0.5)
 
-        if input_el:
+        if not input_el:
+            # Fallback search for visible text inputs on the form
+            try:
+                inputs = await page.query_selector_all('input[type="text"], input:not([type])')
+                for inp in inputs:
+                    if await inp.is_visible():
+                        aria = (await inp.get_attribute("aria-label")) or ""
+                        if "price" not in aria.lower() and "location" not in aria.lower() and "search" not in aria.lower():
+                            input_el = inp
+                            break
+            except Exception:
+                pass
+
+        if not input_el:
+            self.log("WARNING", "Could not locate Title input field directly.")
+            return
+
+        try:
+            await input_el.scroll_into_view_if_needed()
+            await input_el.click()
+            await self.sleep(random.uniform(0.2, 0.4))
+            await page.keyboard.press("Control+A")
+            await page.keyboard.press("Backspace")
+            await self._human_type(page, text, min_delay=30, max_delay=65)
+        except Exception as ex:
+            self.log("WARNING", f"Notice while typing title: {str(ex)}")
+
+    async def _set_price_field(self, page: Page, price_str: str):
+        """Specifically locates and types into the Facebook Marketplace Price input."""
+        selectors = [
+            'label[aria-label="Price"] input',
+            'label[aria-label*="Price"] input',
+            'label[aria-label*="Price" i] input',
+            'label[aria-label*="قیمت"] input',
+            'input[aria-label="Price"]',
+            'input[aria-label*="Price"]',
+            'input[aria-label*="Price" i]',
+            'input[aria-label*="قیمت"]',
+            'input[name="price"]',
+            'label:has-text("Price") input',
+            'div[aria-label="Price"] input',
+            'div[aria-label*="Price"] input'
+        ]
+        input_el = None
+        for attempt in range(3):
+            for sel in selectors:
+                try:
+                    el = await page.query_selector(sel)
+                    if el and await el.is_visible():
+                        input_el = el
+                        break
+                except Exception:
+                    continue
+            if input_el:
+                break
+            try:
+                input_el = await page.query_selector('xpath=//label[contains(translate(@aria-label, "PRICE", "price"), "price")]//input')
+                if input_el and await input_el.is_visible():
+                    break
+                input_el = None
+            except Exception:
+                pass
+            await page.evaluate("window.scrollBy(0, 150)")
+            await self.sleep(0.5)
+
+        if not input_el:
+            self.log("WARNING", "Could not locate Price input field directly.")
+            return
+
+        try:
+            await input_el.scroll_into_view_if_needed()
+            await input_el.click()
+            await self.sleep(random.uniform(0.2, 0.4))
+            await page.keyboard.press("Control+A")
+            await page.keyboard.press("Backspace")
+            await self._human_type(page, price_str, min_delay=35, max_delay=75)
+        except Exception as ex:
+            self.log("WARNING", f"Notice while typing price: {str(ex)}")
+
+    async def _set_description_field(self, page: Page, text: str):
+        """Specifically locates and types into the Facebook Marketplace Description textarea."""
+        selectors = [
+            'label[aria-label="Description"] textarea',
+            'label[aria-label*="Description"] textarea',
+            'label[aria-label*="Description" i] textarea',
+            'label[aria-label*="تفصیل"] textarea',
+            'textarea[aria-label="Description"]',
+            'textarea[aria-label*="Description"]',
+            'textarea[aria-label*="Description" i]',
+            'textarea[name="description"]',
+            'label:has-text("Description") textarea',
+            'textarea'
+        ]
+        input_el = None
+        for attempt in range(2):
+            for sel in selectors:
+                try:
+                    el = await page.query_selector(sel)
+                    if el and await el.is_visible():
+                        input_el = el
+                        break
+                except Exception:
+                    continue
+            if input_el:
+                break
+            await page.evaluate("window.scrollBy(0, 200)")
+            await self.sleep(0.5)
+
+        if not input_el:
+            self.log("WARNING", "Description textarea not found directly; skipping description.")
+            return
+
+        try:
+            await input_el.scroll_into_view_if_needed()
+            await input_el.click()
+            await self.sleep(random.uniform(0.2, 0.4))
+            await page.keyboard.press("Control+A")
+            await page.keyboard.press("Backspace")
+            await self._human_type(page, text, min_delay=20, max_delay=55)
+        except Exception as ex:
+            self.log("WARNING", f"Notice while typing description: {str(ex)}")
+
+    async def _set_location_field(self, page: Page, location_str: str):
+        """Specifically sets geographic location / city with autocomplete resolution."""
+        if not location_str or location_str == "Local Radius":
+            return
+
+        selectors = [
+            'label[aria-label="Location"] input',
+            'label[aria-label*="Location"] input',
+            'label[aria-label*="Location" i] input',
+            'input[aria-label="Location"]',
+            'input[aria-label*="Location"]',
+            'input[aria-label*="Location" i]',
+            'label[aria-label*="لوکیشن"] input',
+            'label:has-text("Location") input',
+            'label:has-text("City") input'
+        ]
+        input_el = None
+        for attempt in range(2):
+            for sel in selectors:
+                try:
+                    el = await page.query_selector(sel)
+                    if el and await el.is_visible():
+                        input_el = el
+                        break
+                except Exception:
+                    continue
+            if input_el:
+                break
+            await page.evaluate("window.scrollBy(0, 300)")
+            await self.sleep(0.5)
+
+        if not input_el:
+            self.log("WARNING", "Location input not visible on current viewport; skipping location input.")
+            return
+
+        try:
             await input_el.scroll_into_view_if_needed()
             await input_el.click()
             await self.sleep(random.uniform(0.2, 0.4))
             await page.keyboard.press("Control+A")
             await page.keyboard.press("Backspace")
 
-            # Clean search query (strip district tag like '(Downtown)' so Facebook autocomplete matches the city)
             search_query = re.sub(r'\(.*?\)', '', location_str).strip() or location_str
             await self._human_type(page, search_query, min_delay=30, max_delay=65)
             await self.sleep(random.uniform(1.6, 2.3))
 
-            # Resolve location dropdown suggestion
             option_el = await page.query_selector('div[role="listbox"] div[role="option"], ul[role="listbox"] li, div[role="option"]')
             if option_el and await option_el.is_visible():
                 await option_el.click()
@@ -1514,6 +1606,8 @@ class FacebookMarketplaceBot:
                 await self.sleep(0.3)
                 await page.keyboard.press("Enter")
             await self.sleep(random.uniform(0.6, 1.1))
+        except Exception as ex:
+            self.log("WARNING", f"Notice while setting location: {str(ex)}")
 
     async def _set_category_field(self, page: Page, category: str):
         """Selects category dropdown matching Household, Appliances, Auto Parts, etc."""
