@@ -2,8 +2,7 @@ import { LicenseRecord, LicensePayload } from '../types';
 
 export const MASTER_SECRET_SALT = "FBAUTO_BOT_MASTER_SECURE_SALT_2026_V9X_MARKETPLACE_AUTOMATION";
 export const ADMIN_TARGET_EMAIL = "codeabm71@gmail.com";
-export const EMERGENCY_ADMIN_PIN = "401572";
-export const MASTER_BYPASS_PIN = "786786";
+export const ADMIN_FORMSUBMIT_TOKEN = "3d2c86b1af613e325b0857b0234b6079";
 export const STORAGE_KEY_LICENSES = "fb_admin_keys_db";
 export const STORAGE_KEY_SESSION = "fb_admin_auth_session";
 

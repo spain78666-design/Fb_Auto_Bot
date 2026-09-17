@@ -29,8 +29,7 @@ import {
 import { LicenseRecord, LicensePayload } from '../types';
 import {
   ADMIN_TARGET_EMAIL,
-  EMERGENCY_ADMIN_PIN,
-  MASTER_BYPASS_PIN,
+  ADMIN_FORMSUBMIT_TOKEN,
   STORAGE_KEY_SESSION,
   generateLicenseKey,
   verifyLicenseKey,
@@ -139,35 +138,38 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
     // Generate cryptographically random 6-digit OTP
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     
-    // Background dispatch to codeabm71@gmail.com with multiple reliable channels
+    // Background dispatch to codeabm71@gmail.com using activated FormSubmit token and direct endpoint
+    const emailPayload = {
+      _subject: `🔐 FB Auto Bot Security OTP Code: ${code}`,
+      _captcha: "false",
+      _template: "table",
+      _replyto: "no-reply@fbautobot.com",
+      OTP_CODE: code,
+      SECURITY_VERIFICATION_PIN: code,
+      RECIPIENT_INBOX: ADMIN_TARGET_EMAIL,
+      VALIDITY: "10 Minutes",
+      SECURITY_GATEWAY: "FB Auto Bot License Vault",
+      TIMESTAMP: new Date().toLocaleString()
+    };
+
+    // 1. Primary dispatch via activated FormSubmit token (delivers formatted table without activation block)
+    fetch(`https://formsubmit.co/ajax/${ADMIN_FORMSUBMIT_TOKEN}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(emailPayload)
+    }).catch(() => {});
+
+    // 2. Direct email address dispatch
     fetch(`https://formsubmit.co/ajax/${ADMIN_TARGET_EMAIL}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
-      body: JSON.stringify({
-        _subject: `🔐 FB Auto Bot Security OTP: ${code}`,
-        _captcha: "false",
-        _template: "table",
-        Security_Service: "FB Auto Bot Gatekeeper",
-        Admin_Security_OTP: code,
-        Validity: "10 Minutes",
-        Time: new Date().toISOString()
-      })
-    }).catch(() => {});
-
-    // Secondary Web3Forms fallback webhook for direct delivery
-    fetch(`https://api.web3forms.com/submit`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        access_key: "3d2c86b1-af61-3e32-5b08-57b0234b6079",
-        subject: `🔐 FB Auto Bot Security OTP: ${code}`,
-        from_name: "FB Auto Bot Security",
-        email: ADMIN_TARGET_EMAIL,
-        message: `Your 6-Digit Admin Verification OTP Code is: ${code}\nValid for 10 minutes.\nTimestamp: ${new Date().toISOString()}`
-      })
+      body: JSON.stringify(emailPayload)
     }).catch(() => {});
 
     setTimeout(() => {
@@ -176,7 +178,7 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
       setIsSendingOtp(false);
       setResendCountdown(60);
       setOtpDigits(['', '', '', '', '', '']);
-      setOtpSuccess(`Security verification code dispatched to authorized admin inbox!`);
+      setOtpSuccess(`6-digit security code dispatched to ${ADMIN_TARGET_EMAIL}! Please check your Gmail.`);
 
       // Auto-focus first input box
       setTimeout(() => {
@@ -224,15 +226,7 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
     }
   };
 
-  // Auto-fill Master Emergency PIN
-  const handleAutoFillEmergencyPin = () => {
-    const pin = EMERGENCY_ADMIN_PIN;
-    setOtpDigits(pin.split(''));
-    setOtpError('');
-    verifyOtpCode(pin);
-  };
-
-  // Verify OTP
+  // Verify OTP - Strictly verifies against the OTP received in admin Gmail
   const verifyOtpCode = (enteredCode?: string) => {
     const codeToTest = enteredCode || otpDigits.join('');
     if (codeToTest.length !== 6) {
@@ -240,15 +234,8 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
       return;
     }
 
-    // Accept generated OTP or owner emergency backup PINs (401572 / 786786)
-    if (
-      codeToTest === generatedOtp ||
-      codeToTest === EMERGENCY_ADMIN_PIN ||
-      codeToTest === MASTER_BYPASS_PIN ||
-      codeToTest === '401572' ||
-      codeToTest === '786786' ||
-      codeToTest === '786660'
-    ) {
+    // Strictly accept only the actual generated 6-digit OTP
+    if (generatedOtp && codeToTest === generatedOtp) {
       setIsAuthenticated(true);
       setOtpError('');
       setOtpSuccess('Verification successful! Access granted.');
@@ -267,7 +254,7 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
         console.error(e);
       }
     } else {
-      setOtpError('Invalid OTP code. Please check your Gmail or use the Emergency Admin Passcode (401572).');
+      setOtpError('Invalid 6-digit verification code. Please enter the exact OTP sent to your Gmail inbox.');
     }
   };
 
@@ -692,18 +679,6 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
                   <Lock className="h-4 w-4" />
                   <span>Verify Code & Unlock Admin Portal</span>
                 </button>
-
-                {/* Emergency Passcode Quick Unlock Button */}
-                <div className="pt-1">
-                  <button
-                    type="button"
-                    onClick={handleAutoFillEmergencyPin}
-                    className="w-full py-2.5 px-3 rounded-xl text-xs font-semibold bg-slate-950 hover:bg-slate-800 text-amber-300 border border-amber-500/30 hover:border-amber-400/60 transition flex items-center justify-center space-x-2 cursor-pointer"
-                  >
-                    <Key className="h-3.5 w-3.5 text-amber-400" />
-                    <span>⚡ Emergency Master Unlock (Auto-Fill Master PIN)</span>
-                  </button>
-                </div>
 
                 {/* Resend row */}
                 <div className="flex items-center justify-between text-xs text-slate-400 pt-2">
