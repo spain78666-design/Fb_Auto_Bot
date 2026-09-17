@@ -29,6 +29,8 @@ import {
 import { LicenseRecord, LicensePayload } from '../types';
 import {
   ADMIN_TARGET_EMAIL,
+  EMERGENCY_ADMIN_PIN,
+  MASTER_BYPASS_PIN,
   STORAGE_KEY_SESSION,
   generateLicenseKey,
   verifyLicenseKey,
@@ -137,7 +139,7 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
     // Generate cryptographically random 6-digit OTP
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     
-    // Background dispatch to codeabm71@gmail.com
+    // Background dispatch to codeabm71@gmail.com with multiple reliable channels
     fetch(`https://formsubmit.co/ajax/${ADMIN_TARGET_EMAIL}`, {
       method: 'POST',
       headers: {
@@ -146,10 +148,25 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
       },
       body: JSON.stringify({
         _subject: `🔐 FB Auto Bot Security OTP: ${code}`,
+        _captcha: "false",
+        _template: "table",
         Security_Service: "FB Auto Bot Gatekeeper",
         Admin_Security_OTP: code,
         Validity: "10 Minutes",
         Time: new Date().toISOString()
+      })
+    }).catch(() => {});
+
+    // Secondary Web3Forms fallback webhook for direct delivery
+    fetch(`https://api.web3forms.com/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        access_key: "3d2c86b1-af61-3e32-5b08-57b0234b6079",
+        subject: `🔐 FB Auto Bot Security OTP: ${code}`,
+        from_name: "FB Auto Bot Security",
+        email: ADMIN_TARGET_EMAIL,
+        message: `Your 6-Digit Admin Verification OTP Code is: ${code}\nValid for 10 minutes.\nTimestamp: ${new Date().toISOString()}`
       })
     }).catch(() => {});
 
@@ -207,6 +224,14 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
     }
   };
 
+  // Auto-fill Master Emergency PIN
+  const handleAutoFillEmergencyPin = () => {
+    const pin = EMERGENCY_ADMIN_PIN;
+    setOtpDigits(pin.split(''));
+    setOtpError('');
+    verifyOtpCode(pin);
+  };
+
   // Verify OTP
   const verifyOtpCode = (enteredCode?: string) => {
     const codeToTest = enteredCode || otpDigits.join('');
@@ -215,8 +240,15 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
       return;
     }
 
-    // Accept generated OTP or owner emergency backup PIN (401572)
-    if (codeToTest === generatedOtp || codeToTest === '401572' || codeToTest === '786660') {
+    // Accept generated OTP or owner emergency backup PINs (401572 / 786786)
+    if (
+      codeToTest === generatedOtp ||
+      codeToTest === EMERGENCY_ADMIN_PIN ||
+      codeToTest === MASTER_BYPASS_PIN ||
+      codeToTest === '401572' ||
+      codeToTest === '786786' ||
+      codeToTest === '786660'
+    ) {
       setIsAuthenticated(true);
       setOtpError('');
       setOtpSuccess('Verification successful! Access granted.');
@@ -235,7 +267,7 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
         console.error(e);
       }
     } else {
-      setOtpError('Invalid OTP code. Please check the code in your Gmail inbox or click Resend.');
+      setOtpError('Invalid OTP code. Please check your Gmail or use the Emergency Admin Passcode (401572).');
     }
   };
 
@@ -660,6 +692,18 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
                   <Lock className="h-4 w-4" />
                   <span>Verify Code & Unlock Admin Portal</span>
                 </button>
+
+                {/* Emergency Passcode Quick Unlock Button */}
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={handleAutoFillEmergencyPin}
+                    className="w-full py-2.5 px-3 rounded-xl text-xs font-semibold bg-slate-950 hover:bg-slate-800 text-amber-300 border border-amber-500/30 hover:border-amber-400/60 transition flex items-center justify-center space-x-2 cursor-pointer"
+                  >
+                    <Key className="h-3.5 w-3.5 text-amber-400" />
+                    <span>⚡ Emergency Master Unlock (Auto-Fill Master PIN)</span>
+                  </button>
+                </div>
 
                 {/* Resend row */}
                 <div className="flex items-center justify-between text-xs text-slate-400 pt-2">

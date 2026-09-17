@@ -44,16 +44,21 @@
   </script>
 
   <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
     html, body {
       background-color: #060911;
       color: #f1f5f9;
       font-family: 'Plus Jakarta Sans', sans-serif;
-      overflow-x: clip;
-      max-width: 100vw;
-      width: 100%;
+      overflow-x: hidden !important;
+      max-width: 100% !important;
+      width: 100% !important;
+      margin: 0;
+      padding: 0;
       -webkit-text-size-adjust: 100%;
       text-size-adjust: 100%;
-      touch-action: pan-y pinch-zoom;
     }
 
     /* Glassmorphism Styles */
@@ -84,8 +89,8 @@
     /* Subtle ambient glows */
     .ambient-glow-1 {
       position: absolute;
-      width: 500px;
-      height: 500px;
+      width: min(500px, 90vw);
+      height: min(500px, 90vw);
       background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(99, 102, 241, 0) 70%);
       top: -120px;
       left: 50%;
@@ -96,8 +101,8 @@
 
     .ambient-glow-2 {
       position: absolute;
-      width: 400px;
-      height: 400px;
+      width: min(400px, 80vw);
+      height: min(400px, 80vw);
       background: radial-gradient(circle, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0) 70%);
       top: 40%;
       right: -80px;
@@ -172,7 +177,7 @@
           <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
           <span>Download (.zip)</span>
         </a>
-        <a href="https://wa.me/+14015721696?text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 shadow-md shadow-indigo-600/30 border border-indigo-500/40 transition-all">
+        <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 shadow-md shadow-indigo-600/30 border border-indigo-500/40 transition-all cursor-pointer">
           <svg class="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 24 24">
             <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.598 2.664-.698c.969.587 1.771.884 2.802.884 3.181 0 5.767-2.586 5.768-5.766.001-3.18-2.585-5.771-5.774-5.771zm3.374 8.211c-.14.394-.813.737-1.127.784-.314.047-.723.067-2.099-.488-1.503-.607-2.45-2.146-2.525-2.247-.075-.101-.611-.813-.611-1.55 0-.737.387-1.1.527-1.254.14-.153.308-.191.411-.191.103 0 .206.001.295.006.094.005.22-.036.344.262.129.308.44 1.074.478 1.152.038.077.064.168.013.27-.051.103-.077.168-.154.257-.077.09-.162.2-.231.269-.078.077-.159.16-.068.316.09.155.402.664.863 1.074.593.528 1.093.691 1.248.768.154.077.244.064.334-.038.09-.103.386-.449.489-.603.103-.154.206-.128.344-.077.137.051.874.412 1.025.488.151.077.251.115.289.179.038.064.038.373-.102.767z"/>
           </svg>
@@ -213,7 +218,7 @@
           <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
           <span>Download (.zip)</span>
         </a>
-        <a href="https://wa.me/+14015721696?text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-indigo-700 flex items-center justify-center space-x-1.5 shadow-md shadow-indigo-600/30">
+        <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-indigo-700 flex items-center justify-center space-x-1.5 shadow-md shadow-indigo-600/30 cursor-pointer">
           <span>WhatsApp Chat</span>
         </a>
       </div>
@@ -268,7 +273,7 @@
           </a>
 
           <!-- WhatsApp Chat -->
-          <a href="https://wa.me/+14015721696?text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="px-4 sm:px-4.5 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-semibold text-slate-200 hover:text-white bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 flex items-center justify-center space-x-1.5 transition-all">
+          <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="px-4 sm:px-4.5 py-2.5 sm:py-3 rounded-xl text-xs sm:text-sm font-semibold text-slate-200 hover:text-white bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 flex items-center justify-center space-x-1.5 transition-all cursor-pointer">
             <svg class="w-3.5 h-3.5 text-emerald-400" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.598 2.664-.698c.969.587 1.771.884 2.802.884 3.181 0 5.767-2.586 5.768-5.766.001-3.18-2.585-5.771-5.774-5.774-5.771zm3.374 8.211c-.14.394-.813.737-1.127.784-.314.047-.723.067-2.099-.488-1.503-.607-2.45-2.146-2.525-2.247-.075-.101-.611-.813-.611-1.55 0-.737.387-1.1.527-1.254.14-.153.308-.191.411-.191.103 0 .206.001.295.006.094.005.22-.036.344.262.129.308.44 1.074.478 1.152.038.077.064.168.013.27-.051.103-.077.168-.154.257-.077.09-.162.2-.231.269-.078.077-.159.16-.068.316.09.155.402.664.863 1.074.593.528 1.093.691 1.248.768.154.077.244.064.334-.038.09-.103.386-.449.489-.603.103-.154.206-.128.344-.077.137.051.874.412 1.025.488.151.077.251.115.289.179.038.064.038.373-.102.767z"/>
             </svg>
@@ -684,13 +689,13 @@
         <div class="text-[11px] text-slate-400 px-4 py-2 bg-slate-900/60 border-b border-slate-800 block md:hidden">
           👉 Swipe horizontally to view full comparison
         </div>
-        <table class="w-full text-left border-collapse min-w-[460px] sm:min-w-full">
+        <table class="w-full text-left border-collapse min-w-[320px] sm:min-w-full text-xs">
           <thead>
             <tr class="border-b border-slate-800 bg-slate-900/90 text-xs font-bold text-slate-300 uppercase tracking-wider">
-              <th class="p-3.5 sm:p-4">Capability</th>
-              <th class="p-3.5 sm:p-4 text-indigo-300 bg-indigo-950/40 border-x border-indigo-500/20">FB Auto Bot (Desktop)</th>
-              <th class="p-3.5 sm:p-4 text-slate-400">Browser Extensions</th>
-              <th class="p-3.5 sm:p-4 text-slate-400">Basic Scripts</th>
+              <th class="p-3 sm:p-4">Capability</th>
+              <th class="p-3 sm:p-4 text-indigo-300 bg-indigo-950/40 border-x border-indigo-500/20">FB Auto Bot (Desktop)</th>
+              <th class="p-3 sm:p-4 text-slate-400">Browser Extensions</th>
+              <th class="p-3 sm:p-4 text-slate-400">Basic Scripts</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-800 text-xs text-slate-300">
@@ -786,7 +791,7 @@
             </ul>
           </div>
 
-          <a href="https://wa.me/+14015721696?text=Hi%2C%20I%20want%20to%20buy%20a%20Monthly%20Pass%20%28%2410%29%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 flex items-center justify-center space-x-1.5 transition-all">
+          <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20Monthly%20Pass%20%28%2410%29%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a Monthly Pass ($10) for FB Auto Bot.')" class="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 flex items-center justify-center space-x-1.5 transition-all cursor-pointer">
             <span>Order Monthly ($10) via WhatsApp</span>
           </a>
         </div>
@@ -830,7 +835,7 @@
             </ul>
           </div>
 
-          <a href="https://wa.me/+14015721696?text=Hi%2C%20I%20want%20to%20buy%20a%20Yearly%20Pass%20%28%24100%29%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 border border-indigo-400/40 flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-indigo-600/30">
+          <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20Yearly%20Pass%20%28%24100%29%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a Yearly Pass ($100) for FB Auto Bot.')" class="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 border border-indigo-400/40 flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-indigo-600/30 cursor-pointer">
             <span>Get Yearly Pass ($100) via WhatsApp</span>
           </a>
         </div>
@@ -917,7 +922,7 @@
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
             <span>Download FB Auto Bot (.zip)</span>
           </a>
-          <a href="https://wa.me/+14015721696?text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/30 transition-all">
+          <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/30 transition-all cursor-pointer">
             Order on WhatsApp
           </a>
         </div>
@@ -942,7 +947,7 @@
         <a href="#comparison" class="hover:text-slate-200 transition-colors">Architecture</a>
         <a href="#pricing" class="hover:text-slate-200 transition-colors">Pricing</a>
         <a href="#faq" class="hover:text-slate-200 transition-colors">FAQ</a>
-        <a href="https://wa.me/+14015721696?text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="text-indigo-400 hover:text-indigo-300 font-semibold">WhatsApp</a>
+        <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer">WhatsApp</a>
       </div>
 
       <!-- Centered Made With Love By ABM -->
@@ -957,14 +962,14 @@
     </div>
   </footer>
 
-  <!-- Mobile Floating VIP Bottom Bar (Optimized for iOS, Android & All Screens) -->
-  <div class="fixed bottom-0 inset-x-0 z-40 md:hidden glass-nav border-t border-slate-800/90 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-2xl bg-[#060911]/95 backdrop-blur-xl">
+  <!-- Mobile Floating VIP Bottom Bar (Optimized for iOS, Android & All Screens - No Horizontal Overflow) -->
+  <div class="fixed bottom-0 inset-x-0 z-40 md:hidden border-t border-slate-800/90 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-2xl bg-[#060911]/95 backdrop-blur-xl w-full max-w-full">
     <div class="max-w-md mx-auto w-full flex items-center justify-between gap-2 px-1">
-      <a href="https://drive.google.com/file/d/1_cCGNAfUcVA7kWHCeh8qcx8qT-gjp_sG/view?usp=sharing" target="_blank" rel="noopener noreferrer" class="flex-1 h-10 py-2 px-2.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold flex items-center justify-center space-x-1.5 shadow-md shadow-emerald-600/30 whitespace-nowrap active:scale-95 transition-all">
+      <a href="https://drive.google.com/file/d/1_cCGNAfUcVA7kWHCeh8qcx8qT-gjp_sG/view?usp=sharing" target="_blank" rel="noopener noreferrer" class="flex-1 h-10 py-2 px-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold flex items-center justify-center space-x-1.5 shadow-md shadow-emerald-600/30 whitespace-nowrap active:scale-95 transition-all">
         <svg class="w-3.5 h-3.5 text-white shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
         <span>Download (.zip)</span>
       </a>
-      <a href="https://wa.me/+14015721696?text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="flex-1 h-10 py-2 px-2.5 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white text-xs font-semibold flex items-center justify-center space-x-1.5 shadow-md shadow-indigo-600/30 whitespace-nowrap active:scale-95 transition-all">
+      <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="flex-1 h-10 py-2 px-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white text-xs font-bold flex items-center justify-center space-x-1.5 shadow-md shadow-indigo-600/30 whitespace-nowrap active:scale-95 transition-all cursor-pointer">
         <svg class="w-3.5 h-3.5 text-white shrink-0" fill="currentColor" viewBox="0 0 24 24">
           <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.598 2.664-.698c.969.587 1.771.884 2.802.884 3.181 0 5.767-2.586 5.768-5.766.001-3.18-2.585-5.771-5.774-5.771zm3.374 8.211c-.14.394-.813.737-1.127.784-.314.047-.723.067-2.099-.488-1.503-.607-2.45-2.146-2.525-2.247-.075-.101-.611-.813-.611-1.55 0-.737.387-1.1.527-1.254.14-.153.308-.191.411-.191.103 0 .206.001.295.006.094.005.22-.036.344.262.129.308.44 1.074.478 1.152.038.077.064.168.013.27-.051.103-.077.168-.154.257-.077.09-.162.2-.231.269-.078.077-.159.16-.068.316.09.155.402.664.863 1.074.593.528 1.093.691 1.248.768.154.077.244.064.334-.038.09-.103.386-.449.489-.603.103-.154.206-.128.344-.077.137.051.874.412 1.025.488.151.077.251.115.289.179.038.064.038.373-.102.767z"/>
         </svg>
@@ -1034,7 +1039,7 @@
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
           <span id="dl-btn-text">Download Setup (.exe / .zip)</span>
         </a>
-        <a href="https://wa.me/+14015721696?text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." target="_blank" rel="noopener noreferrer" class="w-full sm:flex-1 py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 shadow-md shadow-indigo-600/30 flex items-center justify-center space-x-1.5 transition-all">
+        <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="w-full sm:flex-1 py-2.5 px-3 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 shadow-md shadow-indigo-600/30 flex items-center justify-center space-x-1.5 transition-all cursor-pointer">
           <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.598 2.664-.698c.969.587 1.771.884 2.802.884 3.181 0 5.767-2.586 5.768-5.766.001-3.18-2.585-5.771-5.774-5.771zm3.374 8.211c-.14.394-.813.737-1.127.784-.314.047-.723.067-2.099-.488-1.503-.607-2.45-2.146-2.525-2.247-.075-.101-.611-.813-.611-1.55 0-.737.387-1.1.527-1.254.14-.153.308-.191.411-.191.103 0 .206.001.295.006.094.005.22-.036.344.262.129.308.44 1.074.478 1.152.038.077.064.168.013.27-.051.103-.077.168-.154.257-.077.09-.162.2-.231.269-.078.077-.159.16-.068.316.09.155.402.664.863 1.074.593.528 1.093.691 1.248.768.154.077.244.064.334-.038.09-.103.386-.449.489-.603.103-.154.206-.128.344-.077.137.051.874.412 1.025.488.151.077.251.115.289.179.038.064.038.373-.102.767z"/></svg>
           <span>Chat on WhatsApp</span>
         </a>
@@ -1043,8 +1048,39 @@
     </div>
   </div>
 
-  <!-- Vanilla JS for Mobile Drawer, FAQ Accordion, and Modals -->
+  <!-- Vanilla JS for WhatsApp App Launcher, Mobile Drawer, FAQ Accordion, and Modals -->
   <script>
+    // Direct WhatsApp App Trigger (Opens installed desktop or mobile app directly)
+    function openWhatsApp(e, customMsg) {
+      if (e) {
+        try { e.preventDefault(); } catch(err) {}
+      }
+      const phone = "14015721696";
+      const text = encodeURIComponent(customMsg || "Hi, I want to buy a License Key for FB Auto Bot.");
+      const appUrl = `whatsapp://send?phone=${phone}&text=${text}`;
+      const webUrl = `https://api.whatsapp.com/send?phone=${phone}&text=${text}`;
+      
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+      // Attempt to invoke direct protocol app first
+      if (isMobile) {
+        window.location.href = appUrl;
+        setTimeout(() => {
+          window.location.href = webUrl;
+        }, 1200);
+      } else {
+        // Desktop WhatsApp trigger
+        const hiddenIframe = document.createElement('iframe');
+        hiddenIframe.style.display = 'none';
+        hiddenIframe.src = appUrl;
+        document.body.appendChild(hiddenIframe);
+        setTimeout(() => {
+          try { document.body.removeChild(hiddenIframe); } catch(err) {}
+          window.open(webUrl, '_blank', 'noopener,noreferrer');
+        }, 1200);
+      }
+    }
+
     function toggleMobileMenu() {
       const drawer = document.getElementById('mobile-drawer');
       const hamburger = document.getElementById('hamburger-icon');
