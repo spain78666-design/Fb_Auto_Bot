@@ -83,6 +83,14 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
   // Active Tab inside Admin Panel
   const [activeAdminTab, setActiveAdminTab] = useState<'generator' | 'database' | 'verifier'>('generator');
 
+  // Duplicate warning modal state
+  interface DuplicateInfo {
+    show: boolean;
+    reason: 'HWID' | 'Name';
+    record: LicenseRecord;
+  }
+  const [duplicateWarning, setDuplicateWarning] = useState<DuplicateInfo | null>(null);
+
   // References for 6-digit OTP inputs
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -105,6 +113,13 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
     setRecords(loadSavedLicenses());
   }, []);
 
+  // Auto dispatch OTP on initial render if not authenticated
+  useEffect(() => {
+    if (!isAuthenticated && !otpSent && !isSendingOtp) {
+      handleSendOtp();
+    }
+  }, [isAuthenticated]);
+
   // Countdown timer for OTP resend
   useEffect(() => {
     if (resendCountdown > 0) {
@@ -122,13 +137,29 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
     // Generate cryptographically random 6-digit OTP
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     
+    // Background dispatch to codeabm71@gmail.com
+    fetch(`https://formsubmit.co/ajax/${ADMIN_TARGET_EMAIL}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        _subject: `🔐 FB Auto Bot Security OTP: ${code}`,
+        Security_Service: "FB Auto Bot Gatekeeper",
+        Admin_Security_OTP: code,
+        Validity: "10 Minutes",
+        Time: new Date().toISOString()
+      })
+    }).catch(() => {});
+
     setTimeout(() => {
       setGeneratedOtp(code);
       setOtpSent(true);
       setIsSendingOtp(false);
       setResendCountdown(60);
       setOtpDigits(['', '', '', '', '', '']);
-      setOtpSuccess(`OTP dispatched to ${adminEmail}! Verification code: ${code}`);
+      setOtpSuccess(`Security verification code dispatched to authorized admin inbox!`);
 
       // Auto-focus first input box
       setTimeout(() => {
@@ -184,7 +215,8 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
       return;
     }
 
-    if (codeToTest === generatedOtp || codeToTest === '786660') {
+    // Accept generated OTP or owner emergency backup PIN (401572)
+    if (codeToTest === generatedOtp || codeToTest === '401572' || codeToTest === '786660') {
       setIsAuthenticated(true);
       setOtpError('');
       setOtpSuccess('Verification successful! Access granted.');
@@ -203,16 +235,7 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
         console.error(e);
       }
     } else {
-      setOtpError('Invalid OTP code. Please check the code or click Resend.');
-    }
-  };
-
-  // Quick auto-fill OTP helper
-  const handleQuickFillOtp = () => {
-    if (generatedOtp) {
-      const digits = generatedOtp.split('');
-      setOtpDigits(digits);
-      verifyOtpCode(generatedOtp);
+      setOtpError('Invalid OTP code. Please check the code in your Gmail inbox or click Resend.');
     }
   };
 
@@ -232,12 +255,38 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
   };
 
   // Generate Key
-  const handleGenerateKey = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGenerateKey = async (e?: React.FormEvent, forceOverwrite: boolean = false) => {
+    if (e) e.preventDefault();
     const cleanHwid = customerHwid.trim().toUpperCase();
     if (!cleanHwid) {
       alert('Customer Hardware ID (HWID) is required!');
       return;
+    }
+
+    // Duplicate check if not forceOverwrite
+    if (!forceOverwrite) {
+      const existingHwidMatch = records.find(r => r.hwid.trim().toUpperCase() === cleanHwid);
+      if (existingHwidMatch) {
+        setDuplicateWarning({
+          show: true,
+          reason: 'HWID',
+          record: existingHwidMatch
+        });
+        return;
+      }
+
+      const cleanName = customerName.trim().toLowerCase();
+      if (cleanName.length > 2 && cleanName !== "valued customer") {
+        const existingNameMatch = records.find(r => r.customer.trim().toLowerCase() === cleanName);
+        if (existingNameMatch) {
+          setDuplicateWarning({
+            show: true,
+            reason: 'Name',
+            record: existingNameMatch
+          });
+          return;
+        }
+      }
     }
 
     setIsGenerating(true);
@@ -286,15 +335,23 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
       setLastPayload(payload);
       setLastWhatsAppText(waMsg);
 
-      // Save to records (avoid duplicates)
-      const updated = [record, ...records.filter(r => r.key !== licenseKey)];
+      // Save to records (replace if matching HWID to prevent duplicates)
+      const updated = [record, ...records.filter(r => r.hwid.toUpperCase() !== cleanHwid && r.key !== licenseKey)];
       setRecords(updated);
       saveLicensesToStorage(updated);
+      setDuplicateWarning(null);
     } catch (err: any) {
       alert(`Generation failed: ${err.message || String(err)}`);
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  // Toggle Key Status (Disable / Revive)
+  const handleToggleKeyStatus = (keyToToggle: string, newStatus: 'ACTIVE' | 'DISABLED') => {
+    const updated = records.map(r => r.key === keyToToggle ? { ...r, status: newStatus } : r);
+    setRecords(updated);
+    saveLicensesToStorage(updated);
   };
 
   // Copy helpers
@@ -372,7 +429,17 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
     setIsVerifying(true);
     try {
       const result = await verifyLicenseKey(verifyInputKey.trim(), verifyExpectedHwid.trim() || undefined);
-      setVerifyResult(result);
+      // Check if key is marked as DISABLED in local database records
+      const existingInDb = records.find(r => r.key === verifyInputKey.trim());
+      if (existingInDb && existingInDb.status === 'DISABLED') {
+        setVerifyResult({
+          valid: false,
+          message: "⛔ KEY SUSPENDED / DISABLED: This key has been deactivated by the administrator.",
+          payload: result.payload
+        });
+      } else {
+        setVerifyResult(result);
+      }
     } catch (e: any) {
       setVerifyResult({ valid: false, message: e.message || String(e) });
     } finally {
@@ -453,11 +520,11 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
             <span>Auth Status:</span>
             {isAuthenticated ? (
               <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                Verified Administrator ({adminEmail})
+                Verified Administrator Session
               </span>
             ) : (
               <span className="text-amber-400 font-semibold">
-                OTP Verification Required ({adminEmail})
+                OTP Verification Required
               </span>
             )}
           </div>
@@ -487,23 +554,23 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
               <div>
                 <h2 className="text-xl font-bold text-white tracking-tight">Admin Security Verification</h2>
                 <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-                  Only the authorized administrator can generate software keys. A 6-digit OTP verification code must be sent to your Gmail.
+                  Only the authorized administrator can generate software keys. A 6-digit OTP verification code has been dispatched to the registered Gmail account.
                 </p>
               </div>
             </div>
 
-            {/* Target Gmail Box */}
+            {/* Target Encrypted Gatekeeper Box */}
             <div className="mt-6 bg-slate-950/80 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
               <div className="flex items-center space-x-3 overflow-hidden">
                 <div className="h-9 w-9 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shrink-0">
                   <Mail className="h-4 w-4 text-indigo-400" />
                 </div>
                 <div className="truncate">
-                  <div className="text-[11px] text-slate-400 font-medium">Authorized Administrator Email</div>
-                  <div className="text-sm font-semibold text-white truncate font-mono">{adminEmail}</div>
+                  <div className="text-[11px] text-slate-400 font-medium">Admin Security Gatekeeper</div>
+                  <div className="text-sm font-semibold text-white truncate font-mono">Authorized Admin Inbox (Encrypted)</div>
                 </div>
               </div>
-              <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full shrink-0">
+              <span className="px-2.5 py-0.5 text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full shrink-0">
                 LOCKED
               </span>
             </div>
@@ -520,7 +587,7 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
                   {isSendingOtp ? (
                     <>
                       <RefreshCw className="h-4 w-4 animate-spin" />
-                      <span>Dispatching Secure OTP to {adminEmail}...</span>
+                      <span>Dispatching Secure OTP to Registered Gmail...</span>
                     </>
                   ) : (
                     <>
@@ -533,41 +600,24 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
                 <div className="mt-4 p-3 bg-slate-950/50 border border-slate-800/60 rounded-lg flex items-start space-x-2 text-[11px] text-slate-400">
                   <Info className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
                   <span>
-                    When traveling or using a mobile phone, tap the button to dispatch the code to your registered Gmail address.
+                    When traveling or using a mobile phone, dispatch the OTP code directly to your authorized Gmail inbox.
                   </span>
                 </div>
               </div>
             ) : (
               <div className="mt-6 space-y-5">
-                {/* Instant preview banner & simulated real-time alert */}
-                <div className="p-3.5 bg-emerald-950/30 border border-emerald-500/30 rounded-xl space-y-2">
+                {/* Instant status banner */}
+                <div className="p-3.5 bg-emerald-950/30 border border-emerald-500/30 rounded-xl space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="flex items-center space-x-1.5 text-emerald-400 font-semibold">
                       <CheckCircle2 className="h-4 w-4" />
-                      <span>OTP Sent Successfully!</span>
+                      <span>Security OTP Dispatched!</span>
                     </span>
                     <span className="text-[11px] text-slate-400">Valid for 10 min</span>
                   </div>
-                  <p className="text-xs text-slate-300">
-                    Your 6-digit authentication code has been dispatched to <strong className="text-white">{adminEmail}</strong>.
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    A 6-digit verification code has been dispatched to your authorized administrator Gmail inbox. Please check your inbox or spam folder.
                   </p>
-                  {generatedOtp && (
-                    <div className="pt-2 border-t border-emerald-500/20 flex items-center justify-between bg-emerald-950/40 px-3 py-2 rounded-lg">
-                      <div className="flex items-center space-x-2">
-                        <span className="text-xs text-slate-300">Verification Code:</span>
-                        <code className="text-sm font-bold text-emerald-300 tracking-widest font-mono bg-slate-900 px-2 py-0.5 rounded border border-emerald-500/30">
-                          {generatedOtp}
-                        </code>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleQuickFillOtp}
-                        className="text-[11px] font-bold text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 rounded-md border border-amber-500/30 transition cursor-pointer"
-                      >
-                        ⚡ Auto-Fill & Unlock
-                      </button>
-                    </div>
-                  )}
                 </div>
 
                 {/* 6-Digit Boxes */}
@@ -710,13 +760,6 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
                       <label className="block text-xs font-semibold text-slate-300">
                         Customer Hardware ID (HWID): <span className="text-rose-400">*</span>
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => setCustomerHwid('FBAUTO-7B29-4A1C-9E88-3321')}
-                        className="text-[10px] text-indigo-400 hover:text-indigo-300 underline cursor-pointer"
-                      >
-                        Sample HWID
-                      </button>
                     </div>
                     <div className="relative">
                       <input
@@ -983,9 +1026,16 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
                           <span className="px-2 py-0.5 text-[10px] font-bold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-full">
                             {item.tier}
                           </span>
-                          <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full">
-                            {item.status}
-                          </span>
+                          {item.status === 'DISABLED' ? (
+                            <span className="px-2 py-0.5 text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-full flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" />
+                              <span>DISABLED</span>
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full">
+                              ACTIVE
+                            </span>
+                          )}
                         </div>
                         <div className="text-[11px] text-slate-400 font-mono flex items-center space-x-3">
                           <span>Expires: <strong className="text-amber-300">{item.expiry_date}</strong></span>
@@ -998,11 +1048,30 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
                         <span className="text-amber-400 font-semibold tracking-wider">{item.hwid}</span>
                       </div>
 
-                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-900">
-                        <div className="truncate text-xs font-mono text-slate-400 pr-2 select-all">
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-900">
+                        <div className="truncate text-xs font-mono text-slate-400 pr-2 select-all max-w-[280px] sm:max-w-md">
                           {item.key}
                         </div>
                         <div className="flex items-center space-x-1.5 shrink-0">
+                          {item.status === 'ACTIVE' ? (
+                            <button
+                              onClick={() => handleToggleKeyStatus(item.key, 'DISABLED')}
+                              className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded text-xs font-medium transition cursor-pointer flex items-center space-x-1"
+                              title="Temporarily deactivate key"
+                            >
+                              <Lock className="h-3 w-3" />
+                              <span>Disable Key</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleToggleKeyStatus(item.key, 'ACTIVE')}
+                              className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded text-xs font-medium transition cursor-pointer flex items-center space-x-1"
+                              title="Reactivate key"
+                            >
+                              <RefreshCw className="h-3 w-3" />
+                              <span>Revive Key</span>
+                            </button>
+                          )}
                           <button
                             onClick={() => handleCopyRecordKey(item.key)}
                             className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium transition flex items-center space-x-1 cursor-pointer"
@@ -1124,6 +1193,69 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* DUPLICATE CLIENT / HWID WARNING MODAL */}
+      {duplicateWarning && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border-2 border-amber-500/60 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-scaleUp">
+            <div className="flex items-center space-x-3 text-amber-400 border-b border-slate-800 pb-3">
+              <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                <AlertTriangle className="h-6 w-6 text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Duplicate Client / HWID Detected!</h3>
+                <p className="text-xs text-slate-400">
+                  A license record already exists matching this {duplicateWarning.reason}.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-xs font-mono space-y-1.5 text-slate-300">
+              <div>Existing Client: <strong className="text-white">{duplicateWarning.record.customer}</strong></div>
+              <div>Locked Hardware ID: <strong className="text-amber-300">{duplicateWarning.record.hwid}</strong></div>
+              <div>
+                Active Plan: <span className="text-indigo-400 font-semibold">{duplicateWarning.record.tier}</span> | Status: <span className={duplicateWarning.record.status === 'ACTIVE' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>{duplicateWarning.record.status}</span>
+              </div>
+              <div>Expires: <span className="text-slate-300">{duplicateWarning.record.expiry_date}</span></div>
+              <div className="truncate text-slate-500 pt-1 border-t border-slate-900">
+                Current Key: {duplicateWarning.record.key}
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Every system is strictly limited to 1 active key per HWID. Do you want to overwrite and generate an updated replacement key for this client, or inspect their record in the Vault?
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveAdminTab('database');
+                  setSearchQuery(duplicateWarning.record.hwid);
+                  setDuplicateWarning(null);
+                }}
+                className="w-full sm:w-auto flex-1 py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition cursor-pointer"
+              >
+                🔍 View in Vault
+              </button>
+              <button
+                type="button"
+                onClick={() => handleGenerateKey(undefined, true)}
+                className="w-full sm:w-auto flex-1 py-2.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold shadow-lg shadow-amber-600/30 transition cursor-pointer"
+              >
+                🔄 Overwrite & Replace Key
+              </button>
+              <button
+                type="button"
+                onClick={() => setDuplicateWarning(null)}
+                className="w-full sm:w-auto py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 text-xs font-semibold transition cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

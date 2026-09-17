@@ -1692,7 +1692,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # WhatsApp Support Button
         btn_wa = QPushButton("💬 Support")
-        btn_wa.setToolTip("Direct WhatsApp Support (+15678993618)")
+        btn_wa.setToolTip("Direct WhatsApp Support (+14015721696)")
         btn_wa.setCursor(Qt.PointingHandCursor)
         btn_wa.setStyleSheet("""
             QPushButton {
@@ -2218,7 +2218,7 @@ class FBAutoBotMainWindow(QMainWindow):
             QMessageBox.information(self, "Notice", "Licensing gatekeeper is not configured in this environment.")
             return
 
-        dialog = LicenseActivationDialog(self, admin_phone="+15678993618")
+        dialog = LicenseActivationDialog(self, admin_phone="+14015721696")
         if dialog.exec_() == LicenseActivationDialog.Accepted:
             self.reload_license_data()
             self.has_shown_expired_warning = False
@@ -2234,7 +2234,7 @@ class FBAutoBotMainWindow(QMainWindow):
         try:
             import webbrowser
             import urllib.parse
-            admin_phone = "+15678993618"
+            admin_phone = "+14015721696"
             clean_phone = re.sub(r'[^0-9]', '', admin_phone)
             hwid = get_machine_hwid() if HAS_LICENSING else "HWID"
             cust = self.license_info.get("customer", "Client")
@@ -2244,7 +2244,7 @@ class FBAutoBotMainWindow(QMainWindow):
             webbrowser.open(url)
             self.log_message("INFO", "Dispatched WhatsApp support chat window.", category="LICENSE")
         except Exception as e:
-            QMessageBox.information(self, "Support Contact", f"WhatsApp Admin Contact: +15678993618\n(Error opening browser: {e})")
+            QMessageBox.information(self, "Support Contact", f"WhatsApp Admin Contact: +14015721696\n(Error opening browser: {e})")
 
     # --------------------------------------------------------------------------
     # Tab 8: User Profile & Activity Log Page
@@ -6132,7 +6132,7 @@ class FBAutoBotMainWindow(QMainWindow):
         c_layout.addWidget(chk4)
 
         # Support & Activation Row
-        btn_wa_support = QPushButton("💬 Contact Support / Order Key on WhatsApp (+15678993618)")
+        btn_wa_support = QPushButton("💬 Contact Support / Order Key on WhatsApp (+14015721696)")
         btn_wa_support.setCursor(Qt.PointingHandCursor)
         btn_wa_support.setStyleSheet("background-color: #059669; color: #ffffff; font-weight: bold; border-radius: 8px; padding: 8px;")
         btn_wa_support.clicked.connect(self.open_whatsapp_support)
@@ -6151,7 +6151,7 @@ class FBAutoBotMainWindow(QMainWindow):
         """Opens direct WhatsApp support chat with Admin with pre-formatted HWID."""
         import webbrowser
         hwid = get_machine_hwid() if HAS_LICENSING else "DESKTOP-CLIENT"
-        link = f"https://wa.me/+15678993618?text=Hi%2C%20I%20want%20to%20activate%20FB%20Auto%20Bot.%20My%20HWID%20is%3A%20{hwid}"
+        link = f"https://wa.me/+14015721696?text=Hi%2C%20I%20want%20to%20activate%20FB%20Auto%20Bot.%20My%20HWID%20is%3A%20{hwid}"
         webbrowser.open(link)
         self.log_message("INFO", f"Triggered WhatsApp direct chat for HWID: {hwid}")
 
@@ -6274,7 +6274,7 @@ def main():
 
         if not is_active:
             # Show Lock-Screen Activation Dialog
-            dialog = LicenseActivationDialog(admin_phone="+15678993618")
+            dialog = LicenseActivationDialog(admin_phone="+14015721696")
             if dialog.exec_() != LicenseActivationDialog.Accepted:
                 # User cancelled or failed activation
                 sys.exit(0)

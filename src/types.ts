@@ -6,7 +6,7 @@ export interface LicenseRecord {
   created_date: string;
   expiry_date: string;
   notes: string;
-  status: 'ACTIVE' | 'REVOKED' | 'EXPIRED';
+  status: 'ACTIVE' | 'DISABLED' | 'REVOKED' | 'EXPIRED';
   created_ts?: number;
   expiry_ts?: number;
 }

@@ -16,18 +16,74 @@ Examples:
 
 import os
 import sys
+import json
+import time
 import argparse
 from utils.licensing import LicenseManager, get_machine_hwid
 
+VAULT_FILE = os.path.join(os.path.dirname(__file__), "config", "admin_keys_vault.json")
+
+def load_vault() -> list:
+    """Loads issued license records from config/admin_keys_vault.json."""
+    if os.path.exists(VAULT_FILE):
+        try:
+            with open(VAULT_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+        except Exception:
+            pass
+    return []
+
+def save_vault(records: list):
+    """Saves issued license records to config/admin_keys_vault.json."""
+    os.makedirs(os.path.dirname(VAULT_FILE), exist_ok=True)
+    try:
+        with open(VAULT_FILE, 'w', encoding='utf-8') as f:
+            json.dump(records, f, indent=2)
+    except Exception as e:
+        print(f"Warning: Could not save to vault: {e}")
+
+def add_record_to_vault(key: str, hwid: str, customer: str, tier: str, days: int, notes: str = ""):
+    """Adds or updates a license record, enforcing 1 key per HWID."""
+    records = load_vault()
+    now_ts = int(time.time())
+    expiry_ts = now_ts + (days * 86400) if days > 0 else 0
+    
+    created_date = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now_ts))
+    expiry_date = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(expiry_ts)) if expiry_ts > 0 else "LIFETIME"
+    
+    record = {
+        "key": key,
+        "customer": customer,
+        "hwid": hwid.strip().upper(),
+        "tier": tier,
+        "created_date": created_date,
+        "expiry_date": expiry_date,
+        "notes": notes,
+        "status": "ACTIVE",
+        "created_ts": now_ts,
+        "expiry_ts": expiry_ts
+    }
+    
+    # Filter existing records for this key or HWID (1 key per system)
+    clean_hwid = hwid.strip().upper()
+    updated = [r for r in records if r.get("key") != key and r.get("hwid", "").upper() != clean_hwid]
+    updated.insert(0, record)
+    save_vault(updated)
+    return record
+
 def generate_cli(hwid: str, customer: str = "Client", tier: str = "Lifetime", days: int = 0):
     key = LicenseManager.generate_key(hwid=hwid, customer=customer, tier=tier, expiry_days=days)
+    add_record_to_vault(key, hwid, customer, tier, days, "CLI Generation")
     print("\n" + "=" * 60)
-    print("🔑 FB AUTO BOT - LICENSE KEY GENERATED")
+    print("🔑 FB AUTO BOT - LICENSE KEY GENERATED & SAVED TO VAULT")
     print("=" * 60)
     print(f"Customer Name : {customer}")
     print(f"Target HWID   : {hwid.upper()}")
     print(f"License Tier  : {tier}")
     print(f"Duration      : {'Lifetime Access' if days == 0 else f'{days} Days'}")
+    print(f"Vault Path    : {VAULT_FILE}")
     print("-" * 60)
     print("GENERATED ACTIVATION KEY (Send this to customer):")
     print(key)
@@ -137,8 +193,17 @@ def run_gui():
             return
 
         key = LicenseManager.generate_key(hwid=hwid, customer=customer, tier=tier, expiry_days=days)
+        add_record_to_vault(key, hwid, customer, tier, days, "GUI Generated")
         key_output.setText(key)
-        QMessageBox.information(dialog, "Key Ready", "License key generated and cryptographically signed!\n\nClick 'Copy' and send to customer.")
+        QMessageBox.information(
+            dialog,
+            "Key Ready & Saved",
+            f"License key generated, cryptographically signed, and saved to admin vault!\n\n"
+            f"Customer: {customer}\n"
+            f"Target HWID: {hwid.upper()}\n"
+            f"Saved in: config/admin_keys_vault.json\n\n"
+            f"Click 'Copy' and send to customer."
+        )
 
     def on_copy():
         key = key_output.text().strip()

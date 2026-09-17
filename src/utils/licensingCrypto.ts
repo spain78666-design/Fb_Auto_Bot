@@ -1,7 +1,7 @@
 import { LicenseRecord, LicensePayload } from '../types';
 
 export const MASTER_SECRET_SALT = "FBAUTO_BOT_MASTER_SECURE_SALT_2026_V9X_MARKETPLACE_AUTOMATION";
-export const ADMIN_TARGET_EMAIL = "spain78666@gmail.com";
+export const ADMIN_TARGET_EMAIL = "codeabm71@gmail.com";
 export const STORAGE_KEY_LICENSES = "fb_admin_keys_db";
 export const STORAGE_KEY_SESSION = "fb_admin_auth_session";
 
@@ -192,48 +192,38 @@ export function formatWhatsAppDeliveryText(
 }
 
 /**
- * Default sample records to populate initial view if empty
+ * Check if a HWID or Customer Name already exists in the records
  */
-const DEFAULT_RECORDS: LicenseRecord[] = [
-  {
-    key: "FBAUTO1.eyJjdXN0b21lciI6Ik1hbGlrIFphZWVrIiwiY2hhbiI6InBybyIsImh3aWQiOiJGQkFVVE8tODQ5MS0yOTA0LTY2MTktMzk0OCIsInRpZXIiOiIxIFllYXIgTGljZW5zZSIsImNyZWF0ZWQiOjE3NzM2MDAwMDAsImV4cGlyeSI6MTgwNTEzNjAwMCwibm90ZXMiOiJPcmRlciAjMTA0MiAtIFdoYXRzQXBwIn0.7A8B9C0D1E2F3A4B",
-    customer: "Malik Zaeek",
-    hwid: "FBAUTO-8491-2904-6619-3948",
-    tier: "1 Year License",
-    created_date: "2026-03-15 14:20:00",
-    expiry_date: "2027-03-15 14:20:00",
-    notes: "Order #1042 - WhatsApp client",
-    status: "ACTIVE",
-    created_ts: 1773600000,
-    expiry_ts: 1805136000
-  },
-  {
-    key: "FBAUTO1.eyJjdXN0b21lciI6IlNoYWhpZCBBaG1lZCIsImh3aWQiOiJGQkFVVE8tMTEyMi0zMzQ0LTU1NjYtNzc4OCIsInRpZXIiOiJMaWZldGltZSBBY2Nlc3MiLCJjcmVhdGVkIjoxNzczNTEwMDAwLCJleHBpcnkiOjAsIm5vdGVzIjoiVklQIExpZmV0aW1lIFBhY2thZ2UifQ.9C8D7E6F5A4B3C2D",
-    customer: "Shahid Ahmed",
-    hwid: "FBAUTO-1122-3344-5566-7788",
-    tier: "Lifetime Access",
-    created_date: "2026-03-14 10:15:00",
-    expiry_date: "LIFETIME",
-    notes: "VIP Lifetime Package",
-    status: "ACTIVE",
-    created_ts: 1773510000,
-    expiry_ts: 0
-  }
-];
+export function checkDuplicateRecord(
+  records: LicenseRecord[],
+  hwid: string,
+  customerName: string
+): { duplicateHwidRecord?: LicenseRecord; duplicateNameRecord?: LicenseRecord } {
+  const cleanHwid = hwid.trim().toUpperCase();
+  const cleanName = customerName.trim().toLowerCase();
+
+  const duplicateHwidRecord = records.find(r => r.hwid.trim().toUpperCase() === cleanHwid);
+  const duplicateNameRecord = cleanName.length > 2 
+    ? records.find(r => r.customer.trim().toLowerCase() === cleanName)
+    : undefined;
+
+  return { duplicateHwidRecord, duplicateNameRecord };
+}
 
 export function loadSavedLicenses(): LicenseRecord[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_LICENSES);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+      if (Array.isArray(parsed)) {
+        // Filter out any stale dummy sample records if present
+        return parsed.filter(r => r.customer !== "Malik Zaeek" && r.customer !== "Shahid Ahmed");
       }
     }
   } catch (e) {
     console.error("Error reading licenses from localStorage:", e);
   }
-  return DEFAULT_RECORDS;
+  return [];
 }
 
 export function saveLicensesToStorage(records: LicenseRecord[]): void {

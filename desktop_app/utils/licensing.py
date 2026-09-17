@@ -207,10 +207,10 @@ class LicenseManager:
         return cls.verify_key(saved_key)
 
     @classmethod
-    def generate_whatsapp_order_link(cls, hwid: str, admin_phone: str = "+15678993618", customer_name: str = "") -> str:
+    def generate_whatsapp_order_link(cls, hwid: str, admin_phone: str = "+14015721696", customer_name: str = "") -> str:
         """
         Generates pre-formatted WhatsApp direct order link containing machine HWID.
-        Format: https://wa.me/+15678993618?text=Hi%2C%20I%20want%20to%20activate%20FB%20Auto%20Bot.%20My%20HWID%20is%3A%20{user_hwid}
+        Format: https://wa.me/+14015721696?text=Hi%2C%20I%20want%20to%20activate%20FB%20Auto%20Bot.%20My%20HWID%20is%3A%20{user_hwid}
         """
         raw_text = f"Hi, I want to activate FB Auto Bot. My HWID is: {hwid}"
         encoded = urllib.parse.quote(raw_text)
@@ -234,7 +234,7 @@ try:
         Modal Lock Screen Dialog presented before launching FB Auto Bot.
         Blocks execution until a cryptographically matched license is activated.
         """
-        def __init__(self, parent=None, admin_phone="+15678993618"):
+        def __init__(self, parent=None, admin_phone="+14015721696"):
             super().__init__(parent)
             self.admin_phone = admin_phone
             self.hwid = get_machine_hwid()

@@ -254,26 +254,12 @@ export default function App() {
             <Layers className="h-3.5 w-3.5" />
             <span>Project Roadmap</span>
           </button>
-          <button
-            id="tab-admin-panel"
-            onClick={() => {
-              setActiveTab('admin-panel');
-              try {
-                window.history.pushState(null, '', '/admin-panel');
-              } catch (e) {
-                window.location.hash = '#admin-panel';
-              }
-            }}
-            className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all ${
-              activeTab === 'admin-panel'
-                ? 'bg-gradient-to-r from-amber-600 to-indigo-600 text-white shadow-sm'
-                : 'text-amber-400/90 hover:text-amber-300 hover:bg-amber-500/10'
-            }`}
-          >
-            <Key className="h-3.5 w-3.5 text-amber-400" />
-            <span>Admin Key Gen</span>
-            <span className="px-1.5 py-0.2 text-[9px] bg-amber-500/20 text-amber-300 rounded font-mono font-bold">OTP Guarded</span>
-          </button>
+          {activeTab === 'admin-panel' && (
+            <div className="flex items-center space-x-2 px-3 py-1 rounded-md text-xs font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/20">
+              <Key className="h-3.5 w-3.5 text-amber-400" />
+              <span>Admin Key Vault (Private)</span>
+            </div>
+          )}
         </div>
       </header>
 
