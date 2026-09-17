@@ -294,6 +294,51 @@ def get_fewfeed_extension_path() -> Optional[str]:
     return None
 
 
+def sync_fewfeed_extension_session(master_dir: str, target_dir: str) -> bool:
+    """Helper to copy extension session storage from master profile to target profile."""
+    if not master_dir or not target_dir or not os.path.exists(master_dir):
+        return False
+    if os.path.abspath(master_dir) == os.path.abspath(target_dir):
+        return False
+
+    items = [
+        "Local Extension Settings",
+        "Sync Extension Settings",
+        "Managed Extension Settings",
+        "Extension State",
+        "IndexedDB",
+        "Storage",
+        "Local Storage"
+    ]
+    copied = False
+    master_subs = [master_dir, os.path.join(master_dir, "Default")]
+    target_base = os.path.join(target_dir, "Default") if (os.path.exists(os.path.join(target_dir, "Default")) or os.path.exists(os.path.join(master_dir, "Default"))) else target_dir
+    os.makedirs(target_base, exist_ok=True)
+
+    for item in items:
+        src = None
+        for msub in master_subs:
+            c = os.path.join(msub, item)
+            if os.path.exists(c):
+                src = c
+                break
+        if not src:
+            continue
+        dest = os.path.join(target_base, item)
+        try:
+            if os.path.isdir(src):
+                import shutil
+                shutil.copytree(src, dest, dirs_exist_ok=True)
+                copied = True
+            elif os.path.isfile(src):
+                import shutil
+                shutil.copy2(src, dest)
+                copied = True
+        except Exception:
+            pass
+    return copied
+
+
 def test_proxy_connectivity(host: str, port: int, timeout: float = 2.5) -> bool:
     """Quick socket probe to check if proxy is alive before launching browser."""
     try:
@@ -576,6 +621,12 @@ class FacebookMarketplaceBot:
         try:
             if user_data_dir:
                 self.log("INFO", f"Using isolated browser profile dir: {os.path.basename(user_data_dir)}")
+                try:
+                    master_dir = os.path.join(get_base_dir(), "profiles", "master_fewfeed_profile")
+                    if os.path.exists(master_dir) and os.path.abspath(master_dir) != os.path.abspath(user_data_dir):
+                        sync_fewfeed_extension_session(master_dir, user_data_dir)
+                except Exception:
+                    pass
                 self.context = await launch_context_smart()
                 self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
             else:
@@ -1003,10 +1054,18 @@ class FacebookMarketplaceBot:
         async def _upload_photos_task(i, p, payload):
             try:
                 images = payload.get("images", [])
+                imgs_per_post = payload.get("images_per_post", 0) or payload.get("images_per_tab", 0)
+
                 if images:
                     valid_images = [os.path.abspath(img) for img in images if os.path.exists(img)]
                     if valid_images:
-                        upload_files = valid_images
+                        if imgs_per_post > 0 and len(valid_images) > imgs_per_post:
+                            start_idx = (i * imgs_per_post) % len(valid_images)
+                            tab_images = [valid_images[(start_idx + k) % len(valid_images)] for k in range(imgs_per_post)]
+                        else:
+                            tab_images = valid_images
+
+                        upload_files = tab_images
                         anti_dup_shield = payload.get("anti_dup_shield", True) or payload.get("anti_dup_rotate", True)
                         
                         if anti_dup_shield and IMAGE_PROCESSOR_AVAILABLE:
@@ -1019,9 +1078,9 @@ class FacebookMarketplaceBot:
                                     brightness_jitter=0.02 if payload.get("anti_dup_noise", True) else 0.0
                                 )
                                 processor = AntiDuplicateImageProcessor(config=cfg)
-                                upload_files = processor.process_batch(valid_images, log_callback=self.log)
+                                upload_files = processor.process_batch(tab_images, log_callback=self.log)
                             except Exception as img_err:
-                                upload_files = valid_images
+                                upload_files = tab_images
                         self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Uploading {len(upload_files)} photo(s)")
                         await self._upload_photos_to_page(p, upload_files)
             except Exception as e:
@@ -1072,15 +1131,17 @@ class FacebookMarketplaceBot:
         await asyncio.gather(*[_set_cat_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
         await self.sleep(0.8)
 
-        # Step 5e: Condition Selection ("New")
-        self.log("INFO", f"⚙️ Setting Item Condition to 'New' simultaneously across all {tabs_count} tabs...")
-        async def _set_cond_task(i, p):
+        # Step 5e: Condition Selection
+        cond_val = payload.get("condition", "New")
+        self.log("INFO", f"⚙️ Setting Item Condition to '{cond_val}' simultaneously across all {tabs_count} tabs...")
+        async def _set_cond_task(i, p, payload):
             try:
-                await self._set_condition_field(p, "New")
+                c_text = payload.get("condition", "New")
+                await self._set_condition_field(p, c_text)
             except Exception as cond_err:
                 self.log("WARNING", f"Tab [{i+1}] Condition notice: {str(cond_err)[:40]}")
 
-        await asyncio.gather(*[_set_cond_task(i, tabs[i]) for i in range(len(tabs))], return_exceptions=True)
+        await asyncio.gather(*[_set_cond_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
         await self.sleep(0.8)
 
         # Step 5f: Description
@@ -1122,15 +1183,15 @@ class FacebookMarketplaceBot:
         await asyncio.gather(*[_next_task(i, tabs[i]) for i in range(len(tabs))], return_exceptions=True)
         await self.sleep(2.0)
 
-        # Step 5i: 1 second pause before publishing all tabs simultaneously!
+        # Step 5i: 1 second pause on publish screen before instant parallel publish across all tabs!
         if not self._cancel_requested:
             self.log("INFO", f"==================================================")
             self.log("INFO", f"🔥 ALL {len(tabs)} TABS ARE FULLY PREPARED ON THE PUBLISH SCREEN!")
-            self.log("INFO", f"⏸️ Pausing exactly 1 second before clicking Publish for organic human realism...")
+            self.log("INFO", f"⏸️ Pausing exactly 1 second on Publish screen for organic synchronization...")
             await asyncio.sleep(1.0)
 
-            self.log("INFO", f"🚀 CLICKING 'PUBLISH' BUTTON SIMULTANEOUSLY ACROSS ALL {len(tabs)} TABS...")
-            async def publish_tab_simultaneously(t_idx, page_obj, p_load):
+            self.log("INFO", f"🚀 CLICKING 'PUBLISH' BUTTON SIMULTANEOUSLY ACROSS ALL {len(tabs)} TABS AT THE EXACT SAME INSTANT...")
+            async def publish_tab_instantly(t_idx, page_obj, p_load):
                 try:
                     return await self.publish_marketplace_listing_on_page(page_obj, p_load)
                 except Exception as ex:
@@ -1138,9 +1199,9 @@ class FacebookMarketplaceBot:
                     return False
 
             pub_results = await asyncio.gather(*[
-                publish_tab_simultaneously(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))
+                publish_tab_instantly(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))
             ], return_exceptions=True)
-            success_count = sum(1 for r in pub_results if r is True)
+            success_count = sum(1 for r in pub_results if isinstance(r, bool) and r is True)
             self.set_progress(100)
             self.log("SUCCESS", f"🎉 PARALLEL BATCH COMPLETE: {success_count}/{tabs_count} tabs published simultaneously in parallel!")
             return success_count
@@ -1287,11 +1348,12 @@ class FacebookMarketplaceBot:
                 self.log("WARNING", f"Category selection notice: {str(e)}")
 
         # ----------------------------------------------------------------------
-        # 5. Condition Selection ("New")
+        # 5. Condition Selection
         # ----------------------------------------------------------------------
+        cond_text = payload.get("condition", "New")
         try:
-            self.log("INFO", "⚙️ Setting Item Condition to 'New'...")
-            await self._set_condition_field(page, "New")
+            self.log("INFO", f"⚙️ Setting Item Condition to '{cond_text}'...")
+            await self._set_condition_field(page, cond_text)
             await self.sleep(random.uniform(0.4, 0.8))
         except Exception as cond_err:
             self.log("WARNING", f"Condition selection notice: {str(cond_err)}")
@@ -1338,39 +1400,68 @@ class FacebookMarketplaceBot:
         # ----------------------------------------------------------------------
         return await self.publish_marketplace_listing_on_page(page, payload)
 
+    async def _instant_js_click_publish(self, page: Page, title: str = "") -> bool:
+        """Instantly locates and clicks the Publish button using fast in-page JavaScript execution."""
+        if not page or page.is_closed():
+            return False
+
+        js_code = """
+        () => {
+            const candidates = ['publish', 'post', 'done', 'save', 'شائع', 'پبلش', 'اگلا'];
+            const elements = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"], div[aria-label*="Publish"], div[aria-label*="Post"], div[aria-label*="شائع"]'));
+            
+            for (const el of elements) {
+                const label = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+                const text = (el.innerText || el.textContent || '').trim().toLowerCase();
+                
+                for (const cand of candidates) {
+                    if (label === cand || text === cand || label.includes(cand) || (text.length < 25 && text.includes(cand))) {
+                        el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                        el.click();
+                        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                        return true;
+                    }
+                }
+            }
+
+            // Secondary fallback: find primary action button on bottom right composer
+            const primaryBtn = document.querySelector('div[aria-label="Publish"][role="button"], div[aria-label="Post"][role="button"], button[type="submit"]');
+            if (primaryBtn) {
+                primaryBtn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                primaryBtn.click();
+                primaryBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+                return true;
+            }
+
+            return false;
+        }
+        """
+        try:
+            clicked = await page.evaluate(js_code)
+            if clicked:
+                return True
+        except Exception:
+            pass
+
+        return await self._click_button_with_text(page, ["Publish", "Post", "شائع", "Done", "Save"])
+
     async def publish_marketplace_listing_on_page(self, page: Page, payload: Dict[str, Any]) -> bool:
         """Triggers final 'Publish' button submission on an active Facebook Marketplace page."""
         if not page or page.is_closed() or self._cancel_requested:
             return False
 
         title = payload.get("title", "Listing")
-        self.log("INFO", f"🚀 Triggering listing publication (Publish) for '{title[:40]}...'")
-        clicked_publish = await self._click_button_with_text(page, ["Publish", "Post", "شائع", "Done", "Save"])
-        if not clicked_publish:
-            # Fallback selectors
-            pub_fallback = [
-                'div[aria-label="Publish"][role="button"]',
-                'div[aria-label="Post"][role="button"]',
-                'button:has-text("Publish")',
-                'button:has-text("Post")'
-            ]
-            for sel in pub_fallback:
-                try:
-                    btn = await page.query_selector(sel)
-                    if btn and await btn.is_visible():
-                        await btn.click()
-                        clicked_publish = True
-                        break
-                except Exception:
-                    continue
+        self.log("INFO", f"🚀 Triggering instant publication for '{title[:40]}...'")
+        
+        clicked_publish = await self._instant_js_click_publish(page, title)
 
         if not clicked_publish:
             self.log("WARNING", f"Could not locate the final 'Publish' button for '{title}'.")
             return False
 
-        # Wait for publication confirmation
-        self.log("INFO", f"Awaiting confirmation from Facebook Marketplace for '{title[:30]}...'")
-        await self.sleep(random.uniform(3.5, 5.5))
+        # Wait briefly for publication confirmation response
+        self.log("INFO", f"Awaiting publication broadcast confirmation for '{title[:30]}...'")
+        await self.sleep(random.uniform(2.5, 4.0))
         self.log("SUCCESS", f"✅ Marketplace listing '{title}' successfully broadcast!")
         return True
 
@@ -1670,12 +1761,17 @@ class FacebookMarketplaceBot:
             await self.sleep(0.6)
 
     async def _set_condition_field(self, page: Page, condition_text: str = "New"):
-        """Selects item condition (default: New)."""
+        """Selects item condition (e.g., New, Used – like new, Used – good, Used – fair)."""
+        if not condition_text:
+            condition_text = "New"
+
         cond_selectors = [
             'label[aria-label="Condition"]',
             'label[aria-label*="Condition"]',
             'div[aria-label="Condition"][role="combobox"]',
-            'label:has-text("Condition")'
+            'div[aria-label*="Condition"][role="button"]',
+            'label:has-text("Condition")',
+            'span:has-text("Condition")'
         ]
         cond_el = None
         for sel in cond_selectors:
@@ -1688,13 +1784,43 @@ class FacebookMarketplaceBot:
                 continue
 
         if cond_el:
-            await cond_el.scroll_into_view_if_needed()
-            await cond_el.click()
-            await self.sleep(0.8)
-            new_opt = await page.query_selector(f'div[role="option"]:has-text("{condition_text}"), span:has-text("{condition_text}")')
-            if new_opt and await new_opt.is_visible():
-                await new_opt.click()
-            await self.sleep(0.4)
+            try:
+                await cond_el.scroll_into_view_if_needed()
+                await cond_el.click()
+                await self.sleep(0.8)
+
+                clean_text = condition_text.strip()
+                variants = [clean_text]
+                if "like new" in clean_text.lower():
+                    variants.extend(["like new", "Used – like new", "Used - like new", "Like New"])
+                elif "good" in clean_text.lower():
+                    variants.extend(["good", "Used – good", "Used - good", "Good"])
+                elif "fair" in clean_text.lower():
+                    variants.extend(["fair", "Used – fair", "Used - fair", "Fair"])
+                elif "new" in clean_text.lower():
+                    variants.extend(["New", "جدید"])
+
+                opt_el = None
+                for var in variants:
+                    try:
+                        opt_el = await page.query_selector(f'div[role="option"]:has-text("{var}"), span:has-text("{var}"), div[role="button"]:has-text("{var}")')
+                        if opt_el and await opt_el.is_visible():
+                            break
+                        opt_el = None
+                    except Exception:
+                        continue
+
+                if opt_el:
+                    await opt_el.click()
+                    self.log("INFO", f"Condition '{condition_text}' selected successfully.")
+                else:
+                    first_opt = await page.query_selector('div[role="listbox"] div[role="option"], div[role="option"]')
+                    if first_opt and await first_opt.is_visible():
+                        await first_opt.click()
+                        self.log("INFO", f"Selected condition option for '{condition_text}'.")
+                await self.sleep(0.5)
+            except Exception as ex:
+                self.log("WARNING", f"Notice while selecting condition: {str(ex)}")
 
     async def _upload_photos_to_page(self, page: Page, files: List[str]):
         """Injects files into input[type=file]."""

@@ -263,7 +263,178 @@ class SessionManager:
         clean_id = "".join(c for c in account_id if c.isalnum() or c in ("_", "-"))
         path = os.path.join(self.profiles_dir, clean_id)
         os.makedirs(path, exist_ok=True)
+        try:
+            self.sync_master_fewfeed_session(path)
+        except Exception:
+            pass
         return path
+
+    def get_master_fewfeed_profile_dir(self) -> str:
+        """Returns the path to the Master QFit / FewFeed profile directory."""
+        master_path = os.path.join(self.profiles_dir, "master_fewfeed_profile")
+        os.makedirs(master_path, exist_ok=True)
+        return master_path
+
+    def sync_master_fewfeed_session(self, target_profile_dir: str) -> bool:
+        """
+        Syncs extension storage, IndexedDB, Local Storage, and extension state
+        from master_fewfeed_profile into target_profile_dir.
+        This allows all Chrome profiles to share the same QFit / FewFeed login session!
+        """
+        master_dir = self.get_master_fewfeed_profile_dir()
+        if not os.path.exists(master_dir) or os.path.abspath(master_dir) == os.path.abspath(target_profile_dir):
+            return False
+
+        items_to_sync = [
+            "Local Extension Settings",
+            "Sync Extension Settings",
+            "Managed Extension Settings",
+            "Extension State",
+            "IndexedDB",
+            "Storage",
+            "Local Storage"
+        ]
+
+        copied_any = False
+        master_subdirs = [master_dir, os.path.join(master_dir, "Default")]
+
+        target_base = target_profile_dir
+        if os.path.exists(os.path.join(target_profile_dir, "Default")) or os.path.exists(os.path.join(master_dir, "Default")):
+            target_base = os.path.join(target_profile_dir, "Default")
+
+        os.makedirs(target_base, exist_ok=True)
+
+        for item_name in items_to_sync:
+            src_path = None
+            for m_sub in master_subdirs:
+                cand = os.path.join(m_sub, item_name)
+                if os.path.exists(cand):
+                    src_path = cand
+                    break
+
+            if not src_path:
+                continue
+
+            dest_path = os.path.join(target_base, item_name)
+
+            try:
+                if os.path.isdir(src_path):
+                    shutil.copytree(src_path, dest_path, dirs_exist_ok=True)
+                    copied_any = True
+                elif os.path.isfile(src_path):
+                    shutil.copy2(src_path, dest_path)
+                    copied_any = True
+            except Exception as e:
+                logger.warning(f"Notice during FewFeed session sync ({item_name}): {str(e)}")
+
+        return copied_any
+
+    def sync_master_fewfeed_to_all_profiles(self) -> int:
+        """Syncs master QFit / FewFeed session to all existing account profile directories."""
+        accounts = self.list_accounts()
+        count = 0
+        for acc in accounts:
+            acc_id = acc.get("id") or acc.get("name", "")
+            if acc_id:
+                p_dir = os.path.join(self.profiles_dir, "".join(c for c in acc_id if c.isalnum() or c in ("_", "-")))
+                if os.path.exists(p_dir):
+                    if self.sync_master_fewfeed_session(p_dir):
+                        count += 1
+        return count
+
+    async def launch_master_fewfeed_login(
+        self,
+        log_callback: Optional[Callable[[str, str], None]] = None,
+        timeout_seconds: int = 600
+    ) -> bool:
+        """
+        Launches an interactive Chrome browser with the Master QFit / FewFeed profile.
+        Allows the user to log into FewFeed / QFit / Gmail once.
+        Automatically syncs the resulting session to all existing profiles upon exit!
+        """
+        log = log_callback or (lambda lvl, msg: logger.info(f"[{lvl}] {msg}"))
+        master_dir = self.get_master_fewfeed_profile_dir()
+
+        for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
+            fpath = os.path.join(master_dir, fname)
+            if os.path.exists(fpath) or os.path.islink(fpath):
+                try:
+                    if os.path.islink(fpath) or os.path.isfile(fpath):
+                        os.unlink(fpath)
+                    elif os.path.isdir(fpath):
+                        shutil.rmtree(fpath, ignore_errors=True)
+                except Exception:
+                    pass
+
+        ext_path = get_fewfeed_extension_path()
+        launch_flags = [
+            "--disable-blink-features=AutomationControlled",
+            "--start-maximized",
+            "--disable-infobars",
+            "--ignore-certificate-errors",
+            "--allow-running-insecure-content",
+            "--disable-web-security",
+            "--no-first-run",
+            "--no-service-autorun"
+        ]
+        if ext_path and os.path.exists(ext_path):
+            launch_flags.append(f"--load-extension={ext_path}")
+            launch_flags.append(f"--disable-extensions-except={ext_path}")
+
+        log("INFO", "🔑 Launching Master QFit / FewFeed session setup browser...")
+        log("INFO", "Please log into QFit / FewFeed / Gmail in the opened Chrome window. Close window when finished.")
+
+        async with async_playwright() as p:
+            context = None
+            for ch in ["chrome", "msedge", None]:
+                try:
+                    kws = {
+                        "user_data_dir": master_dir,
+                        "headless": False,
+                        "viewport": {"width": 1280, "height": 800},
+                        "args": launch_flags,
+                        "ignore_default_args": ["--enable-automation"]
+                    }
+                    if ch:
+                        kws["channel"] = ch
+                    context = await p.chromium.launch_persistent_context(**kws)
+                    break
+                except Exception:
+                    continue
+
+            if not context:
+                log("ERROR", "Could not launch Chrome/Edge browser for Master QFit setup.")
+                return False
+
+            page = context.pages[0] if context.pages else await context.new_page()
+            try:
+                await page.goto("https://fewfeed.app", wait_until="domcontentloaded", timeout=45000)
+            except Exception:
+                try:
+                    await page.goto("https://fewfeed.online", wait_until="domcontentloaded", timeout=45000)
+                except Exception:
+                    pass
+
+            log("INFO", "🟢 Master browser window is active. Log into QFit / FewFeed now, then close the browser window.")
+
+            # Keep open until user closes browser window
+            while True:
+                await asyncio.sleep(1.5)
+                try:
+                    if page.is_closed() or not context.pages:
+                        break
+                except Exception:
+                    break
+
+            try:
+                await context.close()
+            except Exception:
+                pass
+
+        log("SUCCESS", "✅ Master QFit / FewFeed browser session saved!")
+        synced_cnt = self.sync_master_fewfeed_to_all_profiles()
+        log("SUCCESS", f"⚡ Auto-synced Master QFit / FewFeed login to {synced_cnt} active profile folders!")
+        return True
 
     def list_accounts(self) -> List[Dict[str, Any]]:
         """Returns all accounts saved in the database."""
@@ -525,6 +696,16 @@ class SessionManager:
                     detail = "Active c_user session verified"
                     log("SUCCESS", f"Account '{acc_name}' is HEALTHY and fully authenticated.")
 
+                    # Perform profile page visit & back navigation to register active session on FB
+                    try:
+                        log("INFO", f"Opening profile page for '{acc_name}' to register active session...")
+                        await page.goto("https://www.facebook.com/me", timeout=10000, wait_until="domcontentloaded")
+                        await asyncio.sleep(1.0)
+                        await page.go_back()
+                        await asyncio.sleep(0.5)
+                    except Exception as p_err:
+                        log("INFO", f"Profile active touch note: {str(p_err)[:50]}")
+
                     # Try extracting Facebook display name from page DOM
                     try:
                         extracted = await page.evaluate("""() => {
@@ -550,6 +731,16 @@ class SessionManager:
                             log("INFO", f"Detected Facebook profile name: '{detected_name}'")
                     except Exception as ne:
                         log("INFO", f"Name extraction notice: {str(ne)[:60]}")
+
+                    # Re-capture live session cookies and persist back to database
+                    try:
+                        fresh_cookies = await context.cookies()
+                        if fresh_cookies:
+                            cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in fresh_cookies if c.get('name') and c.get('value')])
+                            account["cookies"] = cookie_str
+                            self.add_or_update_account(account)
+                    except Exception as ck_err:
+                        log("INFO", f"Cookie refresh notice: {str(ck_err)[:50]}")
 
                 await context.close()
                 self.update_account_status(account["id"], status, detail, display_name=detected_name)
@@ -605,6 +796,10 @@ class SessionManager:
             return True
 
         profile_dir = self.get_profile_dir(account["id"])
+        try:
+            self.sync_master_fewfeed_session(profile_dir)
+        except Exception:
+            pass
 
         # Purge singleton lockfiles to ensure clean browser boot
         for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:

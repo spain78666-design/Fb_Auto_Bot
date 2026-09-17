@@ -684,6 +684,38 @@ class ManualLoginWorker(QThread):
                 pass
 
 
+class MasterFewFeedWorker(QThread):
+    """Launches the Master QFit / FewFeed session setup browser."""
+    log_signal = pyqtSignal(str, str)
+    finished_signal = pyqtSignal(bool)
+
+    def _log_bridge(self, lvl: str, msg: str):
+        self.log_signal.emit(lvl, msg)
+
+    def run(self):
+        setup_windows_asyncio()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            sm = get_session_manager() if HAS_SESSION_MANAGER else None
+            if sm:
+                success = loop.run_until_complete(
+                    sm.launch_master_fewfeed_login(log_callback=self._log_bridge)
+                )
+                self.finished_signal.emit(success)
+            else:
+                self.log_signal.emit("SUCCESS", "Master QFit session simulated.")
+                self.finished_signal.emit(True)
+        except Exception as e:
+            self.log_signal.emit("ERROR", f"Master QFit setup notice: {str(e)}")
+            self.finished_signal.emit(False)
+        finally:
+            try:
+                loop.close()
+            except Exception:
+                pass
+
+
 # ------------------------------------------------------------------------------
 # Automated Credential Login Worker (UID / Email + Password + Auto TOTP)
 # ------------------------------------------------------------------------------
@@ -3054,8 +3086,22 @@ class FBAutoBotMainWindow(QMainWindow):
         self.btn_delete_profile.setToolTip("Delete selected account profile.")
         self.btn_delete_profile.clicked.connect(self.delete_selected_account)
 
+        self.btn_master_qfit = QPushButton("🔑 Master QFit Login")
+        self.btn_master_qfit.setStyleSheet("background-color: #7c3aed; color: #ffffff; font-weight: 800; font-size: 11px; padding: 6px 10px; border-radius: 6px;")
+        self.btn_master_qfit.setCursor(Qt.PointingHandCursor)
+        self.btn_master_qfit.setToolTip("Log in ONCE to QFit / FewFeed / Gmail. Session will be shared automatically across ALL Chrome browser profiles!")
+        self.btn_master_qfit.clicked.connect(self.setup_master_qfit_session)
+
+        self.btn_sync_qfit = QPushButton("⚡ Sync QFit Session")
+        self.btn_sync_qfit.setStyleSheet("background-color: #059669; color: #ffffff; font-weight: 700; font-size: 11px; padding: 6px 10px; border-radius: 6px;")
+        self.btn_sync_qfit.setCursor(Qt.PointingHandCursor)
+        self.btn_sync_qfit.setToolTip("Syncs the saved master QFit / FewFeed session to all active account profile directories.")
+        self.btn_sync_qfit.clicked.connect(self.sync_qfit_to_all_profiles)
+
         actions_bar.addWidget(self.btn_auto_login_selected)
         actions_bar.addWidget(self.btn_open_browser)
+        actions_bar.addWidget(self.btn_master_qfit)
+        actions_bar.addWidget(self.btn_sync_qfit)
         actions_bar.addWidget(self.btn_test_health)
         actions_bar.addWidget(self.btn_audit_all)
         actions_bar.addWidget(self.btn_delete_profile)
@@ -3409,6 +3455,42 @@ class FBAutoBotMainWindow(QMainWindow):
         self.manual_worker.cookies_captured_signal.connect(self.on_cookies_captured)
         self.manual_worker.finished_signal.connect(self.on_manual_login_finished)
         self.manual_worker.start()
+
+    def setup_master_qfit_session(self):
+        """Launches Master QFit / FewFeed Chrome window to log in once for all profiles."""
+        self.log_message("INFO", "🔑 Launching Master QFit / FewFeed session setup browser...")
+        self.log_message("INFO", "Log into your QFit / FewFeed / Gmail account in the opened Chrome window. When finished, close the browser window.")
+
+        self.master_qfit_worker = MasterFewFeedWorker()
+        self.master_qfit_worker.log_signal.connect(self.log_message)
+        self.master_qfit_worker.finished_signal.connect(self.on_master_qfit_finished)
+        self.master_qfit_worker.start()
+
+    def on_master_qfit_finished(self, success: bool):
+        if success:
+            self.log_message("SUCCESS", "🎉 Master QFit / FewFeed Login Successfully Saved & Synced!")
+            QMessageBox.information(
+                self,
+                "Master QFit Session Saved",
+                "🎉 Master QFit / FewFeed Login Successfully Saved & Synced!\n\n"
+                "All Chrome browser profiles across all Facebook accounts will now automatically load with your QFit / FewFeed account ALREADY LOGGED IN!"
+            )
+        else:
+            self.log_message("WARNING", "Master QFit setup window closed.")
+
+    def sync_qfit_to_all_profiles(self):
+        """Syncs the Master QFit session to all account profile folders."""
+        if self.session_manager:
+            cnt = self.session_manager.sync_master_fewfeed_to_all_profiles()
+            self.log_message("SUCCESS", f"⚡ Synced Master QFit / FewFeed login to {cnt} profile folders!")
+            QMessageBox.information(
+                self,
+                "QFit Session Synced",
+                f"✅ Successfully synced Master QFit login session to {cnt} profile folder(s).\n\n"
+                "All browsers will now open with QFit / FewFeed already logged in!"
+            )
+        else:
+            self.log_message("WARNING", "Session manager is not initialized.")
 
     def extract_cookies_for_form(self):
         """Launches interactive browser to auto-fill cookies into the new account form."""
@@ -3966,6 +4048,20 @@ class FBAutoBotMainWindow(QMainWindow):
         img_btn_row.addStretch()
         ib_layout.addLayout(img_btn_row)
 
+        # Image Filename Tags Scroll Area (prevents layout distortion/expansion!)
+        self.img_tags_scroll = QScrollArea()
+        self.img_tags_scroll.setFixedHeight(55)
+        self.img_tags_scroll.setWidgetResizable(True)
+        self.img_tags_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(15, 23, 42, 0.5); border-radius: 6px; } QScrollBar { background: transparent; }")
+
+        self.img_tags_widget = QWidget()
+        self.img_tags_layout = QHBoxLayout(self.img_tags_widget)
+        self.img_tags_layout.setContentsMargins(6, 4, 6, 4)
+        self.img_tags_layout.setSpacing(6)
+        self.img_tags_layout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.img_tags_scroll.setWidget(self.img_tags_widget)
+        ib_layout.addWidget(self.img_tags_scroll)
+
         flags_grid = QGridLayout()
         flags_grid.setSpacing(6)
         self.chk_shield = QCheckBox("🛡️ Anti-Duplicate Shield")
@@ -3989,7 +4085,7 @@ class FBAutoBotMainWindow(QMainWindow):
         top_split_row.addWidget(img_box, stretch=1)
         f_layout.addLayout(top_split_row)
 
-        # Row 2: Listing Type, Category, Title & Multi-Tab Configuration
+        # Row 2: Listing Type, Tabs per ID, Category, Condition
         row2 = QHBoxLayout()
 
         col_ltype = QVBoxLayout()
@@ -4013,6 +4109,16 @@ class FBAutoBotMainWindow(QMainWindow):
         col_tabs.addWidget(self.tabs_count_spin)
         row2.addLayout(col_tabs, stretch=1)
 
+        col_imgs = QVBoxLayout()
+        col_imgs.addWidget(QLabel("🖼️ Images per Post / Tab:"))
+        self.imgs_per_post_spin = QSpinBox()
+        self.imgs_per_post_spin.setRange(1, 10)
+        self.imgs_per_post_spin.setValue(2)
+        self.imgs_per_post_spin.setToolTip("How many product images to upload into each tab/listing (e.g. 2 images per post). Images are randomly picked from your selected pool.")
+        self.imgs_per_post_spin.setStyleSheet("font-weight: 700; color: #38bdf8;")
+        col_imgs.addWidget(self.imgs_per_post_spin)
+        row2.addLayout(col_imgs, stretch=1)
+
         col_cat = QVBoxLayout()
         col_cat.addWidget(QLabel("Marketplace Category:"))
         self.category_select = QComboBox()
@@ -4033,17 +4139,29 @@ class FBAutoBotMainWindow(QMainWindow):
         col_cat.addWidget(self.category_select)
         row2.addLayout(col_cat, stretch=2)
 
+        col_cond = QVBoxLayout()
+        col_cond.addWidget(QLabel("Item Condition:"))
+        self.condition_select = QComboBox()
+        self.condition_select.addItems([
+            "New",
+            "Used – like new",
+            "Used – good",
+            "Used – fair"
+        ])
+        col_cond.addWidget(self.condition_select)
+        row2.addLayout(col_cond, stretch=2)
+
+        f_layout.addLayout(row2)
+
+        # Row 3: Title, Price, ID Location, and Listing Location Pool
+        row3 = QHBoxLayout()
+
         col_t = QVBoxLayout()
         col_t.addWidget(QLabel("Listing Title (Max 100 chars):"))
         self.title_input = QLineEdit()
         self.title_input.setPlaceholderText("e.g., Household Modern Living Room Set / Auto Parts Premium Replacement")
         col_t.addWidget(self.title_input)
-        row2.addLayout(col_t, stretch=3)
 
-        f_layout.addLayout(row2)
-
-        # Row 3: Price, ID Location, and Listing Location Pool
-        row3 = QHBoxLayout()
         col_p = QVBoxLayout()
         col_p.addWidget(QLabel("Price ($ USD / Amount):"))
         self.price_input = QLineEdit()
@@ -4065,6 +4183,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.location_input.setToolTip("Enter locations separated by commas or newlines. The bot randomly selects 1 location for each ad.")
         col_loc.addWidget(self.location_input)
 
+        row3.addLayout(col_t, stretch=3)
         row3.addLayout(col_p, stretch=1)
         row3.addLayout(col_id_loc, stretch=2)
         row3.addLayout(col_loc, stretch=3)
@@ -4535,7 +4654,7 @@ class FBAutoBotMainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
 
-        # Top Bar: Back button & Project Name Header & Start/Stop Controls
+        # Top Bar: Back button & Project Name Header & Actions
         top_bar = QHBoxLayout()
         btn_back = QPushButton("⬅️ Back to Projects List")
         btn_back.setProperty("class", "secondaryBtn")
@@ -4555,6 +4674,13 @@ class FBAutoBotMainWindow(QMainWindow):
         btn_add_tab_top.clicked.connect(self.add_tab_to_current_project)
         top_bar.addWidget(btn_add_tab_top)
 
+        self.top_proj_btn_save_tab = QPushButton("💾 Save Tab Settings")
+        self.top_proj_btn_save_tab.setProperty("class", "secondaryBtn")
+        self.top_proj_btn_save_tab.setStyleSheet("font-weight: 700; font-size: 12px; padding: 6px 14px;")
+        self.top_proj_btn_save_tab.setCursor(Qt.PointingHandCursor)
+        self.top_proj_btn_save_tab.clicked.connect(self.save_current_project_tab_state)
+        top_bar.addWidget(self.top_proj_btn_save_tab)
+
         self.top_proj_btn_start = QPushButton("🚀 Start Project")
         self.top_proj_btn_start.setStyleSheet("font-weight: 800; font-size: 12px; padding: 6px 16px; background-color: #059669; color: #ffffff; border-radius: 8px;")
         self.top_proj_btn_start.setCursor(Qt.PointingHandCursor)
@@ -4569,24 +4695,6 @@ class FBAutoBotMainWindow(QMainWindow):
         top_bar.addWidget(self.top_proj_btn_stop)
 
         layout.addLayout(top_bar)
-
-        # Project Configuration Card: Chrome / Account ID Main Location
-        proj_cfg_card = QFrame()
-        proj_cfg_card.setStyleSheet("background-color: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 10px; padding: 12px;")
-        pcfg_layout = QHBoxLayout(proj_cfg_card)
-        pcfg_layout.setContentsMargins(12, 10, 12, 10)
-        pcfg_layout.setSpacing(12)
-
-        lbl_loc = QLabel("📍 Chrome ID Main Location (Marketplace Account Default):")
-        lbl_loc.setStyleSheet("font-size: 12px; font-weight: 700; color: #a5b4fc;")
-        pcfg_layout.addWidget(lbl_loc)
-
-        self.proj_main_loc_input = QLineEdit()
-        self.proj_main_loc_input.setPlaceholderText("e.g. Los Angeles, CA or New York, NY (Sets location link under 'Create new listing' on Marketplace homepage)")
-        self.proj_main_loc_input.setStyleSheet("background-color: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; padding: 6px 12px; color: #ffffff; font-weight: 600;")
-        pcfg_layout.addWidget(self.proj_main_loc_input, stretch=1)
-
-        layout.addWidget(proj_cfg_card)
 
         # Tab Selector Pills Container
         tabs_bar_card = QFrame()
@@ -4702,6 +4810,20 @@ class FBAutoBotMainWindow(QMainWindow):
         pimg_btn_row.addStretch()
         ib_layout.addLayout(pimg_btn_row)
 
+        # Image Filename Tags Scroll Area for Project Tab
+        self.proj_img_tags_scroll = QScrollArea()
+        self.proj_img_tags_scroll.setFixedHeight(55)
+        self.proj_img_tags_scroll.setWidgetResizable(True)
+        self.proj_img_tags_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(15, 23, 42, 0.5); border-radius: 6px; } QScrollBar { background: transparent; }")
+
+        self.proj_img_tags_widget = QWidget()
+        self.proj_img_tags_layout = QHBoxLayout(self.proj_img_tags_widget)
+        self.proj_img_tags_layout.setContentsMargins(6, 4, 6, 4)
+        self.proj_img_tags_layout.setSpacing(6)
+        self.proj_img_tags_layout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.proj_img_tags_scroll.setWidget(self.proj_img_tags_widget)
+        ib_layout.addWidget(self.proj_img_tags_scroll)
+
         pdup_grid = QGridLayout()
         pdup_grid.setSpacing(6)
         self.proj_chk_shield = QCheckBox("🛡️ Anti-Duplicate Shield")
@@ -4728,7 +4850,7 @@ class FBAutoBotMainWindow(QMainWindow):
         f_layout = QVBoxLayout(form_card)
         f_layout.setSpacing(12)
 
-        # Row 1: Tab Name, Listing Type & Category
+        # Row 1: Tab Name, Listing Type, Category & Condition
         r1 = QHBoxLayout()
         col_tname = QVBoxLayout()
         col_tname.addWidget(QLabel("Tab Identifier / Name:"))
@@ -4759,6 +4881,19 @@ class FBAutoBotMainWindow(QMainWindow):
         ])
         col_cat.addWidget(self.proj_category_select)
         r1.addLayout(col_cat, stretch=2)
+
+        col_pcond = QVBoxLayout()
+        col_pcond.addWidget(QLabel("Item Condition:"))
+        self.proj_condition_select = QComboBox()
+        self.proj_condition_select.addItems([
+            "New",
+            "Used – like new",
+            "Used – good",
+            "Used – fair"
+        ])
+        col_pcond.addWidget(self.proj_condition_select)
+        r1.addLayout(col_pcond, stretch=2)
+
         f_layout.addLayout(r1)
 
         # Row 2: Title
@@ -4772,13 +4907,20 @@ class FBAutoBotMainWindow(QMainWindow):
         r2.addLayout(col_t)
         f_layout.addLayout(r2)
 
-        # Row 3: Price & Target Locations
+        # Row 3: Price, ID Location & Target Locations
         r3 = QHBoxLayout()
         col_p = QVBoxLayout()
         col_p.addWidget(QLabel("Price ($ USD / Amount):"))
         self.proj_price_input = QLineEdit()
         self.proj_price_input.setPlaceholderText("150")
         col_p.addWidget(self.proj_price_input)
+
+        col_id_loc = QVBoxLayout()
+        col_id_loc.addWidget(QLabel("ID Location (Marketplace Default):"))
+        self.proj_id_loc_input = QLineEdit()
+        self.proj_id_loc_input.setPlaceholderText("e.g. Los Angeles, CA or New York, NY")
+        self.proj_id_loc_input.setToolTip("Sets location link under 'Create new listing' on Marketplace homepage before starting listing")
+        col_id_loc.addWidget(self.proj_id_loc_input)
 
         col_loc = QVBoxLayout()
         col_loc.addWidget(QLabel("Target Locations / Cities Pool (Randomized per Ad):"))
@@ -4788,6 +4930,7 @@ class FBAutoBotMainWindow(QMainWindow):
         col_loc.addWidget(self.proj_location_input)
 
         r3.addLayout(col_p, stretch=1)
+        r3.addLayout(col_id_loc, stretch=2)
         r3.addLayout(col_loc, stretch=3)
         f_layout.addLayout(r3)
 
@@ -4800,32 +4943,6 @@ class FBAutoBotMainWindow(QMainWindow):
         f_layout.addWidget(self.proj_desc_input)
 
         layout.addWidget(form_card)
-
-        # Action Buttons Row
-        act_row = QHBoxLayout()
-        self.proj_btn_save_tab = QPushButton("💾 Save Tab Settings")
-        self.proj_btn_save_tab.setProperty("class", "secondaryBtn")
-        self.proj_btn_save_tab.setStyleSheet("font-weight: 700; padding: 10px 18px;")
-        self.proj_btn_save_tab.setCursor(Qt.PointingHandCursor)
-        self.proj_btn_save_tab.clicked.connect(self.save_current_project_tab_state)
-        act_row.addWidget(self.proj_btn_save_tab)
-
-        act_row.addStretch()
-
-        self.proj_btn_start_automation = QPushButton("🚀 Start Project Automation")
-        self.proj_btn_start_automation.setStyleSheet("font-weight: 800; font-size: 13px; padding: 12px 24px; background-color: #059669; color: #ffffff; border-radius: 8px;")
-        self.proj_btn_start_automation.setCursor(Qt.PointingHandCursor)
-        self.proj_btn_start_automation.clicked.connect(self.start_project_automation)
-        act_row.addWidget(self.proj_btn_start_automation)
-
-        self.proj_btn_stop_automation = QPushButton("🛑 Stop Project")
-        self.proj_btn_stop_automation.setStyleSheet("font-weight: 800; font-size: 13px; padding: 12px 24px; background-color: #dc2626; color: #ffffff; border-radius: 8px;")
-        self.proj_btn_stop_automation.setCursor(Qt.PointingHandCursor)
-        self.proj_btn_stop_automation.setEnabled(False)
-        self.proj_btn_stop_automation.clicked.connect(self.stop_project_automation)
-        act_row.addWidget(self.proj_btn_stop_automation)
-
-        layout.addLayout(act_row)
         scroll.setWidget(container)
 
         main_layout = QVBoxLayout(view)
@@ -4890,6 +5007,12 @@ class FBAutoBotMainWindow(QMainWindow):
         if idx >= 0:
             self.proj_category_select.setCurrentIndex(idx)
 
+        cond = tdata.get("condition", "New")
+        if hasattr(self, 'proj_condition_select'):
+            idx_cond = self.proj_condition_select.findText(cond)
+            if idx_cond >= 0:
+                self.proj_condition_select.setCurrentIndex(idx_cond)
+
         self.proj_title_input.setText(tdata.get("title", ""))
         self.proj_price_input.setText(str(tdata.get("price", "0")))
         self.proj_location_input.setPlainText(tdata.get("location", ""))
@@ -4897,10 +5020,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         imgs = tdata.get("images", [])
         self.project_tab_images = imgs
-        if imgs:
-            self.proj_img_count_lbl.setText(f"{len(imgs)} image(s) selected: {', '.join([os.path.basename(f) for f in imgs[:2]])}...")
-        else:
-            self.proj_img_count_lbl.setText("0 image(s) selected")
+        self.refresh_project_images_tags()
 
         self.proj_chk_shield.setChecked(tdata.get("anti_dup_shield", True))
         self.proj_chk_rotate.setChecked(tdata.get("anti_dup_rotate", True))
@@ -4922,6 +5042,7 @@ class FBAutoBotMainWindow(QMainWindow):
             "tab_name": self.proj_tab_name_input.text().strip() or f"Tab {self.current_editing_tab_index+1}",
             "listing_type": self.proj_listing_type_select.currentText(),
             "category": self.proj_category_select.currentText(),
+            "condition": self.proj_condition_select.currentText() if hasattr(self, 'proj_condition_select') else "New",
             "title": self.proj_title_input.text().strip(),
             "price": self.proj_price_input.text().strip() or "0",
             "location": self.proj_location_input.toPlainText().strip() or "Local Radius",
@@ -4945,6 +5066,7 @@ class FBAutoBotMainWindow(QMainWindow):
         new_tdata = {
             "tab_name": f"Tab {new_tab_idx}",
             "category": "Household",
+            "condition": "New",
             "title": "",
             "price": "0",
             "location": "Local Radius",
@@ -4992,13 +5114,90 @@ class FBAutoBotMainWindow(QMainWindow):
         self.render_project_tabs_bar()
         self.load_project_tab_into_form(self.current_editing_tab_index)
 
+    def refresh_project_images_tags(self):
+        if not hasattr(self, 'proj_img_tags_layout'):
+            return
+
+        while self.proj_img_tags_layout.count():
+            item = self.proj_img_tags_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        imgs = getattr(self, 'project_tab_images', [])
+        if hasattr(self, 'proj_img_count_lbl'):
+            self.proj_img_count_lbl.setText(f"{len(imgs)} image(s) selected")
+
+        if not imgs:
+            lbl = QLabel("📷 No image files attached. Click 'Browse Product Images' to select.")
+            lbl.setStyleSheet("color: #64748b; font-size: 11px; font-style: italic;")
+            self.proj_img_tags_layout.addWidget(lbl)
+            self.proj_img_tags_layout.addStretch()
+            return
+
+        for filepath in imgs:
+            fname = os.path.basename(filepath)
+            display_name = fname if len(fname) <= 22 else fname[:10] + "..." + fname[-9:]
+
+            chip = QFrame()
+            chip.setStyleSheet("""
+                QFrame {
+                    background-color: rgba(30, 41, 59, 0.9);
+                    border: 1px solid rgba(99, 102, 241, 0.4);
+                    border-radius: 10px;
+                }
+                QFrame:hover {
+                    border: 1px solid rgba(99, 102, 241, 0.8);
+                    background-color: rgba(49, 46, 129, 0.9);
+                }
+            """)
+            chip_layout = QHBoxLayout(chip)
+            chip_layout.setContentsMargins(6, 2, 6, 2)
+            chip_layout.setSpacing(4)
+
+            name_lbl = QLabel(f"📄 {display_name}")
+            name_lbl.setToolTip(filepath)
+            name_lbl.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: 600;")
+            chip_layout.addWidget(name_lbl)
+
+            btn_remove = QPushButton("✕")
+            btn_remove.setFixedSize(16, 16)
+            btn_remove.setCursor(Qt.PointingHandCursor)
+            btn_remove.setToolTip(f"Remove {fname}")
+            btn_remove.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(239, 68, 68, 0.3);
+                    color: #fca5a5;
+                    border: none;
+                    border-radius: 8px;
+                    font-size: 10px;
+                    font-weight: 800;
+                    padding: 0px;
+                }
+                QPushButton:hover {
+                    background-color: rgba(239, 68, 68, 0.9);
+                    color: #ffffff;
+                }
+            """)
+            btn_remove.clicked.connect(lambda checked, fp=filepath: self.remove_single_project_image(fp))
+            chip_layout.addWidget(btn_remove)
+
+            self.proj_img_tags_layout.addWidget(chip)
+
+        self.proj_img_tags_layout.addStretch()
+
+    def remove_single_project_image(self, filepath):
+        if hasattr(self, 'project_tab_images'):
+            self.project_tab_images = [f for f in self.project_tab_images if f != filepath]
+            self.refresh_project_images_tags()
+            self.save_current_project_tab_state()
+
     def browse_project_tab_images(self):
         files, _ = QFileDialog.getOpenFileNames(
             self, "Select Product Images for Tab", "", "Image Files (*.png *.jpg *.jpeg *.webp)"
         )
         if files:
             self.project_tab_images = files
-            self.proj_img_count_lbl.setText(f"{len(files)} image(s) selected: {', '.join([os.path.basename(f) for f in files[:2]])}...")
+            self.refresh_project_images_tags()
             self.save_current_project_tab_state()
 
     def clear_project_tab_images(self):
@@ -5010,8 +5209,7 @@ class FBAutoBotMainWindow(QMainWindow):
             if 0 <= idx < len(tabs):
                 tabs[idx]["images"] = []
                 self.save_projects_to_disk()
-        if hasattr(self, 'proj_img_count_lbl'):
-            self.proj_img_count_lbl.setText("0 image(s) selected")
+        self.refresh_project_images_tags()
         self.log_message("INFO", "Project tab images cleared.")
 
     def quick_spin_project_tab_title(self):
@@ -5134,6 +5332,7 @@ class FBAutoBotMainWindow(QMainWindow):
             "title": project_tabs[0].get("title", "Project Campaign"),
             "price": project_tabs[0].get("price", "0"),
             "category": project_tabs[0].get("category", "Household"),
+            "condition": project_tabs[0].get("condition", "New"),
             "location": project_tabs[0].get("location", "Local Radius"),
             "project_main_location": main_loc,
             "description": project_tabs[0].get("description", ""),
@@ -5202,19 +5401,94 @@ class FBAutoBotMainWindow(QMainWindow):
         self.engine_status_lbl.setText("● IDLE")
         self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
 
+    def refresh_standard_images_tags(self):
+        if not hasattr(self, 'img_tags_layout'):
+            return
+
+        while self.img_tags_layout.count():
+            item = self.img_tags_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        imgs = getattr(self, 'selected_images', [])
+        if hasattr(self, 'img_count_lbl'):
+            self.img_count_lbl.setText(f"{len(imgs)} image(s) selected")
+
+        if not imgs:
+            lbl = QLabel("📷 No image files attached. Click 'Browse Product Images' to select.")
+            lbl.setStyleSheet("color: #64748b; font-size: 11px; font-style: italic;")
+            self.img_tags_layout.addWidget(lbl)
+            self.img_tags_layout.addStretch()
+            return
+
+        for filepath in imgs:
+            fname = os.path.basename(filepath)
+            display_name = fname if len(fname) <= 22 else fname[:10] + "..." + fname[-9:]
+
+            chip = QFrame()
+            chip.setStyleSheet("""
+                QFrame {
+                    background-color: rgba(30, 41, 59, 0.9);
+                    border: 1px solid rgba(99, 102, 241, 0.4);
+                    border-radius: 10px;
+                }
+                QFrame:hover {
+                    border: 1px solid rgba(99, 102, 241, 0.8);
+                    background-color: rgba(49, 46, 129, 0.9);
+                }
+            """)
+            chip_layout = QHBoxLayout(chip)
+            chip_layout.setContentsMargins(6, 2, 6, 2)
+            chip_layout.setSpacing(4)
+
+            name_lbl = QLabel(f"📄 {display_name}")
+            name_lbl.setToolTip(filepath)
+            name_lbl.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: 600;")
+            chip_layout.addWidget(name_lbl)
+
+            btn_remove = QPushButton("✕")
+            btn_remove.setFixedSize(16, 16)
+            btn_remove.setCursor(Qt.PointingHandCursor)
+            btn_remove.setToolTip(f"Remove {fname}")
+            btn_remove.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(239, 68, 68, 0.3);
+                    color: #fca5a5;
+                    border: none;
+                    border-radius: 8px;
+                    font-size: 10px;
+                    font-weight: 800;
+                    padding: 0px;
+                }
+                QPushButton:hover {
+                    background-color: rgba(239, 68, 68, 0.9);
+                    color: #ffffff;
+                }
+            """)
+            btn_remove.clicked.connect(lambda checked, fp=filepath: self.remove_single_standard_image(fp))
+            chip_layout.addWidget(btn_remove)
+
+            self.img_tags_layout.addWidget(chip)
+
+        self.img_tags_layout.addStretch()
+
+    def remove_single_standard_image(self, filepath):
+        if hasattr(self, 'selected_images'):
+            self.selected_images = [f for f in self.selected_images if f != filepath]
+            self.refresh_standard_images_tags()
+
     def browse_images(self):
         files, _ = QFileDialog.getOpenFileNames(
             self, "Select Product Images", "", "Image Files (*.png *.jpg *.jpeg *.webp)"
         )
         if files:
             self.selected_images = files
-            self.img_count_lbl.setText(f"{len(files)} image(s) selected: {', '.join([os.path.basename(f) for f in files[:2]])}...")
+            self.refresh_standard_images_tags()
             self.log_message("INFO", f"Selected {len(files)} product image(s) for posting.")
 
     def clear_selected_images(self):
         self.selected_images = []
-        if hasattr(self, 'img_count_lbl'):
-            self.img_count_lbl.setText("No images selected (0)")
+        self.refresh_standard_images_tags()
         self.log_message("INFO", "Selected product images cleared.")
 
     def start_automation(self):
@@ -5260,10 +5534,11 @@ class FBAutoBotMainWindow(QMainWindow):
         chosen_method = self.method_select.currentText() if hasattr(self, 'method_select') and self.method_select else "Standard Auto Posting"
 
         tabs_count = self.tabs_count_spin.value() if hasattr(self, 'tabs_count_spin') else 1
+        images_per_post = self.imgs_per_post_spin.value() if hasattr(self, 'imgs_per_post_spin') else 2
 
         self.log_message("INFO", f"==================================================")
         self.log_message("INFO", f"🚀 Starting Automation across {len(selected_accounts)} Account(s)...")
-        self.log_message("INFO", f"📑 Multi-Tab Configuration: {tabs_count} Tab(s)/Post(s) per Facebook ID")
+        self.log_message("INFO", f"📑 Multi-Tab Configuration: {tabs_count} Tab(s)/Post(s) per Facebook ID | {images_per_post} Image(s) per Post")
         self.log_message("INFO", f"🎯 Active Method: '{chosen_method}'")
         self.log_message("INFO", f"Sequential Execution: Each account will launch Chrome, open {tabs_count} tab(s) with random images & locations, publish, close Chrome, and move to next ID.")
 
@@ -5272,11 +5547,13 @@ class FBAutoBotMainWindow(QMainWindow):
             "price": price or "0",
             "listing_type": self.listing_type_select.currentText(),
             "category": self.category_select.currentText(),
+            "condition": self.condition_select.currentText() if hasattr(self, 'condition_select') else "New",
             "id_location": self.id_location_input.text().strip() if hasattr(self, 'id_location_input') else "",
             "location": self.location_input.toPlainText().strip() or "Local Radius",
             "description": self.desc_input.toPlainText().strip(),
             "tabs_count": tabs_count,
             "posts_per_id": tabs_count,
+            "images_per_post": images_per_post,
             "method": chosen_method,
             "account": "Batch Runner" if is_batch else selected_accounts[0].get("name", "Account"),
             "account_data": selected_accounts[0],
