@@ -98,80 +98,123 @@ class MethodExecutionFallbackError(MarketplaceBotError):
 
 
 # ==============================================================================
-# Stealth JavaScript Evasion Scripts
+# Stealth JavaScript Evasion & Fingerprint Shield Scripts
 # ==============================================================================
 EXTRA_STEALTH_JS = """
 (() => {
-    // 1. Mask navigator.webdriver
-    Object.defineProperty(navigator, 'webdriver', {
-        get: () => undefined,
-        configurable: true
-    });
+    // 1. Completely remove and mask navigator.webdriver
+    try {
+        Object.defineProperty(navigator, 'webdriver', {
+            get: () => undefined,
+            configurable: true
+        });
+    } catch (e) {}
 
-    // 2. Mock Chrome Runtime
-    if (!window.chrome) {
-        window.chrome = {
-            app: { isInstalled: false, InstallState: { DISABLED: 'disabled' }, RunningState: { CANNOT_RUN: 'cannot_run' } },
-            runtime: {
-                OnInstalledReason: { INSTALL: 'install', UPDATE: 'update', CHROME_UPDATE: 'chrome_update' },
-                PlatformOs: { MAC: 'mac', WIN: 'win', ANDROID: 'android', CROS: 'cros', LINUX: 'linux' },
-                PlatformArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' },
-                connect: () => {},
-                sendMessage: () => {}
+    // 2. Erase Playwright & Automation signatures from Window
+    try {
+        const keysToErase = ['__playwright', '__puppeteer_evaluation_script__', 'callPhantom', '_phantom', 'phantom'];
+        keysToErase.forEach(k => {
+            try { delete window[k]; } catch (e) {}
+        });
+        for (let prop in window) {
+            if (prop.match(/^cdc_/i)) {
+                try { delete window[prop]; } catch (e) {}
             }
-        };
-    }
+        }
+    } catch (e) {}
 
-    // 3. WebGL Vendor / Renderer Masking
-    const getParameterProto = WebGLRenderingContext.prototype.getParameter;
-    WebGLRenderingContext.prototype.getParameter = function(parameter) {
-        // UNMASKED_VENDOR_WEBGL
-        if (parameter === 37445) {
-            return 'Intel Inc.';
-        }
-        // UNMASKED_RENDERER_WEBGL
-        if (parameter === 37446) {
-            return 'Intel(R) Iris(R) Xe Graphics (0x9a49)';
-        }
-        return getParameterProto.apply(this, arguments);
+    // 3. Realistic Hardware & Device Fingerprint Spoofing
+    try {
+        Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8, configurable: true });
+        Object.defineProperty(navigator, 'deviceMemory', { get: () => 8, configurable: true });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'], configurable: true });
+        Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0, configurable: true });
+        Object.defineProperty(navigator, 'vendor', { get: () => 'Google Inc.', configurable: true });
+    } catch (e) {}
+
+    // 4. Mock Authentic Chrome Runtime & CSI
+    if (!window.chrome) {
+        window.chrome = {};
+    }
+    window.chrome.app = window.chrome.app || { isInstalled: false, InstallState: { DISABLED: 'disabled' }, RunningState: { CANNOT_RUN: 'cannot_run' } };
+    window.chrome.runtime = window.chrome.runtime || {
+        OnInstalledReason: { INSTALL: 'install', UPDATE: 'update', CHROME_UPDATE: 'chrome_update' },
+        PlatformOs: { MAC: 'mac', WIN: 'win', ANDROID: 'android', CROS: 'cros', LINUX: 'linux' },
+        PlatformArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' },
+        connect: () => {},
+        sendMessage: () => {}
+    };
+    window.chrome.csi = window.chrome.csi || function() {
+        return { startE: Date.now() - 1000, onloadT: Date.now() - 200, pageT: 800, tran: 15 };
     };
 
-    const getParameterProto2 = WebGL2RenderingContext ? WebGL2RenderingContext.prototype.getParameter : null;
-    if (getParameterProto2) {
-        WebGL2RenderingContext.prototype.getParameter = function(parameter) {
-            if (parameter === 37445) return 'Intel Inc.';
-            if (parameter === 37446) return 'Intel(R) Iris(R) Xe Graphics (0x9a49)';
-            return getParameterProto2.apply(this, arguments);
+    // 5. WebGL Vendor & Renderer Fingerprint Protection
+    try {
+        const getParameterProto = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function(parameter) {
+            if (parameter === 37445) return 'Intel Inc.'; // UNMASKED_VENDOR_WEBGL
+            if (parameter === 37446) return 'Intel(R) Iris(R) Xe Graphics (0x9a49)'; // UNMASKED_RENDERER_WEBGL
+            return getParameterProto.apply(this, arguments);
         };
-    }
 
-    // 4. Overwrite Permissions query for notifications
-    const originalQuery = window.navigator.permissions.query;
-    window.navigator.permissions.query = (parameters) => (
-        parameters.name === 'notifications' ?
-            Promise.resolve({ state: Notification.permission, onchange: null }) :
-            originalQuery(parameters)
-    );
-
-    // 5. Spoof Plugins list
-    Object.defineProperty(navigator, 'plugins', {
-        get: () => {
-            const plugins = [
-                { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-                { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' }
-            ];
-            plugins.item = (i) => plugins[i];
-            plugins.namedItem = (name) => plugins.find(p => p.name === name);
-            return plugins;
+        if (typeof WebGL2RenderingContext !== 'undefined') {
+            const getParameterProto2 = WebGL2RenderingContext.prototype.getParameter;
+            WebGL2RenderingContext.prototype.getParameter = function(parameter) {
+                if (parameter === 37445) return 'Intel Inc.';
+                if (parameter === 37446) return 'Intel(R) Iris(R) Xe Graphics (0x9a49)';
+                return getParameterProto2.apply(this, arguments);
+            };
         }
-    });
+    } catch (e) {}
+
+    // 6. Overwrite Permissions query for notifications
+    try {
+        const originalQuery = window.navigator.permissions.query;
+        window.navigator.permissions.query = (parameters) => (
+            parameters.name === 'notifications' ?
+                Promise.resolve({ state: Notification.permission, onchange: null }) :
+                originalQuery(parameters)
+        );
+    } catch (e) {}
+
+    // 7. Authentic Plugins List Spoofing
+    try {
+        Object.defineProperty(navigator, 'plugins', {
+            get: () => {
+                const plugins = [
+                    { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+                    { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' }
+                ];
+                plugins.item = (i) => plugins[i];
+                plugins.namedItem = (name) => plugins.find(p => p.name === name);
+                return plugins;
+            },
+            configurable: true
+        });
+    } catch (e) {}
 })();
 """
 
 
 # ==============================================================================
-# Helper Functions: Cookie & Proxy Parsers
+# Helper Functions: Cookie, Proxy & Lock Cleaners
 # ==============================================================================
+def clean_profile_locks(profile_dir: Optional[str]):
+    """Removes stale Chrome lock files that prevent Playwright persistent browser context startup."""
+    if not profile_dir or not os.path.exists(profile_dir):
+        return
+    lock_files = ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]
+    for fname in lock_files:
+        fpath = os.path.join(profile_dir, fname)
+        if os.path.exists(fpath) or os.path.islink(fpath):
+            try:
+                if os.path.islink(fpath) or os.path.isfile(fpath):
+                    os.unlink(fpath)
+                elif os.path.isdir(fpath):
+                    import shutil
+                    shutil.rmtree(fpath, ignore_errors=True)
+            except Exception:
+                pass
 def parse_cookie_payload(raw_cookies: str) -> List[Dict[str, Any]]:
     """
     Parses both JSON array cookie exports and raw semicolon string formats
@@ -464,6 +507,7 @@ class FacebookMarketplaceBot:
         ignore_default_args = ["--enable-automation"]
 
         async def launch_context_smart():
+            clean_profile_locks(user_data_dir)
             for ch in ["chrome", "msedge", None]:
                 try:
                     kwargs = {
@@ -484,10 +528,21 @@ class FacebookMarketplaceBot:
                     self.log("INFO", f"Launched full-screen browser using: {ch.upper() if ch else 'Chromium'}")
                     return ctx
                 except Exception as ex:
-                    if "Executable doesn't exist" in str(ex) or "Channel" in str(ex):
-                        continue
-                    raise ex
-            raise MarketplaceBotError("Could not find Google Chrome, Edge, or Chromium on this PC. Please install Google Chrome.")
+                    self.log("WARNING", f"Persistent launch attempt with channel={ch} notice: {str(ex)[:100]}")
+                    clean_profile_locks(user_data_dir)
+                    continue
+
+            # Fallback to standard launch if persistent context fails across channels
+            self.log("WARNING", "Persistent profile context locked or unavailable. Engaging standard browser launch with injected cookies...")
+            self.browser = await launch_browser_smart()
+            ctx = await self.browser.new_context(
+                user_agent=ua,
+                no_viewport=True,
+                locale="en-US",
+                timezone_id="America/New_York",
+                permissions=["geolocation", "notifications"]
+            )
+            return ctx
 
         async def launch_browser_smart():
             for ch in ["chrome", "msedge", None]:
@@ -504,10 +559,19 @@ class FacebookMarketplaceBot:
                     self.log("INFO", f"Launched full-screen browser using: {ch.upper() if ch else 'Chromium'}")
                     return b
                 except Exception as ex:
-                    if "Executable doesn't exist" in str(ex) or "Channel" in str(ex):
-                        continue
-                    raise ex
-            raise MarketplaceBotError("Could not find Google Chrome, Edge, or Chromium on this PC. Please install Google Chrome.")
+                    self.log("WARNING", f"Browser launch attempt with channel={ch} notice: {str(ex)[:100]}")
+                    continue
+            # Failsafe: Try launching without extension flags if extension failed
+            try:
+                self.log("WARNING", "Attempting failsafe browser launch without extension flags...")
+                b = await self.playwright.chromium.launch(
+                    headless=self.headless,
+                    args=["--disable-blink-features=AutomationControlled", "--start-maximized"],
+                    ignore_default_args=ignore_default_args
+                )
+                return b
+            except Exception as final_ex:
+                raise MarketplaceBotError(f"Could not launch Chrome or Chromium on this PC: {str(final_ex)}")
 
         try:
             if user_data_dir:
@@ -799,7 +863,38 @@ class FacebookMarketplaceBot:
 
         self.log("SUCCESS", f"✅ All {len(tabs)} Chrome tabs are now open simultaneously in the browser!")
 
-        # 3. Simultaneously navigate all tabs to the Marketplace listing creation form
+        # 3. Simultaneously navigate all tabs to the Marketplace homepage first
+        self.log("INFO", "🌐 Navigating all tabs simultaneously to Facebook Marketplace homepage...")
+        async def navigate_to_marketplace_home(tab_num: int, page_obj: Page):
+            await asyncio.sleep((tab_num - 1) * random.uniform(0.15, 0.3))
+            try:
+                await page_obj.goto("https://www.facebook.com/marketplace/", wait_until="domcontentloaded", timeout=45000)
+            except Exception as e:
+                self.log("WARNING", f"Tab [{tab_num}/{tabs_count}] homepage notice: {str(e)[:45]}")
+
+        await asyncio.gather(*[navigate_to_marketplace_home(i + 1, tabs[i]) for i in range(len(tabs))])
+        self.log("SUCCESS", "🎉 All tabs loaded at Facebook Marketplace homepage!")
+
+        # 4. Set Facebook ID Location on first tab and refresh all tabs
+        id_location = payload.get("id_location", "").strip()
+        if id_location:
+            self.log("INFO", f"📍 First tab: Updating primary Facebook ID / Account Location to '{id_location}'...")
+            set_ok = await self.set_account_marketplace_location(tabs[0], id_location)
+            if set_ok:
+                self.log("SUCCESS", f"✅ Successfully updated ID Location to '{id_location}' on first tab!")
+            else:
+                self.log("WARNING", "Could not complete setting ID Location directly, proceeding...")
+
+            self.log("INFO", "🔄 Refreshing all tabs so they inherit the new Account ID Location...")
+            async def reload_tab(tab_num: int, page_obj: Page):
+                try:
+                    await page_obj.reload(wait_until="domcontentloaded", timeout=30000)
+                except Exception as e:
+                    self.log("WARNING", f"Tab [{tab_num}/{tabs_count}] refresh notice: {str(e)[:45]}")
+            await asyncio.gather(*[reload_tab(i + 1, tabs[i]) for i in range(len(tabs))])
+            self.log("SUCCESS", "🎉 All tabs refreshed successfully!")
+
+        # 5. Simultaneously navigate all tabs to the Marketplace listing creation form
         ad_type = payload.get("listing_type", payload.get("ad_type", "item")).lower()
         if "vehicle" in ad_type or "car" in ad_type or "auto" in ad_type:
             create_url = "https://www.facebook.com/marketplace/create/vehicle"
@@ -808,21 +903,17 @@ class FacebookMarketplaceBot:
         else:
             create_url = "https://www.facebook.com/marketplace/create/item"
 
-        self.log("INFO", f"🌐 Navigating all {len(tabs)} tabs simultaneously to Marketplace create form ({create_url})...")
-
-        async def navigate_tab_safely(tab_num: int, page_obj: Page):
-            # Micro-stagger between tab navigation calls (150-350ms) to ensure socket throughput
-            await asyncio.sleep((tab_num - 1) * random.uniform(0.15, 0.3))
+        self.log("INFO", f"🌐 Opening Marketplace Listing Creation page on all tabs: {create_url}...")
+        async def navigate_to_create_form(tab_num: int, page_obj: Page):
             try:
                 await page_obj.goto(create_url, wait_until="domcontentloaded", timeout=45000)
-                await asyncio.sleep(random.uniform(0.5, 1.2))
             except Exception as e:
-                self.log("WARNING", f"Tab [{tab_num}/{tabs_count}] DOM load notice: {str(e)[:45]}")
+                self.log("WARNING", f"Tab [{tab_num}/{tabs_count}] creation load notice: {str(e)[:45]}")
 
-        await asyncio.gather(*[navigate_tab_safely(i + 1, tabs[i]) for i in range(len(tabs))])
-        self.log("SUCCESS", f"🎉 All {len(tabs)} tabs loaded at Marketplace listing interface!")
+        await asyncio.gather(*[navigate_to_create_form(i + 1, tabs[i]) for i in range(len(tabs))])
+        self.log("SUCCESS", "🎉 All tabs loaded at Marketplace listing creation form!")
 
-        # 4. Method Manager Verification & Live UI Fallback determination
+        # 6. Method Manager Verification & Live UI Fallback determination
         chosen_method = payload.get("method", "").replace("📁 ", "").strip()
         use_method_replay = False
 
@@ -837,89 +928,122 @@ class FacebookMarketplaceBot:
             elif HAS_MACRO_RECORDER:
                 use_method_replay = True
 
-        # 5. Process each tab: In Project Mode, fill all forms SIMULTANEOUSLY, then publish ALL tabs SIMULTANEOUSLY!
-        is_project_mode = bool(payload.get("project_tabs") and len(payload["project_tabs"]) > 0)
+        # 7. Process all tabs step-by-step in parallel
         success_count = 0
+        self.log("INFO", f"📁 STEP-BY-STEP PARALLEL AUTOMATION: Processing all {tabs_count} tab(s) simultaneously...")
 
-        if is_project_mode:
-            self.log("INFO", f"📁 PROJECT CAMPAIGN MODE: Filling form details SIMULTANEOUSLY across all {tabs_count} tab(s) in parallel...")
+        # Step 5a: Location Selection (Target Location / City First)
+        self.log("INFO", f"📍 Setting Target Locations simultaneously across all {tabs_count} tabs...")
+        async def _set_loc_task(i, p, payload):
+            loc = payload.get("location", "")
+            if loc:
+                self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Typing location '{loc}'")
+                await self._set_location_field(p, loc)
+        await asyncio.gather(*[_set_loc_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))])
+        await self.sleep(1.0)
 
-            async def fill_tab_simultaneously(t_idx, page_obj, p_load):
-                self.log("INFO", f"👉 Tab [{t_idx}/{tabs_count}]: Filling Title ('{p_load.get('title', '')[:25]}...'), Price (${p_load.get('price')}), Random Location ('{p_load.get('location')}')...")
-                return await self.create_marketplace_listing_on_page(page_obj, p_load, skip_publish=True)
+        # Step 5b: Product Title (Targeting ONLY Title Input)
+        self.log("INFO", f"✍️ Typing Titles simultaneously across all {tabs_count} tabs...")
+        async def _set_title_task(i, p, payload):
+            title = payload.get("title", "")
+            if title:
+                self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Typing title '{title[:25]}...'")
+                await self._set_title_field(p, title)
+        await asyncio.gather(*[_set_title_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))])
+        await self.sleep(1.0)
 
-            fill_results = await asyncio.gather(*[
-                fill_tab_simultaneously(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))
+        # Step 5c: Category Selection (Household, Appliances, Auto Parts, etc.)
+        self.log("INFO", f"🏷️ Selecting Categories simultaneously across all {tabs_count} tabs...")
+        async def _set_cat_task(i, p, payload):
+            cat = payload.get("category", "Household")
+            if cat:
+                self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Selecting category '{cat}'")
+                await self._set_category_field(p, cat)
+        await asyncio.gather(*[_set_cat_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))])
+        await self.sleep(1.0)
+
+        # Step 5d: Product Price (Targeting ONLY Price Input)
+        self.log("INFO", f"💲 Setting Prices simultaneously across all {tabs_count} tabs...")
+        async def _set_price_task(i, p, payload):
+            price = payload.get("price", "0")
+            clean_price = re.sub(r'[^0-9.]', '', str(price)) or "0"
+            self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Setting price ${clean_price}")
+            await self._set_price_field(p, clean_price)
+        await asyncio.gather(*[_set_price_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))])
+        await self.sleep(0.8)
+
+        # Step 5e: Condition Selection ("New")
+        self.log("INFO", f"⚙️ Setting Item Condition to 'New' simultaneously across all {tabs_count} tabs...")
+        async def _set_cond_task(i, p):
+            try:
+                await self._set_condition_field(p, "New")
+            except Exception as cond_err:
+                self.log("WARNING", f"Tab [{i+1}] Condition notice: {str(cond_err)[:40]}")
+        await asyncio.gather(*[_set_cond_task(i, tabs[i]) for i in range(len(tabs))])
+        await self.sleep(0.8)
+
+        # Step 5f: Description (Targeting ONLY Description Textarea)
+        self.log("INFO", f"📝 Filling Descriptions simultaneously across all {tabs_count} tabs...")
+        async def _set_desc_task(i, p, payload):
+            description = payload.get("description", "")
+            if description:
+                self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Typing description ({len(description)} chars)")
+                await self._set_description_field(p, description)
+        await asyncio.gather(*[_set_desc_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))])
+        await self.sleep(1.0)
+
+        # Step 5g: Upload Product Images (Randomized Image from Pool)
+        self.log("INFO", f"🖼️ Uploading product photos simultaneously across all {tabs_count} tabs...")
+        async def _upload_photos_task(i, p, payload):
+            images = payload.get("images", [])
+            if images:
+                valid_images = [os.path.abspath(img) for img in images if os.path.exists(img)]
+                if valid_images:
+                    upload_files = valid_images
+                    anti_dup_shield = payload.get("anti_dup_shield", True) or payload.get("anti_dup_rotate", True)
+                    
+                    if anti_dup_shield and IMAGE_PROCESSOR_AVAILABLE:
+                        try:
+                            cfg = AntiDuplicateConfig(
+                                strip_exif=payload.get("wipe_exif", True),
+                                min_rotation=-0.5 if payload.get("anti_dup_rotate", True) else 0.0,
+                                max_rotation=0.5 if payload.get("anti_dup_rotate", True) else 0.0,
+                                contrast_jitter=0.02 if payload.get("anti_dup_noise", True) else 0.0,
+                                brightness_jitter=0.02 if payload.get("anti_dup_noise", True) else 0.0
+                            )
+                            processor = AntiDuplicateImageProcessor(config=cfg)
+                            upload_files = processor.process_batch(valid_images, log_callback=self.log)
+                        except Exception as img_err:
+                            upload_files = valid_images
+                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Uploading {len(upload_files)} photo(s)")
+                    await self._upload_photos_to_page(p, upload_files)
+        await asyncio.gather(*[_upload_photos_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))])
+        await self.sleep(2.0)
+
+        # Step 5h: Advance through "Next" Step
+        self.log("INFO", f"➡️ Clicking 'Next' simultaneously across all {tabs_count} tabs...")
+        async def _next_task(i, p):
+            await self._click_button_with_text(p, ["Next", "اگلا"])
+        await asyncio.gather(*[_next_task(i, tabs[i]) for i in range(len(tabs))])
+        await self.sleep(2.0)
+
+        # Step 5i: 1 second pause before publishing all tabs simultaneously!
+        if not self._cancel_requested:
+            self.log("INFO", f"==================================================")
+            self.log("INFO", f"🔥 ALL {len(tabs)} TABS ARE FULLY PREPARED ON THE PUBLISH SCREEN!")
+            self.log("INFO", f"⏸️ Pausing exactly 1 second before clicking Publish for organic human realism...")
+            await asyncio.sleep(1.0) # Exact 1 second pause as requested!
+
+            self.log("INFO", f"🚀 CLICKING 'PUBLISH' BUTTON SIMULTANEOUSLY ACROSS ALL {len(tabs)} TABS...")
+            async def publish_tab_simultaneously(t_idx, page_obj, p_load):
+                return await self.publish_marketplace_listing_on_page(page_obj, p_load)
+
+            pub_results = await asyncio.gather(*[
+                publish_tab_simultaneously(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))
             ])
-
-            # Step B: All tabs are filled & at final Publish screen -> Trigger SIMULTANEOUS Publish across ALL tabs!
-            if not self._cancel_requested:
-                self.log("INFO", f"==================================================")
-                self.log("INFO", f"🔥 ALL {len(tabs)} TABS ARE FULLY PREPARED ON THE PUBLISH SCREEN!")
-                self.log("INFO", f"🚀 CLICKING 'PUBLISH' BUTTON SIMULTANEOUSLY ACROSS ALL {len(tabs)} TABS (0ms DELAY)...")
-
-                async def publish_tab_simultaneously(t_idx, page_obj, p_load):
-                    return await self.publish_marketplace_listing_on_page(page_obj, p_load)
-
-                pub_results = await asyncio.gather(*[
-                    publish_tab_simultaneously(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))
-                ])
-                success_count = sum(1 for r in pub_results if r)
-                self.set_progress(100)
-                self.log("SUCCESS", f"🎉 PROJECT CAMPAIGN COMPLETE: {success_count}/{tabs_count} tabs published simultaneously in parallel!")
-                return success_count
-        else:
-            # Standard & Bulk Sequential Flow
-            for idx, (tab_page, t_payload) in enumerate(zip(tabs, tab_payloads), 1):
-                if self._cancel_requested:
-                    self.log("WARNING", "🛑 Batch posting cancelled by user.")
-                    break
-
-                self.log("INFO", f"--------------------------------------------------")
-                self.log("INFO", f"👉 Tab [{idx}/{tabs_count}]: Activating tab in Chrome...")
-                try:
-                    await tab_page.bring_to_front()
-                    await self.sleep(random.uniform(0.6, 1.2))
-                except Exception:
-                    pass
-
-                self.set_progress(int(((idx - 1) / tabs_count) * 100))
-
-                tab_published = False
-                # Method Replay Flow
-                if use_method_replay and HAS_MACRO_RECORDER:
-                    try:
-                        self.log("INFO", f"⚡ Tab [{idx}/{tabs_count}]: Replaying method '{chosen_method}'...")
-                        player = MacroMethodPlayer(
-                            method_name=chosen_method,
-                            dynamic_params=t_payload,
-                            log_callback=self.log
-                        )
-                        method_ok = await player.execute(tab_page)
-                        if method_ok:
-                            tab_published = True
-                        else:
-                            self.log("WARNING", f"🔄 Tab [{idx}/{tabs_count}]: Replay step incomplete. Falling back to live UI inputs...")
-                            tab_published = await self.create_marketplace_listing_on_page(tab_page, t_payload)
-                    except Exception as replay_err:
-                        self.log("WARNING", f"🔄 Tab [{idx}/{tabs_count}]: Method error: {str(replay_err)[:50]}. Engaging live UI fallback...")
-                        tab_published = await self.create_marketplace_listing_on_page(tab_page, t_payload)
-                else:
-                    # Live UI Inputs Flow
-                    tab_published = await self.create_marketplace_listing_on_page(tab_page, t_payload)
-
-                if tab_published:
-                    success_count += 1
-                    self.log("SUCCESS", f"✅ Tab [{idx}/{tabs_count}] Published successfully! (Location: '{t_payload['location']}')")
-
-                # Anti-detection delay between tab interactions
-                if idx < tabs_count and not self._cancel_requested:
-                    cooldown = random.uniform(3.0, 5.5) if self.speed_mode == "slow" else random.uniform(1.8, 3.2)
-                    self.log("INFO", f"🛡️ Anti-detection cooldown: Pausing {cooldown:.1f}s before interacting with Tab [{idx + 1}]...")
-                    await self.sleep(cooldown)
-
+            success_count = sum(1 for r in pub_results if r)
             self.set_progress(100)
-            self.log("SUCCESS", f"🎉 Multi-Tab Engine Finished: {success_count}/{tabs_count} listings successfully broadcast!")
+            self.log("SUCCESS", f"🎉 PARALLEL BATCH COMPLETE: {success_count}/{tabs_count} tabs published simultaneously in parallel!")
             return success_count
 
     async def create_marketplace_listing(self, payload: Dict[str, Any]):

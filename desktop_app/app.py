@@ -11,6 +11,7 @@ import json
 import time
 import random
 import socket
+import uuid
 import platform
 import urllib.request
 import asyncio
@@ -259,7 +260,7 @@ QMainWindow {
 }
 
 QWidget {
-    color: #f1f5f9;
+    color: #0f172a;
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
     font-size: 13px;
     background-color: transparent;
@@ -267,7 +268,7 @@ QWidget {
 
 /* Fix Windows ScrollArea default white backgrounds */
 QScrollArea {
-    background-color: transparent !important;
+    background-color: #0f172a !important;
     border: none !important;
 }
 
@@ -277,18 +278,18 @@ QScrollArea > QWidget > QWidget {
 
 QScrollBar:vertical {
     background: transparent;
-    width: 7px;
+    width: 8px;
     margin: 0px;
 }
 
 QScrollBar::handle:vertical {
-    background: rgba(255, 255, 255, 0.20);
+    background: rgba(148, 163, 184, 0.40);
     min-height: 24px;
-    border-radius: 3px;
+    border-radius: 4px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: rgba(255, 255, 255, 0.40);
+    background: rgba(148, 163, 184, 0.70);
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
@@ -297,35 +298,43 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
     border: none;
 }
 
-/* Top Header Bar - Minimalist Dark Glassmorphic Style */
+/* Top Header Bar - Minimalist Dark Blue Glassmorphic Style */
 QFrame#topHeaderBar {
-    background-color: #0b101c;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0b1120, stop:1 #0f172a);
+    border: 1px solid rgba(255, 255, 255, 0.09);
     border-radius: 12px;
 }
 
-/* Sidebar - Frosted Glass iOS Style */
+QFrame#topHeaderBar QLabel {
+    color: #f8fafc;
+}
+
+/* Sidebar - Frosted Dark Blue Style */
 QFrame#sidebarFrame {
     background-color: #0b101c;
     border-right: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+QFrame#sidebarFrame QLabel {
+    color: #f8fafc;
+}
+
 QPushButton.navBtn {
-    background-color: rgba(255, 255, 255, 0.03);
-    color: rgba(255, 255, 255, 0.70);
+    background-color: rgba(255, 255, 255, 0.04);
+    color: #cbd5e1;
     text-align: left;
     padding: 11px 18px;
     border-radius: 11px;
     font-size: 13px;
     font-weight: 500;
-    border: 1px solid rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.05);
     margin: 2px 4px;
 }
 
 QPushButton.navBtn:hover {
-    background-color: rgba(255, 255, 255, 0.09);
+    background-color: rgba(255, 255, 255, 0.12);
     color: #ffffff;
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.20);
 }
 
 QPushButton.navBtnActive {
@@ -337,59 +346,61 @@ QPushButton.navBtnActive {
     margin: 2px 4px;
 }
 
-/* iOS Glassmorphic Frosted Content Cards */
-QFrame#topHeaderBar {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0b1120, stop:1 #0f172a);
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    border-radius: 12px;
-}
-
+/* Lighter Soft Slate Page Content Cards */
 QFrame.glassCard {
-    background-color: #111827;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background-color: #f1f5f9;
+    border: 1px solid #cbd5e1;
     border-radius: 14px;
     padding: 16px;
 }
 
 QFrame.glassCardHeader {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid #cbd5e1;
     padding-bottom: 10px;
     margin-bottom: 14px;
 }
 
-/* iOS Typography */
+/* Page Labels & Typography */
+QLabel {
+    color: #0f172a;
+    font-weight: 600;
+}
+
 QLabel.pageTitle {
     font-size: 22px;
     font-weight: 800;
-    color: #ffffff;
+    color: #f8fafc;
     letter-spacing: -0.4px;
 }
 
 QLabel.pageSubtitle {
     font-size: 13px;
-    color: #94a3b8;
+    color: #334155;
+    font-weight: 500;
 }
 
 QLabel.cardTitle {
     font-size: 15px;
-    font-weight: 700;
-    color: #f8fafc;
+    font-weight: 800;
+    color: #0f172a;
     letter-spacing: -0.2px;
 }
 
-/* Frosted Dark Inputs */
+/* Lighter, Crisp, Ultra-Readable Inputs & Form Fields */
 QLineEdit, QTextEdit, QComboBox, QSpinBox {
-    background-color: #1e293b;
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    background-color: #ffffff;
+    border: 1.5px solid #cbd5e1;
     border-radius: 9px;
-    color: #f8fafc;
+    color: #0f172a;
+    font-weight: 600;
     padding: 8px 12px;
     selection-background-color: #2563eb;
+    selection-color: #ffffff;
 }
 
 QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus {
-    border: 1px solid #3b82f6;
-    background-color: #243147;
+    border: 2px solid #2563eb;
+    background-color: #ffffff;
 }
 
 QComboBox::drop-down {
@@ -398,10 +409,11 @@ QComboBox::drop-down {
 }
 
 QComboBox QAbstractItemView {
-    background-color: #1e293b;
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    background-color: #ffffff;
+    border: 1.5px solid #2563eb;
     selection-background-color: #2563eb;
-    color: #ffffff;
+    selection-color: #ffffff;
+    color: #0f172a;
     border-radius: 8px;
     padding: 4px;
 }
@@ -410,8 +422,8 @@ QComboBox QAbstractItemView {
 QPushButton.primaryBtn {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2563eb, stop:1 #3b82f6);
     color: #ffffff;
-    font-weight: 600;
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    font-weight: 700;
+    border: 1px solid #1d4ed8;
     border-radius: 10px;
     padding: 9px 20px;
 }
@@ -424,7 +436,7 @@ QPushButton.successBtn {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #15803d, stop:1 #16a34a);
     color: #ffffff;
     font-weight: 700;
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    border: 1px solid #15803d;
     border-radius: 10px;
     padding: 10px 22px;
     font-size: 13px;
@@ -437,8 +449,8 @@ QPushButton.successBtn:hover {
 QPushButton.dangerBtn {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #b91c1c, stop:1 #dc2626);
     color: #ffffff;
-    font-weight: 600;
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    font-weight: 700;
+    border: 1px solid #b91c1c;
     border-radius: 10px;
     padding: 9px 20px;
 }
@@ -448,69 +460,74 @@ QPushButton.dangerBtn:hover {
 }
 
 QPushButton.secondaryBtn {
-    background-color: rgba(255, 255, 255, 0.07);
-    color: #f1f5f9;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background-color: #e2e8f0;
+    color: #0f172a;
+    font-weight: 700;
+    border: 1px solid #cbd5e1;
     border-radius: 10px;
     padding: 8px 16px;
 }
 
 QPushButton.secondaryBtn:hover {
-    background-color: rgba(255, 255, 255, 0.14);
-    border: 1px solid rgba(255, 255, 255, 0.22);
+    background-color: #cbd5e1;
+    border: 1px solid #94a3b8;
 }
 
-/* Tables */
+/* Lighter High-Contrast Tables */
 QTableWidget {
-    background-color: #0f172a;
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    background-color: #ffffff;
+    color: #0f172a;
+    border: 1px solid #cbd5e1;
     border-radius: 11px;
-    gridline-color: rgba(255, 255, 255, 0.05);
+    gridline-color: #e2e8f0;
 }
 
 QTableWidget::item {
+    color: #0f172a;
     padding: 7px 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    border-bottom: 1px solid #e2e8f0;
+    font-weight: 500;
 }
 
 QTableWidget::item:selected {
-    background-color: rgba(37, 99, 235, 0.35);
+    background-color: #2563eb;
     color: #ffffff;
 }
 
 QHeaderView::section {
     background-color: #1e293b;
-    color: #cbd5e1;
-    font-weight: 600;
-    font-size: 11px;
+    color: #38bdf8;
+    font-weight: 700;
+    font-size: 12px;
     padding: 8px 10px;
     border: none;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+    border-bottom: 2px solid #0284c7;
 }
 
 /* Checkboxes */
 QCheckBox {
-    color: #e2e8f0;
+    color: #0f172a;
+    font-weight: 600;
     spacing: 8px;
 }
 
 QCheckBox::indicator {
     width: 18px;
     height: 18px;
-    background-color: #1e293b;
-    border: 1.5px solid rgba(255, 255, 255, 0.22);
+    background-color: #ffffff;
+    border: 1.5px solid #94a3b8;
     border-radius: 5px;
 }
 
 QCheckBox::indicator:checked {
     background-color: #2563eb;
-    border-color: #3b82f6;
+    border-color: #1d4ed8;
 }
 
 /* Console Box */
 QTextEdit#consoleBox {
-    background-color: #050811;
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    background-color: #0f172a;
+    border: 1px solid #334155;
     border-radius: 12px;
     color: #4ade80;
     font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
@@ -520,13 +537,13 @@ QTextEdit#consoleBox {
 
 /* Progress Bar */
 QProgressBar {
-    background-color: #1e293b;
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    background-color: #e2e8f0;
+    border: 1px solid #cbd5e1;
     border-radius: 7px;
     text-align: center;
-    color: #ffffff;
+    color: #0f172a;
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 800;
     height: 16px;
 }
 
@@ -535,7 +552,7 @@ QProgressBar::chunk {
     border-radius: 6px;
 }
 
-/* All Dialogs, Input Boxes, and Message Boxes Dark Mode */
+/* All Dialogs, Input Boxes, and Message Boxes */
 QDialog, QMessageBox, QInputDialog {
     background-color: #0f172a !important;
     color: #f8fafc !important;
@@ -561,8 +578,8 @@ QDialog QPushButton:hover, QMessageBox QPushButton:hover, QInputDialog QPushButt
 }
 
 QDialog QLineEdit, QInputDialog QLineEdit {
-    background-color: #1e293b;
-    color: #ffffff;
+    background-color: #ffffff;
+    color: #0f172a;
     border: 1px solid #3b82f6;
     border-radius: 8px;
     padding: 8px 12px;
@@ -903,7 +920,7 @@ class GroupAutomationWorker(QThread):
         self.log_signal.emit("INFO", f"🧩 Chrome Extension: FEWFEED pre-loaded across all {threads} concurrent browser instance(s).")
 
         total_accs = len(accounts)
-        effective_threads = max(threads, total_accs)
+        effective_threads = min(threads, total_accs)
         tasks = []
         semaphore = asyncio.Semaphore(effective_threads)
 
@@ -2583,9 +2600,9 @@ class FBAutoBotMainWindow(QMainWindow):
         form_title.setProperty("class", "cardTitle")
         form_layout.addWidget(form_title)
 
-        form_layout.addWidget(QLabel("Account Identifier / Alias:"))
+        form_layout.addWidget(QLabel("Account Identifier / Alias (Optional - Auto-detected if blank):"))
         self.acc_name_input = QLineEdit()
-        self.acc_name_input.setPlaceholderText("e.g., ShopUSA_MainProfile")
+        self.acc_name_input.setPlaceholderText("Optional (Leave blank to auto-detect from cookies)")
         form_layout.addWidget(self.acc_name_input)
 
         cookie_header_layout = QHBoxLayout()
@@ -2888,13 +2905,36 @@ class FBAutoBotMainWindow(QMainWindow):
             proxy = self.proxy_host.text().strip() or "Direct (No Proxy)"
             notes = self.acc_notes_input.text().strip()
 
-            if not name or not cookies:
-                QMessageBox.warning(self, "Validation Notice", "Please enter an Account Alias/Name and paste your Facebook cookies.")
+            if not cookies:
+                QMessageBox.warning(self, "Validation Notice", "Please paste your Facebook session cookies.")
                 return
 
-            acc_id = re.sub(r'[^a-zA-Z0-9_-]', '_', name).lower()
-            if not acc_id.startswith("acc_"):
-                acc_id = f"acc_{acc_id}"
+            # Extract c_user ID from cookies if name is not provided
+            c_user_val = ""
+            c_match = re.search(r'c_user[":=]+(\d+)', cookies) or re.search(r'c_user[\s:=]+(\d+)', cookies)
+            if c_match:
+                c_user_val = c_match.group(1)
+            else:
+                try:
+                    c_json = json.loads(cookies)
+                    if isinstance(c_json, list):
+                        for item in c_json:
+                            if isinstance(item, dict) and item.get("name") == "c_user":
+                                c_user_val = str(item.get("value", ""))
+                                break
+                except Exception:
+                    pass
+
+            if not name:
+                if c_user_val:
+                    name = f"FB_{c_user_val}"
+                else:
+                    name = f"FB_Account_{datetime.now().strftime('%M%S')}"
+
+            clean_slug = re.sub(r'[^a-zA-Z0-9_-]', '_', name).lower()
+            acc_id = f"acc_{clean_slug}_{uuid.uuid4().hex[:4]}"
+
+            initial_status = "Testing..."
 
             if self.session_manager:
                 self.session_manager.save_account(
@@ -2906,7 +2946,7 @@ class FBAutoBotMainWindow(QMainWindow):
                     proxy_user=self.proxy_user.text().strip(),
                     proxy_pass=self.proxy_pass.text().strip(),
                     notes=notes,
-                    status="Healthy"
+                    status=initial_status
                 )
                 self.accounts_list = self.session_manager.list_accounts()
             else:
@@ -2919,15 +2959,14 @@ class FBAutoBotMainWindow(QMainWindow):
                     "proxy_pass": self.proxy_pass.text().strip(),
                     "cookies": cookies,
                     "notes": notes,
-                    "status": "Healthy",
+                    "status": initial_status,
                     "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
 
             self.refresh_accounts_table()
             self.update_account_dropdown()
             self.refresh_dashboard_metrics()
-            self.log_message("SUCCESS", f"Account profile '{name}' saved successfully to vault!")
-            self.log_message("INFO", "💡 Tip: Select this account in the table and click 'Open Facebook in Browser' to view it live.")
+            self.log_message("SUCCESS", f"Account '{name}' saved from cookie! Running automated session health & profile audit...")
 
             self.acc_name_input.clear()
             self.acc_cookies_input.clear()
@@ -2936,10 +2975,16 @@ class FBAutoBotMainWindow(QMainWindow):
             self.proxy_pass.clear()
             self.acc_notes_input.clear()
 
+            # Automatically trigger session health check and name resolution in background
+            self.health_worker = SessionHealthWorker(acc_id)
+            self.health_worker.log_signal.connect(self.log_message)
+            self.health_worker.finished_signal.connect(self.on_session_health_finished)
+            self.health_worker.start()
+
             QMessageBox.information(
                 self,
-                "Profile Saved",
-                f"Account '{name}' has been added to the vault!\n\nTo view this Facebook account live, select it and click 'Open Facebook in Browser'."
+                "Account Profile Added",
+                f"Account '{name}' has been added to the vault!\n\nA background health audit is running to verify cookies and fetch profile details."
             )
         except Exception as e:
             self.log_message("ERROR", f"Failed to save account profile: {str(e)}")
@@ -3394,17 +3439,7 @@ class FBAutoBotMainWindow(QMainWindow):
         row2.addLayout(col_cat, stretch=2)
 
         col_t = QVBoxLayout()
-        t_header = QHBoxLayout()
-        t_header.addWidget(QLabel("Listing Title (Max 100 chars):"))
-        t_header.addStretch()
-        self.btn_spin_title = QPushButton("✨ Auto-Spin via AI")
-        self.btn_spin_title.setProperty("class", "secondaryBtn")
-        self.btn_spin_title.setCursor(Qt.PointingHandCursor)
-        self.btn_spin_title.setStyleSheet("font-size: 11px; padding: 2px 8px; color: #a5b4fc;")
-        self.btn_spin_title.clicked.connect(self.quick_spin_title)
-        t_header.addWidget(self.btn_spin_title)
-        col_t.addLayout(t_header)
-
+        col_t.addWidget(QLabel("Listing Title (Max 100 chars):"))
         self.title_input = QLineEdit()
         self.title_input.setPlaceholderText("e.g., Household Modern Living Room Set / Auto Parts Premium Replacement")
         col_t.addWidget(self.title_input)
@@ -3412,7 +3447,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         f_layout.addLayout(row2)
 
-        # Row 3: Price and Target Locations Pool
+        # Row 3: Price, ID Location, and Listing Location Pool
         row3 = QHBoxLayout()
         col_p = QVBoxLayout()
         col_p.addWidget(QLabel("Price ($ USD / Amount):"))
@@ -3420,8 +3455,15 @@ class FBAutoBotMainWindow(QMainWindow):
         self.price_input.setPlaceholderText("150")
         col_p.addWidget(self.price_input)
 
+        col_id_loc = QVBoxLayout()
+        col_id_loc.addWidget(QLabel("ID Location (آئی ڈی لوکیشن):"))
+        self.id_location_input = QLineEdit()
+        self.id_location_input.setPlaceholderText("e.g., New York, NY")
+        self.id_location_input.setToolTip("Sets the Facebook ID's primary Marketplace location on the homepage before listing.")
+        col_id_loc.addWidget(self.id_location_input)
+
         col_loc = QVBoxLayout()
-        col_loc.addWidget(QLabel("Target Locations / Cities Pool (Randomized per Ad):"))
+        col_loc.addWidget(QLabel("Listing Location (لسٹنگ لوکیشن):"))
         self.location_input = QTextEdit()
         self.location_input.setPlaceholderText("e.g., Los Angeles, CA\nNew York, NY\nChicago, IL\nHouston, TX\nMiami, FL (1 location per line or comma-separated)")
         self.location_input.setFixedHeight(65)
@@ -3429,20 +3471,12 @@ class FBAutoBotMainWindow(QMainWindow):
         col_loc.addWidget(self.location_input)
 
         row3.addLayout(col_p, stretch=1)
+        row3.addLayout(col_id_loc, stretch=2)
         row3.addLayout(col_loc, stretch=3)
         f_layout.addLayout(row3)
 
         # Row 4: Description
-        d_header = QHBoxLayout()
-        d_header.addWidget(QLabel("Product Description:"))
-        d_header.addStretch()
-        self.btn_spin_desc = QPushButton("✨ Auto-Spin via AI")
-        self.btn_spin_desc.setProperty("class", "secondaryBtn")
-        self.btn_spin_desc.setCursor(Qt.PointingHandCursor)
-        self.btn_spin_desc.setStyleSheet("font-size: 11px; padding: 2px 8px; color: #a5b4fc;")
-        self.btn_spin_desc.clicked.connect(self.quick_spin_desc)
-        d_header.addWidget(self.btn_spin_desc)
-        f_layout.addLayout(d_header)
+        f_layout.addWidget(QLabel("Product Description:"))
 
         self.desc_input = QTextEdit()
         self.desc_input.setPlaceholderText("Write details, specifications, payment terms, and pickup notes...")
@@ -4224,19 +4258,10 @@ class FBAutoBotMainWindow(QMainWindow):
         r1.addLayout(col_cat, stretch=2)
         f_layout.addLayout(r1)
 
-        # Row 2: Title & AI Spin
+        # Row 2: Title
         r2 = QHBoxLayout()
         col_t = QVBoxLayout()
-        t_hdr = QHBoxLayout()
-        t_hdr.addWidget(QLabel("Listing Title (Max 100 chars):"))
-        t_hdr.addStretch()
-        btn_spin_t = QPushButton("✨ Auto-Spin via AI")
-        btn_spin_t.setProperty("class", "secondaryBtn")
-        btn_spin_t.setStyleSheet("font-size: 11px; padding: 2px 8px; color: #a5b4fc;")
-        btn_spin_t.setCursor(Qt.PointingHandCursor)
-        btn_spin_t.clicked.connect(self.quick_spin_project_tab_title)
-        t_hdr.addWidget(btn_spin_t)
-        col_t.addLayout(t_hdr)
+        col_t.addWidget(QLabel("Listing Title (Max 100 chars):"))
 
         self.proj_title_input = QLineEdit()
         self.proj_title_input.setPlaceholderText("e.g., Apple iPhone 15 Pro Max 256GB Unlocked - Brand New")
@@ -4263,17 +4288,8 @@ class FBAutoBotMainWindow(QMainWindow):
         r3.addLayout(col_loc, stretch=3)
         f_layout.addLayout(r3)
 
-        # Row 4: Product Description & AI Spin
-        d_hdr = QHBoxLayout()
-        d_hdr.addWidget(QLabel("Product Description:"))
-        d_hdr.addStretch()
-        btn_spin_d = QPushButton("✨ Auto-Spin via AI")
-        btn_spin_d.setProperty("class", "secondaryBtn")
-        btn_spin_d.setStyleSheet("font-size: 11px; padding: 2px 8px; color: #a5b4fc;")
-        btn_spin_d.setCursor(Qt.PointingHandCursor)
-        btn_spin_d.clicked.connect(self.quick_spin_project_tab_desc)
-        d_hdr.addWidget(btn_spin_d)
-        f_layout.addLayout(d_hdr)
+        # Row 4: Product Description
+        f_layout.addWidget(QLabel("Product Description:"))
 
         self.proj_desc_input = QTextEdit()
         self.proj_desc_input.setPlaceholderText("Write details, specifications, payment terms, and pickup notes...")
@@ -4397,7 +4413,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         self.proj_title_input.setText(tdata.get("title", ""))
         self.proj_price_input.setText(str(tdata.get("price", "0")))
-        self.proj_location_input.setText(tdata.get("location", ""))
+        self.proj_location_input.setPlainText(tdata.get("location", ""))
         self.proj_desc_input.setPlainText(tdata.get("description", ""))
 
         imgs = tdata.get("images", [])
@@ -4428,7 +4444,7 @@ class FBAutoBotMainWindow(QMainWindow):
             "category": self.proj_category_select.currentText(),
             "title": self.proj_title_input.text().strip(),
             "price": self.proj_price_input.text().strip() or "0",
-            "location": self.proj_location_input.text().strip() or "Local Radius",
+            "location": self.proj_location_input.toPlainText().strip() or "Local Radius",
             "description": self.proj_desc_input.toPlainText().strip(),
             "images": getattr(self, 'project_tab_images', []),
             "anti_dup_shield": self.proj_chk_shield.isChecked(),
@@ -4753,7 +4769,8 @@ class FBAutoBotMainWindow(QMainWindow):
             "title": title,
             "price": price or "0",
             "category": self.category_select.currentText(),
-            "location": self.location_input.text().strip() or "Local Radius",
+            "id_location": self.id_location_input.text().strip() if hasattr(self, 'id_location_input') else "",
+            "location": self.location_input.toPlainText().strip() or "Local Radius",
             "description": self.desc_input.toPlainText().strip(),
             "tabs_count": tabs_count,
             "posts_per_id": tabs_count,
@@ -4871,9 +4888,26 @@ class FBAutoBotMainWindow(QMainWindow):
         self.grp_acc_scroll.setWidget(self.grp_acc_widget)
         acc_card_layout.addWidget(self.grp_acc_scroll)
 
+        acc_bottom_row = QHBoxLayout()
         self.grp_acc_summary_lbl = QLabel("🎯 0 Accounts Selected")
         self.grp_acc_summary_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
-        acc_card_layout.addWidget(self.grp_acc_summary_lbl)
+        acc_bottom_row.addWidget(self.grp_acc_summary_lbl)
+        acc_bottom_row.addStretch()
+
+        concurrent_lbl = QLabel("🌐 How Many Open Chrome Browsers:")
+        concurrent_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        acc_bottom_row.addWidget(concurrent_lbl)
+
+        self.grp_max_concurrent_browsers = QSpinBox()
+        self.grp_max_concurrent_browsers.setRange(1, 50)
+        self.grp_max_concurrent_browsers.setValue(3)
+        self.grp_max_concurrent_browsers.setSuffix(" browsers")
+        self.grp_max_concurrent_browsers.setFixedWidth(120)
+        self.grp_max_concurrent_browsers.setStyleSheet("font-weight: 800; color: #10b981; background: #0f172a; border: 1px solid #38bdf8; border-radius: 4px; padding: 2px 4px;")
+        self.grp_max_concurrent_browsers.setToolTip("Example: Set to 3. If 10 accounts are selected, 3 Chrome browsers run at a time. As each account finishes, the next browser opens automatically.")
+        acc_bottom_row.addWidget(self.grp_max_concurrent_browsers)
+
+        acc_card_layout.addLayout(acc_bottom_row)
 
         layout.addWidget(acc_card)
 
@@ -5207,7 +5241,7 @@ class FBAutoBotMainWindow(QMainWindow):
             return
 
         mode = "Random" if "Random" in self.grp_post_mode_select.currentText() else "Sequential"
-        threads = max(self.grp_post_thread_spin.value(), self.grp_join_thread_spin.value())
+        threads = self.grp_max_concurrent_browsers.value() if hasattr(self, 'grp_max_concurrent_browsers') else 3
         delay = self.grp_post_delay_spin.value()
 
         cf_email = "codeabm71@gmail.com"
@@ -5448,14 +5482,14 @@ class FBAutoBotMainWindow(QMainWindow):
         api_key = self.ai_api_key_input.text().strip() if hasattr(self, 'ai_api_key_input') else os.environ.get("GEMINI_API_KEY", "")
 
         self.log_message("INFO", f"✨ Auto-Spin Title: Processing variant for '{seed}'...")
-        self.btn_spin_title.setEnabled(False)
+        if hasattr(self, 'btn_spin_title'): self.btn_spin_title.setEnabled(False)
 
         def on_done(titles):
             if titles:
                 new_title = titles[0]
                 self.title_input.setText(new_title)
                 self.log_message("SUCCESS", f"✨ Title spun: '{new_title}'")
-            self.btn_spin_title.setEnabled(True)
+            if hasattr(self, 'btn_spin_title'): self.btn_spin_title.setEnabled(True)
 
         self.ai_worker = AISpinnerWorker(
             task_type="titles",
@@ -5475,14 +5509,14 @@ class FBAutoBotMainWindow(QMainWindow):
         api_key = self.ai_api_key_input.text().strip() if hasattr(self, 'ai_api_key_input') else os.environ.get("GEMINI_API_KEY", "")
 
         self.log_message("INFO", f"✨ Auto-Spin Description: Generating unique structured rewrite for '{title}'...")
-        self.btn_spin_desc.setEnabled(False)
+        if hasattr(self, 'btn_spin_desc'): self.btn_spin_desc.setEnabled(False)
 
         def on_done(descs):
             if descs:
                 new_desc = descs[0]
                 self.desc_input.setPlainText(new_desc)
                 self.log_message("SUCCESS", f"✨ Description rewritten with bullet points & specs ({len(new_desc.splitlines())} lines).")
-            self.btn_spin_desc.setEnabled(True)
+            if hasattr(self, 'btn_spin_desc'): self.btn_spin_desc.setEnabled(True)
 
         self.ai_worker = AISpinnerWorker(
             task_type="descriptions",

@@ -348,8 +348,8 @@ class SessionManager:
             return True
         return False
 
-    def update_account_status(self, account_id: str, status: str, details: str = ""):
-        """Updates health status and last_checked timestamp for an account."""
+    def update_account_status(self, account_id: str, status: str, details: str = "", display_name: str = ""):
+        """Updates health status, display_name, and last_checked timestamp for an account."""
         accounts = self.list_accounts()
         for acc in accounts:
             if acc.get("id") == account_id or acc.get("name") == account_id:
@@ -357,6 +357,8 @@ class SessionManager:
                 acc["last_checked"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 if details:
                     acc["last_check_detail"] = details
+                if display_name and display_name.strip():
+                    acc["name"] = display_name.strip()
                 break
         self.save_accounts(accounts)
 
@@ -467,6 +469,7 @@ class SessionManager:
                 status = "Needs Login"
                 detail = "Unknown session state"
 
+                detected_name = ""
                 if "checkpoint" in current_url or "two_step_verification" in current_url:
                     status = "Checkpoint"
                     detail = "Facebook Checkpoint / 2FA challenge detected"
@@ -498,8 +501,35 @@ class SessionManager:
                             detail = "Authentication cookies invalid"
                             log("WARNING", f"Account '{acc_name}' lacks valid c_user token.")
 
+                    # Try extracting Facebook display name from page DOM when healthy
+                    if status == "Healthy":
+                        try:
+                            extracted = await page.evaluate("""() => {
+                                const profileLink = document.querySelector('a[href*="/me/"], a[aria-label*="Your profile"], a[href*="profile.php"]');
+                                if (profileLink) {
+                                    const ariaLabel = profileLink.getAttribute('aria-label');
+                                    if (ariaLabel && !ariaLabel.toLowerCase().includes('your profile') && ariaLabel.trim().length > 1) {
+                                        return ariaLabel.trim();
+                                    }
+                                    const text = profileLink.innerText || profileLink.textContent;
+                                    if (text && text.trim().length > 1 && !text.toLowerCase().includes('profile')) {
+                                        return text.trim();
+                                    }
+                                }
+                                const title = document.title;
+                                if (title && !title.toLowerCase().startsWith('facebook') && !title.toLowerCase().includes('log in') && title.includes('Facebook')) {
+                                    return title.replace(' | Facebook', '').replace(' - Facebook', '').trim();
+                                }
+                                return null;
+                            }""")
+                            if extracted and len(str(extracted).strip()) > 1:
+                                detected_name = str(extracted).strip()
+                                log("INFO", f"Detected Facebook profile name: '{detected_name}'")
+                        except Exception as ne:
+                            log("INFO", f"Name extraction notice: {str(ne)[:60]}")
+
                 await context.close()
-                self.update_account_status(account["id"], status, detail)
+                self.update_account_status(account["id"], status, detail, display_name=detected_name)
                 return status, detail
 
             except Exception as e:

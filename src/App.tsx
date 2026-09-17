@@ -39,6 +39,7 @@ export default function App() {
   const [simPrice, setSimPrice] = useState('150');
   const [simCategory, setSimCategory] = useState('Household');
   const [simTabsCount, setSimTabsCount] = useState<number>(10);
+  const [simIdLocation, setSimIdLocation] = useState('New York, NY');
   const [simLocation, setSimLocation] = useState('Los Angeles, CA, New York, NY, Chicago, IL, Houston, TX, Miami, FL, Phoenix, AZ, Philadelphia, PA, San Antonio, TX, San Diego, CA, Dallas, TX');
   const [simDescription, setSimDescription] = useState('High quality item in excellent condition. Available for immediate pickup or same-day local dropoff. Cash or digital payment accepted.');
   const [simSpeed, setSimSpeed] = useState('Normal (15-30s)');
@@ -433,16 +434,29 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-300 mb-1.5">Target Locations Pool (Randomized 1 per Tab/Ad)</label>
-                          <input
-                            id="input-sim-location"
-                            type="text"
-                            value={simLocation}
-                            onChange={e => setSimLocation(e.target.value)}
-                            className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
-                            placeholder="e.g. Los Angeles, CA, New York, NY, Chicago, IL, Miami, FL, Houston, TX (Enter 50+ locations)"
-                          />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">ID Location (آئی ڈی لوکیشن)</label>
+                            <input
+                              id="input-sim-id-location"
+                              type="text"
+                              value={simIdLocation}
+                              onChange={e => setSimIdLocation(e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
+                              placeholder="e.g. New York, NY"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Listing Location (لسٹنگ لوکیشن)</label>
+                            <input
+                              id="input-sim-location"
+                              type="text"
+                              value={simLocation}
+                              onChange={e => setSimLocation(e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
+                              placeholder="e.g. Los Angeles, CA, New York, NY, Chicago, IL, Miami, FL, Houston, TX"
+                            />
+                          </div>
                         </div>
 
                         <div>

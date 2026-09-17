@@ -280,7 +280,22 @@ class FacebookGroupBot:
         if profile_dir:
             os.makedirs(profile_dir, exist_ok=True)
 
+        # Clear profile locks to prevent SingletonLock errors
+        if profile_dir and os.path.exists(profile_dir):
+            for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
+                fpath = os.path.join(profile_dir, fname)
+                if os.path.exists(fpath) or os.path.islink(fpath):
+                    try:
+                        if os.path.islink(fpath) or os.path.isfile(fpath):
+                            os.unlink(fpath)
+                        elif os.path.isdir(fpath):
+                            import shutil
+                            shutil.rmtree(fpath, ignore_errors=True)
+                    except Exception:
+                        pass
+
         # Launch browser with strict mobile metrics and mobile emulation
+        self.context = None
         for ch in ["chrome", "msedge", None]:
             try:
                 kwargs = {
@@ -304,12 +319,38 @@ class FacebookGroupBot:
                 self.log("INFO", f"Launched mobile Chrome browser using {ch.upper() if ch else 'Chromium'} with FEWFEED loaded.")
                 break
             except Exception as ex:
-                if "Executable doesn't exist" in str(ex) or "Channel" in str(ex):
-                    continue
-                self.log("WARNING", f"Browser launch notice with {ch}: {str(ex)[:100]}")
+                self.log("WARNING", f"Mobile launch attempt with channel={ch} notice: {str(ex)[:100]}")
+                if profile_dir and os.path.exists(profile_dir):
+                    for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
+                        fpath = os.path.join(profile_dir, fname)
+                        if os.path.exists(fpath) or os.path.islink(fpath):
+                            try: os.unlink(fpath)
+                            except Exception: pass
+                continue
 
         if not self.context:
-            raise RuntimeError("Failed to launch Chrome or Edge. Ensure Google Chrome is installed.")
+            # Fallback to standard launch (non-persistent)
+            self.log("WARNING", "Persistent profile context locked or unavailable. Engaging standard browser launch...")
+            try:
+                launch_kw = {
+                    "headless": False,
+                    "args": launch_args,
+                    "ignore_default_args": ignore_default_args,
+                    "proxy": proxy_cfg
+                }
+                self.browser = await self.playwright.chromium.launch(**launch_kw)
+                self.context = await self.browser.new_context(
+                    user_agent=MOBILE_SMARTPHONE_USER_AGENT,
+                    viewport={"width": 430, "height": 900},
+                    device_scale_factor=1.0,
+                    is_mobile=True,
+                    has_touch=True,
+                    locale="en-US",
+                    permissions=["geolocation", "notifications"]
+                )
+                self.log("INFO", "Launched standard mobile Chrome browser (non-persistent fallsafes).")
+            except Exception as final_ex:
+                raise RuntimeError(f"Failed to launch Chrome or Edge: {str(final_ex)}")
 
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
 
@@ -372,21 +413,22 @@ class FacebookGroupBot:
         self.log("SUCCESS", "Facebook authentication confirmed.")
 
     # --------------------------------------------------------------------------
+    # --------------------------------------------------------------------------
     # FewFeed Web Extension Dashboard Navigation & Tool Automation
     # --------------------------------------------------------------------------
-    async def open_fewfeed_dashboard(self):
-        """Navigates to FewFeed Web Extension dashboard and handles automatic CueFeed login & persistent profile state."""
-        self.log("INFO", "🌐 Navigating to FewFeed Dashboard (https://fewfeed.app)...")
+    async def open_fewfeed_tool_page(self, target_url: str):
+        """Directly navigates to the specific FewFeed tool URL and ensures FewFeed + FB attachment."""
+        self.log("INFO", f"🌐 Navigating directly to FewFeed Tool: {target_url}...")
         try:
-            await self.page.goto("https://fewfeed.app/", wait_until="domcontentloaded", timeout=40000)
-            await asyncio.sleep(2.5)
+            await self.page.goto(target_url, wait_until="domcontentloaded", timeout=40000)
+            await asyncio.sleep(2.0)
         except Exception as e:
-            self.log("WARNING", f"FewFeed navigation notice: {str(e)[:90]}. Retrying...")
+            self.log("WARNING", f"FewFeed tool navigation notice: {str(e)[:80]}. Retrying...")
             try:
-                await self.page.goto("https://fewfeed.app/", wait_until="load", timeout=30000)
+                await self.page.goto(target_url, wait_until="load", timeout=30000)
                 await asyncio.sleep(2.0)
             except Exception as e2:
-                self.log("ERROR", f"Could not reach fewfeed.app: {str(e2)[:90]}")
+                self.log("ERROR", f"Could not reach {target_url}: {str(e2)[:80]}")
 
         # Check for CueFeed / FewFeed login form or signin page redirect
         try:
@@ -399,15 +441,15 @@ class FacebookGroupBot:
                 is_signin_page = "signin" in self.page.url.lower() or "login" in self.page.url.lower()
 
                 if (email_inp and pass_inp and await email_inp.is_visible()) or is_signin_page:
-                    self.log("INFO", f"🔑 Auto-logging into FewFeed Extension Account ({cf_email})...")
+                    self.log("INFO", f"🔑 Auto-logging into FewFeed Account ({cf_email})...")
                     if email_inp and await email_inp.is_visible():
                         await email_inp.click()
                         await email_inp.fill(cf_email)
-                        await asyncio.sleep(0.4)
+                        await asyncio.sleep(0.3)
                     if pass_inp and await pass_inp.is_visible():
                         await pass_inp.click()
                         await pass_inp.fill(cf_pass)
-                        await asyncio.sleep(0.4)
+                        await asyncio.sleep(0.3)
 
                     login_btn = await self.page.query_selector("button:has-text('Sign In'), button:has-text('Sign in'), button:has-text('Login'), button:has-text('Log in'), button[type='submit'], input[type='submit']")
                     if login_btn and await login_btn.is_visible():
@@ -415,23 +457,46 @@ class FacebookGroupBot:
                     elif pass_inp:
                         await pass_inp.press("Enter")
 
-                    await asyncio.sleep(4.0)
-                    if "fewfeed.app" in self.page.url and "signin" not in self.page.url.lower():
-                        self.log("SUCCESS", "✅ CueFeed logged in successfully & session attached!")
-                        break
+                    await asyncio.sleep(3.5)
+                    # Re-navigate to target tool URL if redirected after login
+                    if target_url not in self.page.url:
+                        await self.page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+                        await asyncio.sleep(2.0)
+                    break
                 else:
-                    self.log("SUCCESS", "✅ CueFeed session active & attached to Facebook account!")
                     break
 
         except Exception as err:
-            self.log("INFO", f"CueFeed auto-login check status: {str(err)[:60]}")
+            self.log("INFO", f"CueFeed auto-login check: {str(err)[:60]}")
 
-        self.log("SUCCESS", "✅ FewFeed Dashboard loaded and ready for automated operations.")
+        # Check for 'Login FB to use' button or FB attachment requirement
+        try:
+            fb_login_btn = await self.page.query_selector("button:has-text('Login FB to use'), a:has-text('Login FB to use'), button:has-text('Login FB'), button:has-text('Connect FB')")
+            if fb_login_btn and await fb_login_btn.is_visible():
+                self.log("INFO", "🔗 'Login FB to use' button detected. Clicking to attach Facebook account...")
+                await fb_login_btn.click()
+                await asyncio.sleep(2.5)
+                self.log("INFO", "🔄 Refreshing tool page to confirm Facebook account attachment...")
+                await self.page.reload(wait_until="domcontentloaded")
+                await asyncio.sleep(2.0)
+            else:
+                page_text = (await self.page.content()).lower()
+                if "login fb to use" in page_text or "login fb" in page_text:
+                    self.log("INFO", "🔄 Refreshing FewFeed page to attach active Facebook session...")
+                    await self.page.reload(wait_until="domcontentloaded")
+                    await asyncio.sleep(2.0)
+        except Exception as fb_err:
+            self.log("INFO", f"FB attachment verification: {str(fb_err)[:60]}")
+
+        self.log("SUCCESS", f"✅ FewFeed tool ready: {target_url}")
+
+    async def open_fewfeed_dashboard(self):
+        """Backwards compatible alias for tool page loader."""
+        await self.open_fewfeed_tool_page("https://fewfeed.app/tool/auto-post-fb-group")
 
     async def run_fewfeed_group_joining(self, group_codes: List[str], delay_seconds: int = 15) -> int:
         """
-        Automates FewFeed 'Auto Join To Facebook Groups PRO 2023' (Tool Card #2 on fewfeed.app).
-        Enters group IDs into the FewFeed tool and triggers automated joining.
+        Automates FewFeed 'Auto Join To Facebook Groups' via direct tool URL.
         """
         if not group_codes:
             self.log("INFO", "No target group codes provided for joining. Skipping joining phase.")
@@ -441,56 +506,8 @@ class FacebookGroupBot:
         self.log("INFO", f"👥 [FewFeed Auto Join] Starting automated joining for {len(group_codes)} group(s)...")
         self.set_progress(10)
 
-        await self.open_fewfeed_dashboard()
-
-        # Step 1: Click "Auto Join To Facebook Groups PRO 2023" tool card
-        self.log("INFO", "🔍 Locating 'Auto Join To Facebook Groups PRO 2023' tool on FewFeed...")
-        tool_clicked = False
-
-        # Try various selectors for Card 2 / Auto Join
-        join_card_selectors = [
-            'div:has-text("Auto Join To Facebook Groups")',
-            'div:has-text("Auto Join To Facebook")',
-            'h3:has-text("Auto Join")',
-            'h4:has-text("Auto Join")',
-            'a:has-text("Auto Join")',
-            'button:has-text("Auto Join")',
-            '.card:nth-child(2)',
-            'div[class*="card"]:nth-child(2)',
-            'div[class*="tool"]:nth-child(2)'
-        ]
-
-        for sel in join_card_selectors:
-            try:
-                card_el = await self.page.query_selector(sel)
-                if card_el and await card_el.is_visible():
-                    # Look for Preview button or click the card itself
-                    btn = await card_el.query_selector('button, a, div[role="button"]')
-                    if btn and await btn.is_visible():
-                        await btn.click()
-                    else:
-                        await card_el.click()
-                    tool_clicked = True
-                    self.log("SUCCESS", "✅ Opened 'Auto Join To Facebook Groups PRO 2023' tool.")
-                    break
-            except Exception:
-                continue
-
-        if not tool_clicked:
-            # Fallback: check if direct links exist or search page content
-            try:
-                links = await self.page.query_selector_all('a, button, div[role="button"]')
-                for lnk in links:
-                    txt = (await lnk.inner_text()).lower()
-                    if "auto join" in txt or "join to facebook" in txt:
-                        await lnk.click()
-                        tool_clicked = True
-                        self.log("SUCCESS", "✅ Clicked Auto Join tool link.")
-                        break
-            except Exception as e:
-                self.log("WARNING", f"Auto Join selector scan: {str(e)[:70]}")
-
-        await asyncio.sleep(3.0)
+        # Step 1: Directly open Auto Join Tool URL
+        await self.open_fewfeed_tool_page("https://fewfeed.app/tool/auto-join-fb-group")
         self.set_progress(25)
 
         # Step 2: Fill Group Codes into FewFeed tool textarea / input
@@ -523,7 +540,6 @@ class FacebookGroupBot:
                 continue
 
         if not input_filled:
-            # Evaluate script injection if input has custom structure
             try:
                 injected = await self.page.evaluate("""(text) => {
                     const ta = document.querySelector('textarea') || document.querySelector('input[type="text"]');
@@ -603,60 +619,14 @@ class FacebookGroupBot:
         delay_seconds: int = 30
     ) -> int:
         """
-        Automates FewFeed 'Auto Post To Facebook Groups PRO 2023' (Tool Card #1 on fewfeed.app).
-        Fills post descriptions, links, selects all groups, and starts automated posting.
+        Automates FewFeed 'Auto Post To Facebook Groups' via direct tool URL.
         """
         self.log("INFO", f"==================================================")
         self.log("INFO", f"📢 [FewFeed Auto Post] Starting automated group posting...")
         self.set_progress(55)
 
-        await self.open_fewfeed_dashboard()
-
-        # Step 1: Click "Auto Post To Facebook Groups PRO 2023" tool card
-        self.log("INFO", "🔍 Locating 'Auto Post To Facebook Groups PRO 2023' tool on FewFeed...")
-        tool_clicked = False
-
-        post_card_selectors = [
-            'div:has-text("Auto Post To Facebook Groups")',
-            'div:has-text("Auto Post To Facebook")',
-            'h3:has-text("Auto Post")',
-            'h4:has-text("Auto Post")',
-            'a:has-text("Auto Post")',
-            'button:has-text("Auto Post")',
-            '.card:nth-child(1)',
-            'div[class*="card"]:nth-child(1)',
-            'div[class*="tool"]:nth-child(1)'
-        ]
-
-        for sel in post_card_selectors:
-            try:
-                card_el = await self.page.query_selector(sel)
-                if card_el and await card_el.is_visible():
-                    btn = await card_el.query_selector('button, a, div[role="button"]')
-                    if btn and await btn.is_visible():
-                        await btn.click()
-                    else:
-                        await card_el.click()
-                    tool_clicked = True
-                    self.log("SUCCESS", "✅ Opened 'Auto Post To Facebook Groups PRO 2023' tool.")
-                    break
-            except Exception:
-                continue
-
-        if not tool_clicked:
-            try:
-                links_els = await self.page.query_selector_all('a, button, div[role="button"]')
-                for lnk in links_els:
-                    txt = (await lnk.inner_text()).lower()
-                    if "auto post" in txt or "post to facebook" in txt:
-                        await lnk.click()
-                        tool_clicked = True
-                        self.log("SUCCESS", "✅ Clicked Auto Post tool link.")
-                        break
-            except Exception as e:
-                self.log("WARNING", f"Auto Post selector scan: {str(e)[:70]}")
-
-        await asyncio.sleep(3.0)
+        # Step 1: Directly open Auto Post Tool URL
+        await self.open_fewfeed_tool_page("https://fewfeed.app/tool/auto-post-fb-group")
         self.set_progress(65)
 
         # Step 2: Prepare post text content & links
