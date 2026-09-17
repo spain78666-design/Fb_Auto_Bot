@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Terminal,
   Cpu,
@@ -24,12 +24,39 @@ import {
   Globe,
   ExternalLink,
   Zap,
-  Cloud
+  Cloud,
+  Key
 } from 'lucide-react';
 import { browserBotCodeSnippet, appPyCodeSnippet, imageProcessorSnippet, sessionManagerSnippet, aiSpinnerSnippet, requirementsSnippet, landingPageSnippet, installerSetupSnippet, buildInstallerSnippet } from './data/codeSnippets';
+import AdminPanel from './components/AdminPanel';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'desktop-sim' | 'landing-page' | 'code-viewer' | 'roadmap'>('landing-page');
+  const [activeTab, setActiveTab] = useState<'desktop-sim' | 'landing-page' | 'code-viewer' | 'roadmap' | 'admin-panel'>(() => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+      if (path.includes('admin') || hash.includes('admin')) {
+        return 'admin-panel';
+      }
+    }
+    return 'landing-page';
+  });
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+      if (path.includes('admin') || hash.includes('admin')) {
+        setActiveTab('admin-panel');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('hashchange', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('hashchange', handlePopState);
+    };
+  }, []);
   const [simActivePage, setSimActivePage] = useState<'dashboard' | 'accounts' | 'automation' | 'ai' | 'settings'>('ai');
   const [selectedFile, setSelectedFile] = useState<'installer_setup.iss' | 'build_installer.py' | 'landing_page/index.html' | 'ai_spinner.py' | 'session_manager.py' | 'browser_bot.py' | 'image_processor.py' | 'app.py' | 'requirements.txt'>('installer_setup.iss');
   const [copiedCode, setCopiedCode] = useState(false);
@@ -227,6 +254,26 @@ export default function App() {
             <Layers className="h-3.5 w-3.5" />
             <span>Project Roadmap</span>
           </button>
+          <button
+            id="tab-admin-panel"
+            onClick={() => {
+              setActiveTab('admin-panel');
+              try {
+                window.history.pushState(null, '', '/admin-panel');
+              } catch (e) {
+                window.location.hash = '#admin-panel';
+              }
+            }}
+            className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all ${
+              activeTab === 'admin-panel'
+                ? 'bg-gradient-to-r from-amber-600 to-indigo-600 text-white shadow-sm'
+                : 'text-amber-400/90 hover:text-amber-300 hover:bg-amber-500/10'
+            }`}
+          >
+            <Key className="h-3.5 w-3.5 text-amber-400" />
+            <span>Admin Key Gen</span>
+            <span className="px-1.5 py-0.2 text-[9px] bg-amber-500/20 text-amber-300 rounded font-mono font-bold">OTP Guarded</span>
+          </button>
         </div>
       </header>
 
@@ -355,9 +402,9 @@ export default function App() {
                               onChange={e => setSimCategory(e.target.value)}
                               className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500 font-medium text-emerald-400"
                             >
-                              <option value="Household">🏠 Household (ہاؤس ہولڈ)</option>
-                              <option value="Appliances">🔌 Appliances (اپلائنسز)</option>
-                              <option value="Auto Parts">🚗 Auto Parts (آٹو پارٹس)</option>
+                              <option value="Household">🏠 Household</option>
+                              <option value="Appliances">🔌 Appliances</option>
+                              <option value="Auto Parts">🚗 Auto Parts</option>
                               <option value="Electronics & Computers">Electronics & Computers</option>
                               <option value="Home & Kitchen">Home & Kitchen</option>
                               <option value="Tools & Appliances">Tools & Appliances</option>
@@ -368,7 +415,7 @@ export default function App() {
                             </select>
                           </div>
                           <div>
-                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">📑 Tabs / Posts per ID (ملٹی ٹیب)</label>
+                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">📑 Tabs / Posts per ID</label>
                             <div className="flex items-center space-x-2">
                               <input
                                 id="input-sim-tabs-count"
@@ -436,7 +483,7 @@ export default function App() {
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
-                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">ID Location (آئی ڈی لوکیشن)</label>
+                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">ID Location (Marketplace Default)</label>
                             <input
                               id="input-sim-id-location"
                               type="text"
@@ -447,7 +494,7 @@ export default function App() {
                             />
                           </div>
                           <div>
-                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Listing Location (لسٹنگ لوکیشن)</label>
+                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">Listing Location (Target Cities Pool)</label>
                             <input
                               id="input-sim-location"
                               type="text"
@@ -1513,6 +1560,19 @@ export default function App() {
               ))}
             </div>
           </div>
+        )}
+
+        {activeTab === 'admin-panel' && (
+          <AdminPanel
+            onBackToApp={() => {
+              setActiveTab('landing-page');
+              try {
+                window.history.pushState(null, '', '/');
+              } catch (e) {
+                window.location.hash = '';
+              }
+            }}
+          />
         )}
       </main>
     </div>

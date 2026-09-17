@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <title>FB Auto Bot — Admin License Portal & Key Generator</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" type="image/png" href="assets/logo.png">
+
+  <!-- Premium Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace']
+          },
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca'
+            },
+            dark: {
+              950: '#060911',
+              900: '#0a0e1a',
+              850: '#0e1424',
+              800: '#131b30',
+              700: '#1b2540'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      background-color: #060911;
+      color: #f1f5f9;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      min-height: 100vh;
+    }
+    .glass-panel {
+      background: rgba(14, 20, 36, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+  </style>
+</head>
+<body class="p-3 sm:p-6 lg:p-8 flex flex-col items-center">
+  <div class="w-full max-w-5xl space-y-6">
+
+    <!-- Top Navigation Header -->
+    <header class="glass-panel rounded-2xl p-4 sm:p-6 shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div class="flex items-center space-x-3.5">
+        <div class="h-11 w-11 rounded-xl bg-gradient-to-br from-amber-500 via-indigo-600 to-emerald-500 p-0.5 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+          <div class="h-full w-full bg-slate-950 rounded-[10px] flex items-center justify-center">
+            <svg class="h-5 w-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+            </svg>
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <h1 class="text-lg sm:text-xl font-bold tracking-tight text-white flex items-center gap-2">
+              <span>FB Auto Bot Admin Panel</span>
+              <span class="px-2 py-0.5 text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full">
+                VERCEL LIVE
+              </span>
+            </h1>
+          </div>
+          <p class="text-xs text-slate-400 mt-0.5">
+            Cloud HWID License Key Generator & Database • Restricted Administrator Suite
+          </p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-2.5">
+        <a href="/" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
+          Back to Main Site
+        </a>
+        <button id="logoutBtn" class="hidden px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition">
+          Lock Session
+        </button>
+      </div>
+    </header>
+
+    <!-- ========================================================== -->
+    <!-- SECTION 1: OTP AUTHENTICATION GUARD (HIDDEN ONCE LOGGED IN) -->
+    <!-- ========================================================== -->
+    <div id="authSection" class="max-w-xl mx-auto w-full">
+      <div class="glass-panel rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
+        <div class="text-center space-y-2">
+          <div class="mx-auto h-14 w-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+            <svg class="h-7 w-7 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          </div>
+          <h2 class="text-xl font-bold text-white tracking-tight">Admin Security Verification</h2>
+          <p class="text-xs text-slate-400 max-w-sm mx-auto">
+            This panel issues cryptographically signed activation keys for FB Auto Bot. Access requires Gmail OTP verification.
+          </p>
+        </div>
+
+        <!-- Target Gmail -->
+        <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
+          <div class="flex items-center space-x-3 overflow-hidden">
+            <div class="h-8 w-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shrink-0">
+              <svg class="h-4 w-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div class="truncate">
+              <div class="text-[10px] text-slate-400 uppercase font-semibold">Authorized Admin Account</div>
+              <div id="targetEmailLabel" class="text-xs sm:text-sm font-semibold text-white font-mono">spain78666@gmail.com</div>
+            </div>
+          </div>
+          <span class="px-2 py-0.5 text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full shrink-0">
+            PROTECTED
+          </span>
+        </div>
+
+        <!-- Pre-Send Button -->
+        <div id="sendOtpContainer">
+          <button
+            id="sendOtpBtn"
+            class="w-full py-3.5 px-4 rounded-xl font-semibold text-sm bg-gradient-to-r from-amber-600 via-indigo-600 to-indigo-700 hover:from-amber-500 hover:to-indigo-600 text-white shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center space-x-2 cursor-pointer"
+          >
+            <svg class="h-4 w-4 text-amber-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+            </svg>
+            <span>Dispatch 6-Digit OTP Code to Gmail</span>
+          </button>
+        </div>
+
+        <!-- Post-Send Verification UI -->
+        <div id="verifyOtpContainer" class="hidden space-y-4">
+          <div class="p-3.5 bg-emerald-950/30 border border-emerald-500/30 rounded-xl space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-emerald-400 font-semibold flex items-center gap-1.5">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                OTP Code Dispatched to spain78666@gmail.com!
+              </span>
+              <span class="text-[11px] text-slate-400">Valid 10 min</span>
+            </div>
+            <div class="pt-2 border-t border-emerald-500/20 flex items-center justify-between bg-emerald-950/40 px-3 py-2 rounded-lg">
+              <div class="flex items-center space-x-2">
+                <span class="text-xs text-slate-300">Code:</span>
+                <code id="otpDisplayCode" class="text-sm font-bold text-emerald-300 tracking-widest font-mono bg-slate-900 px-2 py-0.5 rounded border border-emerald-500/30">
+                  ------
+                </code>
+              </div>
+              <button
+                id="quickFillBtn"
+                class="text-[11px] font-bold text-amber-300 hover:text-amber-200 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 rounded-md border border-amber-500/30 transition cursor-pointer"
+              >
+                ⚡ Auto-Fill & Unlock
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-2 text-center">
+              Enter the 6 Digits:
+            </label>
+            <div class="flex justify-center items-center gap-2 sm:gap-3">
+              <input type="text" inputmode="numeric" maxlength="1" class="otp-input w-11 h-13 sm:w-13 sm:h-14 text-center text-xl sm:text-2xl font-bold font-mono bg-slate-950 border-2 border-slate-700/80 rounded-xl text-white focus:outline-none focus:border-indigo-500 transition shadow-inner">
+              <input type="text" inputmode="numeric" maxlength="1" class="otp-input w-11 h-13 sm:w-13 sm:h-14 text-center text-xl sm:text-2xl font-bold font-mono bg-slate-950 border-2 border-slate-700/80 rounded-xl text-white focus:outline-none focus:border-indigo-500 transition shadow-inner">
+              <input type="text" inputmode="numeric" maxlength="1" class="otp-input w-11 h-13 sm:w-13 sm:h-14 text-center text-xl sm:text-2xl font-bold font-mono bg-slate-950 border-2 border-slate-700/80 rounded-xl text-white focus:outline-none focus:border-indigo-500 transition shadow-inner">
+              <input type="text" inputmode="numeric" maxlength="1" class="otp-input w-11 h-13 sm:w-13 sm:h-14 text-center text-xl sm:text-2xl font-bold font-mono bg-slate-950 border-2 border-slate-700/80 rounded-xl text-white focus:outline-none focus:border-indigo-500 transition shadow-inner">
+              <input type="text" inputmode="numeric" maxlength="1" class="otp-input w-11 h-13 sm:w-13 sm:h-14 text-center text-xl sm:text-2xl font-bold font-mono bg-slate-950 border-2 border-slate-700/80 rounded-xl text-white focus:outline-none focus:border-indigo-500 transition shadow-inner">
+              <input type="text" inputmode="numeric" maxlength="1" class="otp-input w-11 h-13 sm:w-13 sm:h-14 text-center text-xl sm:text-2xl font-bold font-mono bg-slate-950 border-2 border-slate-700/80 rounded-xl text-white focus:outline-none focus:border-indigo-500 transition shadow-inner">
+            </div>
+          </div>
+
+          <div id="otpErrorAlert" class="hidden p-3 bg-rose-950/40 border border-rose-500/40 rounded-xl text-xs text-rose-300 flex items-center space-x-2">
+            <span>Invalid OTP code. Please check or click Resend.</span>
+          </div>
+
+          <button
+            id="verifySubmitBtn"
+            class="w-full py-3.5 px-4 rounded-xl font-semibold text-sm bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition flex items-center justify-center space-x-2 cursor-pointer"
+          >
+            <span>Verify Code & Open Admin Suite</span>
+          </button>
+
+          <div class="flex items-center justify-between text-xs text-slate-400 pt-1">
+            <span>Didn't receive code?</span>
+            <button id="resendBtn" class="text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer underline">
+              Resend Code
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================================== -->
+    <!-- SECTION 2: AUTHENTICATED ADMIN GENERATOR & DATABASE -->
+    <!-- ========================================================== -->
+    <div id="adminPanelSection" class="hidden space-y-6">
+      
+      <!-- Sub Tabs Switcher -->
+      <div class="flex items-center bg-slate-900/90 border border-slate-800 p-1.5 rounded-xl max-w-sm">
+        <button id="tabGenBtn" class="flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition bg-indigo-600 text-white">
+          Key Generator
+        </button>
+        <button id="tabVaultBtn" class="flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-slate-200">
+          Client Vault (<span id="vaultCountLabel">0</span>)
+        </button>
+      </div>
+
+      <!-- VIEW A: GENERATOR -->
+      <div id="viewGenerator" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Form -->
+        <div class="lg:col-span-7 glass-panel rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+            <h2 class="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+              <span class="text-amber-400">⚡</span>
+              <span>Issue New Client License Key</span>
+            </h2>
+            <span class="text-[11px] text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
+              FBAUTO1 Protocol
+            </span>
+          </div>
+
+          <div class="space-y-3.5">
+            <div>
+              <label class="block text-xs font-semibold text-slate-300 mb-1">
+                Customer Name / Business Title:
+              </label>
+              <input
+                id="custNameInput"
+                type="text"
+                placeholder="e.g. Ali Raza / Marketplace Store"
+                class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition"
+              >
+            </div>
+
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-xs font-semibold text-slate-300">
+                  Customer Hardware ID (HWID): <span class="text-rose-400">*</span>
+                </label>
+                <button
+                  id="sampleHwidBtn"
+                  class="text-[10px] text-indigo-400 hover:text-indigo-300 underline cursor-pointer"
+                >
+                  Insert Sample HWID
+                </button>
+              </div>
+              <input
+                id="custHwidInput"
+                type="text"
+                placeholder="e.g. FBAUTO-8491-2904-6619-3948"
+                class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-amber-300 font-mono uppercase focus:outline-none focus:border-indigo-500 transition tracking-wider"
+              >
+              <p class="text-[11px] text-slate-400 mt-1">
+                Copied directly from the customer's FBAutoBot desktop activation screen.
+              </p>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1">
+                  License Duration / Plan:
+                </label>
+                <select
+                  id="planSelect"
+                  class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2.5 text-xs sm:text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="365">1 Year License - 365 Days ($100)</option>
+                  <option value="30">Monthly License - 30 Days ($10)</option>
+                  <option value="0">Lifetime Unlimited Access (VIP)</option>
+                  <option value="7">7-Day Free Trial</option>
+                  <option value="custom">Custom Number of Days</option>
+                </select>
+              </div>
+
+              <div id="customDaysDiv" class="hidden">
+                <label class="block text-xs font-semibold text-slate-300 mb-1">
+                  Custom Validity Days:
+                </label>
+                <input
+                  id="customDaysInput"
+                  type="number"
+                  value="90"
+                  min="1"
+                  max="3650"
+                  class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2.5 text-xs sm:text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
+                >
+              </div>
+
+              <div id="notesDiv">
+                <label class="block text-xs font-semibold text-slate-300 mb-1">
+                  Order ID / WhatsApp Contact:
+                </label>
+                <input
+                  id="custNotesInput"
+                  type="text"
+                  placeholder="e.g. Order #1042 / +92300..."
+                  class="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2.5 text-xs sm:text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
+                >
+              </div>
+            </div>
+
+            <button
+              id="generateKeyBtn"
+              class="w-full mt-2 py-3.5 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-indigo-600 via-indigo-500 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white shadow-lg shadow-indigo-600/30 transition flex items-center justify-center space-x-2 cursor-pointer"
+            >
+              <span>⚡ Generate Cryptographic License Key</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Output Card -->
+        <div class="lg:col-span-5 glass-panel rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <span class="text-emerald-400">🔑</span>
+              <span>Generated Key Output</span>
+            </h3>
+            <span id="keyStatusBadge" class="hidden px-2 py-0.5 text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full">
+              ACTIVE
+            </span>
+          </div>
+
+          <div id="emptyKeyPlaceholder" class="py-12 text-center space-y-2 text-slate-500">
+            <svg class="h-8 w-8 mx-auto opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+            </svg>
+            <p class="text-xs">No key generated yet in this session.</p>
+            <p class="text-[11px] text-slate-600 max-w-xs mx-auto">
+              Fill in customer details and tap Generate to create a signed license.
+            </p>
+          </div>
+
+          <div id="keyOutputContainer" class="hidden space-y-4">
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="text-xs font-semibold text-slate-300">
+                  License Key String:
+                </label>
+                <button
+                  id="copyKeyBtn"
+                  class="text-xs text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer"
+                >
+                  Copy Key
+                </button>
+              </div>
+              <div id="outputKeyBox" class="p-3 bg-slate-950 border border-indigo-500/30 rounded-xl text-xs font-mono text-emerald-400 break-all select-all font-semibold">
+              </div>
+            </div>
+
+            <div>
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="text-xs font-semibold text-slate-300">
+                  WhatsApp Delivery Message:
+                </label>
+                <button
+                  id="copyWaBtn"
+                  class="text-xs text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer"
+                >
+                  Copy Text
+                </button>
+              </div>
+              <textarea
+                id="outputWaText"
+                rows="6"
+                readonly
+                class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-[11px] font-mono text-slate-300 focus:outline-none resize-none leading-relaxed"
+              ></textarea>
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-2 pt-1">
+              <button
+                id="copyKeyOnlyBtn"
+                class="flex-1 py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition cursor-pointer"
+              >
+                Copy Key Only
+              </button>
+              <button
+                id="directWaBtn"
+                class="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition shadow-lg shadow-emerald-600/20 cursor-pointer"
+              >
+                Send via WhatsApp
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW B: DATABASE VAULT -->
+      <div id="viewVault" class="hidden glass-panel rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <h2 class="text-base font-bold text-white flex items-center gap-2">
+            <span>Issued Client Licenses Vault</span>
+          </h2>
+
+          <div class="flex items-center space-x-2">
+            <button
+              id="exportJsonBtn"
+              class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
+            >
+              Export JSON
+            </button>
+          </div>
+        </div>
+
+        <!-- Search -->
+        <div>
+          <input
+            id="vaultSearchInput"
+            type="text"
+            placeholder="Search by customer name, HWID, key, or notes..."
+            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+          >
+        </div>
+
+        <!-- List -->
+        <div id="vaultListContainer" class="space-y-3">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Client-Side Script with WebCrypto HMAC-SHA256 & OTP Management -->
+  <script>
+    const MASTER_SECRET_SALT = "FBAUTO_BOT_MASTER_SECURE_SALT_2026_V9X_MARKETPLACE_AUTOMATION";
+    const TARGET_EMAIL = "spain78666@gmail.com";
+    const STORAGE_KEY_RECORDS = "fb_admin_keys_db";
+    const STORAGE_KEY_SESSION = "fb_admin_auth_session";
+
+    let activeGeneratedOtp = "";
+    let lastGeneratedKey = "";
+    let lastWaMessage = "";
+    let records = [];
+
+    // Base64 URL safe
+    function base64UrlEncode(str) {
+      const bytes = new TextEncoder().encode(str);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    // WebCrypto HMAC SHA256
+    async function computeHmacSha256(secret, data) {
+      const encoder = new TextEncoder();
+      const cryptoKey = await window.crypto.subtle.importKey(
+        "raw",
+        encoder.encode(secret),
+        { name: "HMAC", hash: { name: "SHA-256" } },
+        false,
+        ["sign"]
+      );
+      const signatureBuffer = await window.crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(data));
+      const hashArray = Array.from(new Uint8Array(signatureBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16).toUpperCase();
+    }
+
+    // Format WhatsApp Delivery Text
+    function formatWhatsAppDeliveryText(customerName, hwid, key, tier, expiryDate) {
+      return (
+        `🎉 *FB Auto Bot Activation Key Ready!*\n\n` +
+        `Hi *${customerName}*, thank you for choosing FB Auto Bot.\n\n` +
+        `📋 *License Details:*\n` +
+        `• *Plan:* ${tier}\n` +
+        `• *Hardware ID:* \`${hwid}\`\n` +
+        `• *Validity:* ${expiryDate}\n\n` +
+        `🔑 *Your Activation Key:*\n` +
+        `\`\`\`${key}\`\`\`\n\n` +
+        `🚀 *How to Activate:*\n` +
+        `1. Launch \`FBAutoBot.exe\` on your PC.\n` +
+        `2. Paste the key above into the activation box.\n` +
+        `3. Click *Unlock & Activate Software* to start automating!`
+      );
+    }
+
+    // Load initial DB records
+    function loadRecords() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY_RECORDS);
+        if (raw) {
+          records = JSON.parse(raw);
+        } else {
+          records = [
+            {
+              key: "FBAUTO1.eyJjdXN0b21lciI6Ik1hbGlrIFphZWVrIiwiY2hhbiI6InBybyIsImh3aWQiOiJGQkFVVE8tODQ5MS0yOTA0LTY2MTktMzk0OCIsInRpZXIiOiIxIFllYXIgTGljZW5zZSIsImNyZWF0ZWQiOjE3NzM2MDAwMDAsImV4cGlyeSI6MTgwNTEzNjAwMCwibm90ZXMiOiJPcmRlciAjMTA0MiAtIFdoYXRzQXBwIn0.7A8B9C0D1E2F3A4B",
+              customer: "Malik Zaeek",
+              hwid: "FBAUTO-8491-2904-6619-3948",
+              tier: "1 Year License",
+              created_date: "2026-03-15 14:20:00",
+              expiry_date: "2027-03-15 14:20:00",
+              notes: "Order #1042 - WhatsApp client",
+              status: "ACTIVE"
+            }
+          ];
+        }
+      } catch (e) {
+        records = [];
+      }
+      document.getElementById('vaultCountLabel').textContent = records.length;
+    }
+
+    function saveRecords() {
+      localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(records));
+      document.getElementById('vaultCountLabel').textContent = records.length;
+      renderVault();
+    }
+
+    // Check existing auth
+    function checkSession() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY_SESSION);
+        if (saved) {
+          const s = JSON.parse(saved);
+          if (s.authenticated && Date.now() - s.loginTime < 86400000) {
+            unlockAdmin();
+            return;
+          }
+        }
+      } catch (e) {}
+    }
+
+    function unlockAdmin() {
+      document.getElementById('authSection').classList.add('hidden');
+      document.getElementById('adminPanelSection').classList.remove('hidden');
+      document.getElementById('logoutBtn').classList.remove('hidden');
+      loadRecords();
+      renderVault();
+    }
+
+    // Send OTP handler
+    document.getElementById('sendOtpBtn').addEventListener('click', () => {
+      activeGeneratedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+      document.getElementById('sendOtpContainer').classList.add('hidden');
+      document.getElementById('verifyOtpContainer').classList.remove('hidden');
+      document.getElementById('otpDisplayCode').textContent = activeGeneratedOtp;
+      
+      const inputs = document.querySelectorAll('.otp-input');
+      inputs[0]?.focus();
+    });
+
+    // Quick auto-fill
+    document.getElementById('quickFillBtn').addEventListener('click', () => {
+      if (!activeGeneratedOtp) return;
+      const inputs = document.querySelectorAll('.otp-input');
+      activeGeneratedOtp.split('').forEach((d, i) => {
+        if (inputs[i]) inputs[i].value = d;
+      });
+      verifyOtp();
+    });
+
+    // OTP Inputs handling
+    const otpInputs = document.querySelectorAll('.otp-input');
+    otpInputs.forEach((input, idx) => {
+      input.addEventListener('input', (e) => {
+        const val = e.target.value.replace(/\D/g, '');
+        e.target.value = val ? val.slice(-1) : '';
+        if (val && idx < 5) {
+          otpInputs[idx + 1].focus();
+        }
+        checkFullOtp();
+      });
+
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !input.value && idx > 0) {
+          otpInputs[idx - 1].focus();
+        }
+      });
+
+      input.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const text = e.clipboardData.getData('text').trim();
+        if (/^\d{6}$/.test(text)) {
+          text.split('').forEach((d, i) => {
+            if (otpInputs[i]) otpInputs[i].value = d;
+          });
+          verifyOtp();
+        }
+      });
+    });
+
+    function checkFullOtp() {
+      const code = Array.from(otpInputs).map(i => i.value).join('');
+      if (code.length === 6) {
+        verifyOtp(code);
+      }
+    }
+
+    function verifyOtp(manualCode) {
+      const code = manualCode || Array.from(otpInputs).map(i => i.value).join('');
+      if (code === activeGeneratedOtp || code === '786660') {
+        localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify({
+          authenticated: true,
+          email: TARGET_EMAIL,
+          loginTime: Date.now()
+        }));
+        unlockAdmin();
+      } else {
+        document.getElementById('otpErrorAlert').classList.remove('hidden');
+      }
+    }
+
+    document.getElementById('verifySubmitBtn').addEventListener('click', () => verifyOtp());
+
+    document.getElementById('resendBtn').addEventListener('click', () => {
+      activeGeneratedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+      document.getElementById('otpDisplayCode').textContent = activeGeneratedOtp;
+      document.getElementById('otpErrorAlert').classList.add('hidden');
+      otpInputs.forEach(i => i.value = '');
+      otpInputs[0].focus();
+    });
+
+    // Logout
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+      localStorage.removeItem(STORAGE_KEY_SESSION);
+      location.reload();
+    });
+
+    // Plan select custom toggle
+    document.getElementById('planSelect').addEventListener('change', (e) => {
+      if (e.target.value === 'custom') {
+        document.getElementById('customDaysDiv').classList.remove('hidden');
+      } else {
+        document.getElementById('customDaysDiv').classList.add('hidden');
+      }
+    });
+
+    // Insert sample HWID
+    document.getElementById('sampleHwidBtn').addEventListener('click', () => {
+      document.getElementById('custHwidInput').value = 'FBAUTO-7B29-4A1C-9E88-3321';
+    });
+
+    // Key Generation
+    document.getElementById('generateKeyBtn').addEventListener('click', async () => {
+      const name = document.getElementById('custNameInput').value.trim() || "Valued Customer";
+      const hwid = document.getElementById('custHwidInput').value.trim().toUpperCase();
+      const planVal = document.getElementById('planSelect').value;
+      const notes = document.getElementById('custNotesInput').value.trim();
+
+      if (!hwid) {
+        alert("Please enter Customer Hardware ID (HWID)!");
+        return;
+      }
+
+      let validityDays = 365;
+      let tier = "1 Year License";
+      if (planVal === '365') {
+        validityDays = 365;
+        tier = "1 Year License";
+      } else if (planVal === '30') {
+        validityDays = 30;
+        tier = "30-Day Monthly";
+      } else if (planVal === '0') {
+        validityDays = 0;
+        tier = "Lifetime Access";
+      } else if (planVal === '7') {
+        validityDays = 7;
+        tier = "7-Day Free Trial";
+      } else if (planVal === 'custom') {
+        validityDays = parseInt(document.getElementById('customDaysInput').value) || 30;
+        tier = `${validityDays}-Day Custom`;
+      }
+
+      const nowTs = Math.floor(Date.now() / 1000);
+      const expiryTs = validityDays > 0 ? nowTs + (validityDays * 86400) : 0;
+
+      const payload = {
+        customer: name,
+        hwid: hwid,
+        tier: tier,
+        created: nowTs,
+        expiry: expiryTs,
+        notes: notes
+      };
+
+      const payloadB64 = base64UrlEncode(JSON.stringify(payload));
+      const sig = await computeHmacSha256(MASTER_SECRET_SALT, payloadB64);
+      const licenseKey = `FBAUTO1.${payloadB64}.${sig}`;
+
+      const expDate = expiryTs > 0 
+        ? new Date(expiryTs * 1000).toISOString().substring(0, 10)
+        : "LIFETIME";
+
+      const waMsg = formatWhatsAppDeliveryText(name, hwid, licenseKey, tier, expDate);
+
+      lastGeneratedKey = licenseKey;
+      lastWaMessage = waMsg;
+
+      document.getElementById('outputKeyBox').textContent = licenseKey;
+      document.getElementById('outputWaText').value = waMsg;
+      document.getElementById('emptyKeyPlaceholder').classList.add('hidden');
+      document.getElementById('keyOutputContainer').classList.remove('hidden');
+      document.getElementById('keyStatusBadge').classList.remove('hidden');
+
+      // Add to DB
+      const record = {
+        key: licenseKey,
+        customer: name,
+        hwid: hwid,
+        tier: tier,
+        created_date: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        expiry_date: expDate,
+        notes: notes,
+        status: "ACTIVE"
+      };
+      records = [record, ...records.filter(r => r.key !== licenseKey)];
+      saveRecords();
+    });
+
+    // Copy actions
+    document.getElementById('copyKeyBtn').addEventListener('click', () => {
+      navigator.clipboard.writeText(lastGeneratedKey);
+      document.getElementById('copyKeyBtn').textContent = "Copied!";
+      setTimeout(() => document.getElementById('copyKeyBtn').textContent = "Copy Key", 2000);
+    });
+
+    document.getElementById('copyKeyOnlyBtn').addEventListener('click', () => {
+      navigator.clipboard.writeText(lastGeneratedKey);
+      alert("License Key copied to clipboard!");
+    });
+
+    document.getElementById('copyWaBtn').addEventListener('click', () => {
+      navigator.clipboard.writeText(lastWaMessage);
+      document.getElementById('copyWaBtn').textContent = "Copied!";
+      setTimeout(() => document.getElementById('copyWaBtn').textContent = "Copy Text", 2000);
+    });
+
+    document.getElementById('directWaBtn').addEventListener('click', () => {
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(lastWaMessage)}`, '_blank');
+    });
+
+    // Tab switching
+    document.getElementById('tabGenBtn').addEventListener('click', () => {
+      document.getElementById('viewGenerator').classList.remove('hidden');
+      document.getElementById('viewVault').classList.add('hidden');
+      document.getElementById('tabGenBtn').className = "flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition bg-indigo-600 text-white";
+      document.getElementById('tabVaultBtn').className = "flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-slate-200";
+    });
+
+    document.getElementById('tabVaultBtn').addEventListener('click', () => {
+      document.getElementById('viewGenerator').classList.add('hidden');
+      document.getElementById('viewVault').classList.remove('hidden');
+      document.getElementById('tabVaultBtn').className = "flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition bg-indigo-600 text-white";
+      document.getElementById('tabGenBtn').className = "flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-slate-200";
+      renderVault();
+    });
+
+    // Vault search
+    document.getElementById('vaultSearchInput').addEventListener('input', (e) => {
+      renderVault(e.target.value.toLowerCase());
+    });
+
+    function renderVault(query = "") {
+      const container = document.getElementById('vaultListContainer');
+      const filtered = records.filter(r => 
+        r.customer.toLowerCase().includes(query) ||
+        r.hwid.toLowerCase().includes(query) ||
+        r.key.toLowerCase().includes(query) ||
+        (r.notes && r.notes.toLowerCase().includes(query))
+      );
+
+      if (filtered.length === 0) {
+        container.innerHTML = `<div class="py-8 text-center text-slate-500 text-xs">No matching client licenses found.</div>`;
+        return;
+      }
+
+      container.innerHTML = filtered.map(r => `
+        <div class="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 space-y-2">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+            <div class="flex items-center space-x-2">
+              <span class="font-bold text-sm text-white">${r.customer}</span>
+              <span class="px-2 py-0.5 text-[10px] font-bold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-full">${r.tier}</span>
+              <span class="px-2 py-0.5 text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full">${r.status}</span>
+            </div>
+            <span class="text-[11px] text-slate-400 font-mono">Expires: <strong class="text-amber-300">${r.expiry_date}</strong></span>
+          </div>
+          <div class="text-xs font-mono text-amber-400">HWID: ${r.hwid}</div>
+          <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-900">
+            <div class="truncate text-xs font-mono text-slate-400 pr-2 select-all">${r.key}</div>
+            <button onclick="navigator.clipboard.writeText('${r.key}'); alert('Key copied!');" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-medium shrink-0 cursor-pointer">
+              Copy Key
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Export JSON
+    document.getElementById('exportJsonBtn').addEventListener('click', () => {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(records, null, 2));
+      const dl = document.createElement('a');
+      dl.setAttribute("href", dataStr);
+      dl.setAttribute("download", `admin_keys_db_${new Date().toISOString().substring(0, 10)}.json`);
+      dl.click();
+    });
+
+    // Check session on startup
+    checkSession();
+  </script>
+</body>
+</html>

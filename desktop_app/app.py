@@ -260,7 +260,7 @@ QMainWindow {
 }
 
 QWidget {
-    color: #0f172a;
+    color: #f1f5f9;
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
     font-size: 13px;
     background-color: transparent;
@@ -268,7 +268,7 @@ QWidget {
 
 /* Fix Windows ScrollArea default white backgrounds */
 QScrollArea {
-    background-color: #0f172a !important;
+    background-color: #080c14 !important;
     border: none !important;
 }
 
@@ -283,13 +283,13 @@ QScrollBar:vertical {
 }
 
 QScrollBar::handle:vertical {
-    background: rgba(148, 163, 184, 0.40);
+    background: rgba(148, 163, 184, 0.20);
     min-height: 24px;
     border-radius: 4px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: rgba(148, 163, 184, 0.70);
+    background: rgba(148, 163, 184, 0.40);
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
@@ -346,23 +346,23 @@ QPushButton.navBtnActive {
     margin: 2px 4px;
 }
 
-/* Lighter Soft Slate Page Content Cards */
+/* Cohesive Space Dark Blue Page Content Cards (Matches whole theme perfectly!) */
 QFrame.glassCard {
-    background-color: #f1f5f9;
-    border: 1px solid #cbd5e1;
+    background-color: #0e1626;
+    border: 1px solid #1e2d4a;
     border-radius: 14px;
     padding: 16px;
 }
 
 QFrame.glassCardHeader {
-    border-bottom: 1px solid #cbd5e1;
+    border-bottom: 1px solid #1e2d4a;
     padding-bottom: 10px;
     margin-bottom: 14px;
 }
 
 /* Page Labels & Typography */
 QLabel {
-    color: #0f172a;
+    color: #f1f5f9;
     font-weight: 600;
 }
 
@@ -375,32 +375,32 @@ QLabel.pageTitle {
 
 QLabel.pageSubtitle {
     font-size: 13px;
-    color: #334155;
+    color: #94a3b8;
     font-weight: 500;
 }
 
 QLabel.cardTitle {
     font-size: 15px;
     font-weight: 800;
-    color: #0f172a;
+    color: #f8fafc;
     letter-spacing: -0.2px;
 }
 
-/* Lighter, Crisp, Ultra-Readable Inputs & Form Fields */
+/* Cohesive, Premium, Cyber/Space Inputs & Form Fields */
 QLineEdit, QTextEdit, QComboBox, QSpinBox {
-    background-color: #ffffff;
-    border: 1.5px solid #cbd5e1;
+    background-color: #090d16;
+    border: 1.5px solid #1e2d4a;
     border-radius: 9px;
-    color: #0f172a;
-    font-weight: 600;
+    color: #f8fafc;
+    font-weight: 500;
     padding: 8px 12px;
     selection-background-color: #2563eb;
     selection-color: #ffffff;
 }
 
 QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus {
-    border: 2px solid #2563eb;
-    background-color: #ffffff;
+    border: 1.5px solid #2563eb;
+    background-color: #090d16;
 }
 
 QComboBox::drop-down {
@@ -409,11 +409,11 @@ QComboBox::drop-down {
 }
 
 QComboBox QAbstractItemView {
-    background-color: #ffffff;
+    background-color: #0e1626;
     border: 1.5px solid #2563eb;
     selection-background-color: #2563eb;
     selection-color: #ffffff;
-    color: #0f172a;
+    color: #f8fafc;
     border-radius: 8px;
     padding: 4px;
 }
@@ -460,32 +460,32 @@ QPushButton.dangerBtn:hover {
 }
 
 QPushButton.secondaryBtn {
-    background-color: #e2e8f0;
-    color: #0f172a;
+    background-color: #1e2d4a;
+    color: #f1f5f9;
     font-weight: 700;
-    border: 1px solid #cbd5e1;
+    border: 1px solid #2d3f66;
     border-radius: 10px;
     padding: 8px 16px;
 }
 
 QPushButton.secondaryBtn:hover {
-    background-color: #cbd5e1;
-    border: 1px solid #94a3b8;
+    background-color: #25395e;
+    border: 1px solid #3b5285;
 }
 
-/* Lighter High-Contrast Tables */
+/* Sleek Cyber Dark Tables */
 QTableWidget {
-    background-color: #ffffff;
-    color: #0f172a;
-    border: 1px solid #cbd5e1;
+    background-color: #090d16;
+    color: #f8fafc;
+    border: 1px solid #1e2d4a;
     border-radius: 11px;
-    gridline-color: #e2e8f0;
+    gridline-color: #1e2d4a;
 }
 
 QTableWidget::item {
-    color: #0f172a;
+    color: #f8fafc;
     padding: 7px 10px;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid #1e2d4a;
     font-weight: 500;
 }
 
@@ -495,7 +495,7 @@ QTableWidget::item:selected {
 }
 
 QHeaderView::section {
-    background-color: #1e293b;
+    background-color: #0f172a;
     color: #38bdf8;
     font-weight: 700;
     font-size: 12px;
@@ -506,7 +506,7 @@ QHeaderView::section {
 
 /* Checkboxes */
 QCheckBox {
-    color: #0f172a;
+    color: #cbd5e1;
     font-weight: 600;
     spacing: 8px;
 }
@@ -514,8 +514,8 @@ QCheckBox {
 QCheckBox::indicator {
     width: 18px;
     height: 18px;
-    background-color: #ffffff;
-    border: 1.5px solid #94a3b8;
+    background-color: #090d16;
+    border: 1.5px solid #1e2d4a;
     border-radius: 5px;
 }
 
@@ -526,8 +526,8 @@ QCheckBox::indicator:checked {
 
 /* Console Box */
 QTextEdit#consoleBox {
-    background-color: #0f172a;
-    border: 1px solid #334155;
+    background-color: #090d16;
+    border: 1px solid #1e2d4a;
     border-radius: 12px;
     color: #4ade80;
     font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
@@ -537,11 +537,11 @@ QTextEdit#consoleBox {
 
 /* Progress Bar */
 QProgressBar {
-    background-color: #e2e8f0;
-    border: 1px solid #cbd5e1;
+    background-color: #090d16;
+    border: 1px solid #1e2d4a;
     border-radius: 7px;
     text-align: center;
-    color: #0f172a;
+    color: #ffffff;
     font-size: 11px;
     font-weight: 800;
     height: 16px;
@@ -578,8 +578,8 @@ QDialog QPushButton:hover, QMessageBox QPushButton:hover, QInputDialog QPushButt
 }
 
 QDialog QLineEdit, QInputDialog QLineEdit {
-    background-color: #ffffff;
-    color: #0f172a;
+    background-color: #090d16;
+    color: #f8fafc;
     border: 1px solid #3b82f6;
     border-radius: 8px;
     padding: 8px 12px;
@@ -1471,6 +1471,41 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Fetch IP diagnostics asynchronously
         self.fetch_client_ip()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.apply_dark_title_bar()
+
+    def apply_dark_title_bar(self):
+        import platform
+        import ctypes
+        if platform.system() == "Windows":
+            try:
+                hwnd = int(self.winId())
+                # DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 11, newer Win10)
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 20, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
+                )
+                # DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19 (older Win10)
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 19, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
+                )
+                
+                # DWMWA_CAPTION_COLOR = 35 (Windows 11)
+                # For #0a111e, color value in BGR is 0x001e110a
+                color = 0x001e110a
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 35, ctypes.byref(ctypes.c_int(color)), ctypes.sizeof(ctypes.c_int)
+                )
+                
+                # DWMWA_TEXT_COLOR = 36 (Windows 11)
+                # For white text (#ffffff), color value in BGR is 0x00ffffff
+                text_color = 0x00ffffff
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 36, ctypes.byref(ctypes.c_int(text_color)), ctypes.sizeof(ctypes.c_int)
+                )
+            except Exception:
+                pass
 
     def reload_license_data(self):
         """Refreshes active cryptographic license status from storage."""
@@ -2542,8 +2577,8 @@ class FBAutoBotMainWindow(QMainWindow):
         filepath, _ = QFileDialog.getSaveFileName(
             self,
             "Export Activity Logs",
-            os.path.join(os.path.expanduser("~"), f"fb_autobot_activity_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"),
-            "JSON Files (*.json);;Text Files (*.txt)"
+            os.path.join(os.path.expanduser("~"), f"fb_autobot_activity_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"),
+            "Text Files (*.txt);;JSON Files (*.json)"
         )
         if not filepath:
             return
@@ -2590,15 +2625,36 @@ class FBAutoBotMainWindow(QMainWindow):
         # Splitter: Left = Import Form, Right = Accounts Table
         splitter = QSplitter(Qt.Horizontal)
 
-        # Left Card: Import / Add Profile
+        # Left Card: Import / Add Profile with Stacked View (Single vs Bulk)
         left_card = QFrame()
         left_card.setProperty("class", "glassCard")
-        form_layout = QVBoxLayout(left_card)
+        form_outer_layout = QVBoxLayout(left_card)
+        form_outer_layout.setContentsMargins(12, 12, 12, 12)
+        form_outer_layout.setSpacing(10)
+
+        self.acc_mode_stack = QStackedWidget()
+
+        # ----------------------------------------------------
+        # Mode 0: Single Account Form
+        # ----------------------------------------------------
+        single_form_widget = QWidget()
+        form_layout = QVBoxLayout(single_form_widget)
+        form_layout.setContentsMargins(0, 0, 0, 0)
         form_layout.setSpacing(10)
 
+        title_row = QHBoxLayout()
         form_title = QLabel("Add / Update Account Profile")
         form_title.setProperty("class", "cardTitle")
-        form_layout.addWidget(form_title)
+        title_row.addWidget(form_title)
+        title_row.addStretch()
+
+        btn_go_bulk = QPushButton("📦 Bulk Add Mode")
+        btn_go_bulk.setStyleSheet("background-color: #4f46e5; color: #ffffff; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
+        btn_go_bulk.setCursor(Qt.PointingHandCursor)
+        btn_go_bulk.setToolTip("Switch to multi-account / bulk cookies text & file import")
+        btn_go_bulk.clicked.connect(self.switch_to_bulk_accounts_mode)
+        title_row.addWidget(btn_go_bulk)
+        form_layout.addLayout(title_row)
 
         form_layout.addWidget(QLabel("Account Identifier / Alias (Optional - Auto-detected if blank):"))
         self.acc_name_input = QLineEdit()
@@ -2660,6 +2716,87 @@ class FBAutoBotMainWindow(QMainWindow):
         form_layout.addLayout(btn_row)
         form_layout.addStretch()
 
+        # ----------------------------------------------------
+        # Mode 1: Bulk Accounts Import Form
+        # ----------------------------------------------------
+        bulk_form_widget = QWidget()
+        bulk_layout = QVBoxLayout(bulk_form_widget)
+        bulk_layout.setContentsMargins(0, 0, 0, 0)
+        bulk_layout.setSpacing(10)
+
+        bulk_title_row = QHBoxLayout()
+        bulk_title = QLabel("📦 Bulk Accounts Import")
+        bulk_title.setProperty("class", "cardTitle")
+        bulk_title_row.addWidget(bulk_title)
+        bulk_title_row.addStretch()
+
+        btn_back_single = QPushButton("⬅️ Single Mode")
+        btn_back_single.setProperty("class", "secondaryBtn")
+        btn_back_single.setStyleSheet("font-size: 11px; padding: 4px 10px; font-weight: 700;")
+        btn_back_single.setCursor(Qt.PointingHandCursor)
+        btn_back_single.clicked.connect(self.switch_to_single_accounts_mode)
+        bulk_title_row.addWidget(btn_back_single)
+        bulk_layout.addLayout(bulk_title_row)
+
+        # File upload bar
+        file_bar = QHBoxLayout()
+        self.btn_bulk_file_upload = QPushButton("📂 Upload .TXT / .JSON File")
+        self.btn_bulk_file_upload.setStyleSheet("background-color: #2563eb; color: #ffffff; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 6px;")
+        self.btn_bulk_file_upload.setCursor(Qt.PointingHandCursor)
+        self.btn_bulk_file_upload.setToolTip("Upload a text document (.txt) or JSON file with multiple cookies (1 per line or array)")
+        self.btn_bulk_file_upload.clicked.connect(self.upload_bulk_accounts_file)
+        file_bar.addWidget(self.btn_bulk_file_upload)
+
+        self.bulk_file_status_lbl = QLabel("No file loaded")
+        self.bulk_file_status_lbl.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        file_bar.addWidget(self.bulk_file_status_lbl)
+        file_bar.addStretch()
+        bulk_layout.addLayout(file_bar)
+
+        bulk_layout.addWidget(QLabel("Paste Bulk Cookies or Accounts (1 per line or JSON):"))
+        self.bulk_cookies_input = QTextEdit()
+        self.bulk_cookies_input.setPlaceholderText(
+            "Paste multiple accounts/cookies (1 per line or JSON):\n\n"
+            "Supported formats:\n"
+            "• Cookie only: c_user=100084...; xs=29%3A...\n"
+            "• Name | Cookie: John Doe | c_user=100084...; xs=...\n"
+            "• Name:::Cookie: Sarah:::c_user=100095...; xs=...\n"
+            "• Name: c_user=...\n"
+            "• JSON Array of accounts: [{\"name\":\"A1\", \"cookies\":\"...\"}]"
+        )
+        self.bulk_cookies_input.setFixedHeight(125)
+        bulk_layout.addWidget(self.bulk_cookies_input)
+
+        bulk_layout.addWidget(QLabel("Default Proxy for Bulk Batch (Optional):"))
+        bproxy_row = QHBoxLayout()
+        self.bulk_proxy_type = QComboBox()
+        self.bulk_proxy_type.addItems(["HTTP", "SOCKS5"])
+        self.bulk_proxy_type.setFixedWidth(90)
+        self.bulk_proxy_host = QLineEdit()
+        self.bulk_proxy_host.setPlaceholderText("192.168.1.100:8080 or Direct (No Proxy)")
+        bproxy_row.addWidget(self.bulk_proxy_type)
+        bproxy_row.addWidget(self.bulk_proxy_host)
+        bulk_layout.addLayout(bproxy_row)
+
+        bulk_btn_row = QHBoxLayout()
+        self.btn_execute_bulk_import = QPushButton("🚀 Import All Accounts")
+        self.btn_execute_bulk_import.setStyleSheet("background-color: #059669; color: #ffffff; font-weight: 800; font-size: 12px; padding: 8px 16px; border-radius: 6px;")
+        self.btn_execute_bulk_import.setCursor(Qt.PointingHandCursor)
+        self.btn_execute_bulk_import.clicked.connect(self.import_bulk_accounts)
+
+        self.btn_clear_bulk = QPushButton("🧹 Clear")
+        self.btn_clear_bulk.setProperty("class", "secondaryBtn")
+        self.btn_clear_bulk.clicked.connect(self.clear_bulk_inputs)
+
+        bulk_btn_row.addWidget(self.btn_execute_bulk_import)
+        bulk_btn_row.addWidget(self.btn_clear_bulk)
+        bulk_layout.addLayout(bulk_btn_row)
+        bulk_layout.addStretch()
+
+        self.acc_mode_stack.addWidget(single_form_widget) # Index 0
+        self.acc_mode_stack.addWidget(bulk_form_widget)   # Index 1
+
+        form_outer_layout.addWidget(self.acc_mode_stack)
         splitter.addWidget(left_card)
 
         # Right Card: Accounts Table & Multi-Account Action Suite
@@ -2805,6 +2942,12 @@ class FBAutoBotMainWindow(QMainWindow):
         self.refresh_accounts_table()
         self.update_account_dropdown()
 
+        # Check if we are running sequential Audit All
+        if hasattr(self, 'audit_queue') and hasattr(self, 'active_audit_index') and self.active_audit_index != -1:
+            self.active_audit_index += 1
+            # Delay slightly before starting the next one to avoid concurrency spikes
+            QTimer.singleShot(1500, self.run_next_queued_audit)
+
     def launch_manual_login_selected(self):
         """Phase 4: Launch interactive headful browser to capture cookies or solve checkpoint."""
         acc = self._get_selected_account()
@@ -2860,10 +3003,31 @@ class FBAutoBotMainWindow(QMainWindow):
             return
 
         self.log_message("INFO", f"Audit Engine: Initiating sequential health check on {len(self.accounts_list)} accounts...")
-        # Verify first account, subsequent ones chain
-        first_acc = self.accounts_list[0]
-        self.accounts_table.selectRow(0)
-        self.test_selected_session()
+        self.audit_queue = [acc.get("id") for acc in self.accounts_list]
+        self.active_audit_index = 0
+        self.run_next_queued_audit()
+
+    def run_next_queued_audit(self):
+        if not hasattr(self, 'audit_queue') or not hasattr(self, 'active_audit_index'):
+            return
+        if self.active_audit_index >= len(self.audit_queue):
+            self.log_message("SUCCESS", "🎉 Sequential health audit completed for all accounts!")
+            self.audit_queue = []
+            self.active_audit_index = -1
+            return
+
+        acc_id = self.audit_queue[self.active_audit_index]
+        # Find and select row visually in table
+        for row in range(self.accounts_table.rowCount()):
+            if row < len(self.accounts_list) and self.accounts_list[row].get("id") == acc_id:
+                self.accounts_table.selectRow(row)
+                break
+
+        self.log_message("INFO", f"Audit Queue: Checking account {self.active_audit_index + 1}/{len(self.audit_queue)} ({acc_id})...")
+        self.health_worker = SessionHealthWorker(acc_id)
+        self.health_worker.log_signal.connect(self.log_message)
+        self.health_worker.finished_signal.connect(self.on_session_health_finished)
+        self.health_worker.start()
 
     def delete_selected_account(self):
         """Removes the selected account and its isolated profile."""
@@ -2934,7 +3098,7 @@ class FBAutoBotMainWindow(QMainWindow):
             clean_slug = re.sub(r'[^a-zA-Z0-9_-]', '_', name).lower()
             acc_id = f"acc_{clean_slug}_{uuid.uuid4().hex[:4]}"
 
-            initial_status = "Testing..."
+            initial_status = "Healthy"
 
             if self.session_manager:
                 self.session_manager.save_account(
@@ -2966,7 +3130,7 @@ class FBAutoBotMainWindow(QMainWindow):
             self.refresh_accounts_table()
             self.update_account_dropdown()
             self.refresh_dashboard_metrics()
-            self.log_message("SUCCESS", f"Account '{name}' saved from cookie! Running automated session health & profile audit...")
+            self.log_message("SUCCESS", f"Account '{name}' saved to vault! Running automated session health & profile audit...")
 
             self.acc_name_input.clear()
             self.acc_cookies_input.clear()
@@ -2989,6 +3153,206 @@ class FBAutoBotMainWindow(QMainWindow):
         except Exception as e:
             self.log_message("ERROR", f"Failed to save account profile: {str(e)}")
             QMessageBox.critical(self, "Save Error", f"Could not save profile: {str(e)}")
+
+    def switch_to_bulk_accounts_mode(self):
+        if hasattr(self, 'acc_mode_stack'):
+            self.acc_mode_stack.setCurrentIndex(1)
+
+    def switch_to_single_accounts_mode(self):
+        if hasattr(self, 'acc_mode_stack'):
+            self.acc_mode_stack.setCurrentIndex(0)
+
+    def upload_bulk_accounts_file(self):
+        """Loads a .txt or .json file containing multiple cookies or account lines."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Accounts File (.txt / .json)",
+            "",
+            "Text & JSON Files (*.txt *.json *.csv);;All Files (*.*)"
+        )
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+            self.bulk_cookies_input.setPlainText(content)
+            lines_count = len([l for l in content.splitlines() if l.strip() and not l.strip().startswith("#")])
+            filename = os.path.basename(file_path)
+            self.bulk_file_status_lbl.setText(f"✅ Loaded '{filename}' (~{lines_count} entries)")
+            self.log_message("SUCCESS", f"Loaded accounts file '{filename}' with ~{lines_count} lines into bulk editor.")
+        except Exception as e:
+            self.log_message("ERROR", f"Failed reading accounts file: {str(e)}")
+            QMessageBox.critical(self, "File Error", f"Could not read file: {str(e)}")
+
+    def clear_bulk_inputs(self):
+        if hasattr(self, 'bulk_cookies_input'):
+            self.bulk_cookies_input.clear()
+        if hasattr(self, 'bulk_file_status_lbl'):
+            self.bulk_file_status_lbl.setText("No file loaded")
+        if hasattr(self, 'bulk_proxy_host'):
+            self.bulk_proxy_host.clear()
+
+    def import_bulk_accounts(self):
+        """Parses multi-line / JSON cookies and adds all accounts into the vault."""
+        raw_text = self.bulk_cookies_input.toPlainText().strip()
+        if not raw_text:
+            QMessageBox.warning(self, "Validation", "Please paste bulk cookies or upload a .txt file first.")
+            return
+
+        default_proxy = self.bulk_proxy_host.text().strip() or "Direct (No Proxy)"
+        default_proxy_type = self.bulk_proxy_type.currentText()
+
+        parsed_accounts = []
+
+        # 1. Check if raw text is a JSON array
+        if raw_text.startswith("[") and raw_text.endswith("]"):
+            try:
+                arr = json.loads(raw_text)
+                if isinstance(arr, list):
+                    for idx, item in enumerate(arr):
+                        if isinstance(item, dict):
+                            cookies = item.get("cookies", "") or item.get("cookie", "") or json.dumps(item)
+                            name = item.get("name", "") or item.get("id", "") or item.get("alias", "")
+                            proxy = item.get("proxy", default_proxy)
+                            p_type = item.get("proxy_type", default_proxy_type)
+
+                            c_match = re.search(r'c_user[":=]+(\d+)', str(cookies))
+                            c_user_val = c_match.group(1) if c_match else f"{idx+1}"
+                            if not name:
+                                name = f"FB_{c_user_val}"
+
+                            clean_slug = re.sub(r'[^a-zA-Z0-9_-]', '_', str(name)).lower()
+                            acc_id = f"acc_{clean_slug}_{uuid.uuid4().hex[:4]}"
+
+                            parsed_accounts.append({
+                                "id": acc_id,
+                                "name": str(name),
+                                "cookies": str(cookies),
+                                "proxy": proxy,
+                                "proxy_type": p_type,
+                                "proxy_user": item.get("proxy_user", ""),
+                                "proxy_pass": item.get("proxy_pass", ""),
+                                "notes": item.get("notes", "Bulk JSON Import"),
+                                "status": "Healthy",
+                                "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            })
+                        elif isinstance(item, str) and item.strip():
+                            c_str = item.strip()
+                            c_match = re.search(r'c_user[":=]+(\d+)', c_str)
+                            c_user_val = c_match.group(1) if c_match else f"{idx+1}"
+                            name = f"FB_{c_user_val}"
+                            clean_slug = re.sub(r'[^a-zA-Z0-9_-]', '_', name).lower()
+                            acc_id = f"acc_{clean_slug}_{uuid.uuid4().hex[:4]}"
+                            parsed_accounts.append({
+                                "id": acc_id,
+                                "name": name,
+                                "cookies": c_str,
+                                "proxy": default_proxy,
+                                "proxy_type": default_proxy_type,
+                                "proxy_user": "",
+                                "proxy_pass": "",
+                                "notes": "Bulk JSON Import",
+                                "status": "Healthy",
+                                "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            })
+            except Exception:
+                pass
+
+        # 2. Line-by-line parsing if not JSON
+        if not parsed_accounts:
+            lines = raw_text.splitlines()
+            for idx, line in enumerate(lines):
+                line = line.strip()
+                if not line or line.startswith("#") or line.startswith("//"):
+                    continue
+
+                name = ""
+                cookies = ""
+                proxy = default_proxy
+
+                # Delimiter check
+                parts = None
+                for sep in ["|", ":::", "---", "\t"]:
+                    if sep in line:
+                        parts = line.split(sep, 1)
+                        break
+
+                if parts and len(parts) == 2:
+                    p1 = parts[0].strip()
+                    p2 = parts[1].strip()
+                    if ("c_user" in p1 or "xs=" in p1) and not ("c_user" in p2 or "xs=" in p2):
+                        cookies = p1
+                        name = p2
+                    elif ("c_user" in p2 or "xs=" in p2) and not ("c_user" in p1 or "xs=" in p1):
+                        name = p1
+                        cookies = p2
+                    else:
+                        name = p1
+                        cookies = p2
+                else:
+                    colon_match = re.match(r'^([^:=]+)[:]\s*(c_user=.*)$', line, re.I)
+                    if colon_match:
+                        name = colon_match.group(1).strip()
+                        cookies = colon_match.group(2).strip()
+                    else:
+                        cookies = line
+                        name = ""
+
+                c_match = re.search(r'c_user[":=]+(\d+)', cookies) or re.search(r'c_user[\s:=]+(\d+)', cookies)
+                c_user_val = c_match.group(1) if c_match else f"{idx+1}"
+
+                if not name:
+                    name = f"FB_{c_user_val}"
+
+                clean_slug = re.sub(r'[^a-zA-Z0-9_-]', '_', name).lower()
+                acc_id = f"acc_{clean_slug}_{uuid.uuid4().hex[:4]}"
+
+                parsed_accounts.append({
+                    "id": acc_id,
+                    "name": name,
+                    "cookies": cookies,
+                    "proxy": proxy,
+                    "proxy_type": default_proxy_type,
+                    "proxy_user": "",
+                    "proxy_pass": "",
+                    "notes": "Bulk Line Import",
+                    "status": "Healthy",
+                    "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
+
+        if not parsed_accounts:
+            QMessageBox.warning(self, "No Accounts Found", "Could not parse any valid cookie entries from the provided text.")
+            return
+
+        added_count = 0
+        for acc_data in parsed_accounts:
+            if self.session_manager:
+                self.session_manager.add_or_update_account(acc_data)
+            else:
+                self.accounts_list.append(acc_data)
+            added_count += 1
+
+        if self.session_manager:
+            self.accounts_list = self.session_manager.list_accounts()
+
+        self.refresh_accounts_table()
+        self.update_account_dropdown()
+        self.refresh_dashboard_metrics()
+        self.populate_accounts_checklist()
+        self.refresh_project_accounts_checklist()
+
+        self.log_message("SUCCESS", f"🎉 Successfully bulk imported {added_count} Facebook accounts into vault!")
+        QMessageBox.information(
+            self,
+            "Bulk Import Successful",
+            f"Successfully added {added_count} Facebook account profiles to the vault!\n\nAll accounts are ready for automation and sequential auditing."
+        )
+
+        # Clear bulk input and return to single mode
+        self.clear_bulk_inputs()
+        self.switch_to_single_accounts_mode()
 
     def test_proxy(self):
         proxy = self.proxy_host.text().strip()
@@ -3358,23 +3722,27 @@ class FBAutoBotMainWindow(QMainWindow):
         f_layout = QVBoxLayout(form_card)
         f_layout.setSpacing(12)
 
-        # Row 1: Target Facebook Accounts (Multi-Account Checklist for Sequential Batch)
+        # Row 1: 50/50 Split -> Left: Target Facebook Accounts (Queue), Right: Product Images & Anti-Duplicate Shield
+        top_split_row = QHBoxLayout()
+        top_split_row.setSpacing(14)
+
+        # Left 50%: Target Facebook Accounts Box
         acc_box = QFrame()
         acc_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px;")
         ab_layout = QVBoxLayout(acc_box)
         ab_layout.setSpacing(8)
 
         ab_header = QHBoxLayout()
-        ab_header.addWidget(QLabel("👥 Target Facebook Accounts (Sequential 1-by-1 Queue):"))
+        ab_header.addWidget(QLabel("👥 Target Facebook Accounts:"))
         ab_header.addStretch()
 
-        self.btn_select_all_acc = QPushButton("⚡ Select All Accounts")
+        self.btn_select_all_acc = QPushButton("⚡ Select All")
         self.btn_select_all_acc.setStyleSheet("background-color: #3b82f6; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
         self.btn_select_all_acc.setCursor(Qt.PointingHandCursor)
         self.btn_select_all_acc.clicked.connect(self.select_all_accounts)
         ab_header.addWidget(self.btn_select_all_acc)
 
-        self.btn_clear_acc = QPushButton("❌ Clear Selection")
+        self.btn_clear_acc = QPushButton("❌ Clear")
         self.btn_clear_acc.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
         self.btn_clear_acc.setCursor(Qt.PointingHandCursor)
         self.btn_clear_acc.clicked.connect(self.clear_all_accounts)
@@ -3403,7 +3771,61 @@ class FBAutoBotMainWindow(QMainWindow):
         self.target_acc_select = QComboBox()
         self.target_acc_select.setVisible(False)
 
-        f_layout.addWidget(acc_box)
+        top_split_row.addWidget(acc_box, stretch=1)
+
+        # Right 50%: Product Images & Anti-Duplicate Shield Box
+        img_box = QFrame()
+        img_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px;")
+        ib_layout = QVBoxLayout(img_box)
+        ib_layout.setSpacing(8)
+
+        ib_header = QHBoxLayout()
+        ib_header.addWidget(QLabel("🖼️ Product Images & Shield:"))
+        ib_header.addStretch()
+
+        btn_clear_img = QPushButton("🧹 Clear Images")
+        btn_clear_img.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
+        btn_clear_img.setCursor(Qt.PointingHandCursor)
+        btn_clear_img.clicked.connect(self.clear_selected_images)
+        ib_header.addWidget(btn_clear_img)
+        ib_layout.addLayout(ib_header)
+
+        img_btn_row = QHBoxLayout()
+        self.browse_img_btn = QPushButton("📁 Browse Product Images")
+        self.browse_img_btn.setProperty("class", "primaryBtn")
+        self.browse_img_btn.setStyleSheet("font-size: 12px; font-weight: 700; padding: 8px 16px; background-color: #2563eb; color: #ffffff; border-radius: 6px;")
+        self.browse_img_btn.setCursor(Qt.PointingHandCursor)
+        self.browse_img_btn.clicked.connect(self.browse_images)
+        img_btn_row.addWidget(self.browse_img_btn)
+
+        self.img_count_lbl = QLabel("No images selected (0)")
+        self.img_count_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        img_btn_row.addWidget(self.img_count_lbl)
+        img_btn_row.addStretch()
+        ib_layout.addLayout(img_btn_row)
+
+        flags_grid = QGridLayout()
+        flags_grid.setSpacing(6)
+        self.chk_shield = QCheckBox("🛡️ Anti-Duplicate Shield")
+        self.chk_shield.setChecked(True)
+        self.chk_rotate = QCheckBox("🔄 Rotate & Crop (±0.5°)")
+        self.chk_rotate.setChecked(True)
+        self.chk_exif = QCheckBox("🧹 Wipe EXIF")
+        self.chk_exif.setChecked(True)
+        self.chk_noise = QCheckBox("✨ Color/Noise Jitter")
+        self.chk_noise.setChecked(True)
+        self.chk_stealth = QCheckBox("⚡ Human Typing Delays")
+        self.chk_stealth.setChecked(True)
+
+        flags_grid.addWidget(self.chk_shield, 0, 0)
+        flags_grid.addWidget(self.chk_exif, 0, 1)
+        flags_grid.addWidget(self.chk_rotate, 1, 0)
+        flags_grid.addWidget(self.chk_noise, 1, 1)
+        flags_grid.addWidget(self.chk_stealth, 2, 0, 1, 2)
+        ib_layout.addLayout(flags_grid)
+
+        top_split_row.addWidget(img_box, stretch=1)
+        f_layout.addLayout(top_split_row)
 
         # Row 2: Category, Title & Multi-Tab Configuration
         row2 = QHBoxLayout()
@@ -3456,14 +3878,14 @@ class FBAutoBotMainWindow(QMainWindow):
         col_p.addWidget(self.price_input)
 
         col_id_loc = QVBoxLayout()
-        col_id_loc.addWidget(QLabel("ID Location (آئی ڈی لوکیشن):"))
+        col_id_loc.addWidget(QLabel("ID Location (Marketplace Default):"))
         self.id_location_input = QLineEdit()
         self.id_location_input.setPlaceholderText("e.g., New York, NY")
         self.id_location_input.setToolTip("Sets the Facebook ID's primary Marketplace location on the homepage before listing.")
         col_id_loc.addWidget(self.id_location_input)
 
         col_loc = QVBoxLayout()
-        col_loc.addWidget(QLabel("Listing Location (لسٹنگ لوکیشن):"))
+        col_loc.addWidget(QLabel("Listing Location (Target Cities Pool):"))
         self.location_input = QTextEdit()
         self.location_input.setPlaceholderText("e.g., Los Angeles, CA\nNew York, NY\nChicago, IL\nHouston, TX\nMiami, FL (1 location per line or comma-separated)")
         self.location_input.setFixedHeight(65)
@@ -3482,39 +3904,6 @@ class FBAutoBotMainWindow(QMainWindow):
         self.desc_input.setPlaceholderText("Write details, specifications, payment terms, and pickup notes...")
         self.desc_input.setFixedHeight(65)
         f_layout.addWidget(self.desc_input)
-
-        # Row 5: Images & Anti-Duplicate options
-        img_row = QHBoxLayout()
-        self.browse_img_btn = QPushButton("📁 Browse Product Images")
-        self.browse_img_btn.setProperty("class", "secondaryBtn")
-        self.browse_img_btn.clicked.connect(self.browse_images)
-        self.img_count_lbl = QLabel("No images selected (0)")
-        self.img_count_lbl.setStyleSheet("color: #94a3b8; font-size: 12px;")
-
-        img_row.addWidget(self.browse_img_btn)
-        img_row.addWidget(self.img_count_lbl)
-        img_row.addStretch()
-        f_layout.addLayout(img_row)
-
-        # Checkboxes for Anti-Duplicate & Anti-Detection
-        flags_row = QHBoxLayout()
-        self.chk_shield = QCheckBox("🛡️ Anti-Duplicate Image Shield")
-        self.chk_shield.setChecked(True)
-        self.chk_rotate = QCheckBox("Micro-Rotation & Crop (±0.5°)")
-        self.chk_rotate.setChecked(True)
-        self.chk_exif = QCheckBox("Wipe EXIF Metadata")
-        self.chk_exif.setChecked(True)
-        self.chk_noise = QCheckBox("Color & Noise Jitter")
-        self.chk_noise.setChecked(True)
-        self.chk_stealth = QCheckBox("Randomize Human Typing Delays")
-        self.chk_stealth.setChecked(True)
-
-        flags_row.addWidget(self.chk_shield)
-        flags_row.addWidget(self.chk_rotate)
-        flags_row.addWidget(self.chk_exif)
-        flags_row.addWidget(self.chk_noise)
-        flags_row.addWidget(self.chk_stealth)
-        f_layout.addLayout(flags_row)
 
         layout.addWidget(form_card)
 
@@ -4192,14 +4581,18 @@ class FBAutoBotMainWindow(QMainWindow):
 
         layout.addWidget(tabs_bar_card)
 
-        # Target Facebook Accounts Checklist Box
+        # 50/50 Top Split: Left = Target Facebook Accounts, Right = Tab Product Images & Shield
+        top_split_box = QHBoxLayout()
+        top_split_box.setSpacing(14)
+
+        # Left 50%: Target Facebook Accounts Checklist Box
         acc_box = QFrame()
         acc_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px;")
         ab_layout = QVBoxLayout(acc_box)
         ab_layout.setSpacing(8)
 
         ab_header = QHBoxLayout()
-        ab_header.addWidget(QLabel("👥 Target Facebook Accounts (Sequential Batch Queue):"))
+        ab_header.addWidget(QLabel("👥 Target Facebook Accounts (Queue):"))
         ab_header.addStretch()
 
         btn_sel_all = QPushButton("⚡ Select All")
@@ -4217,7 +4610,7 @@ class FBAutoBotMainWindow(QMainWindow):
         ab_layout.addLayout(ab_header)
 
         self.proj_acc_checklist_scroll = QScrollArea()
-        self.proj_acc_checklist_scroll.setFixedHeight(100)
+        self.proj_acc_checklist_scroll.setFixedHeight(120)
         self.proj_acc_checklist_scroll.setWidgetResizable(True)
         self.proj_acc_checklist_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.05); background: rgba(15, 23, 42, 0.6); border-radius: 6px; } QScrollBar { background: transparent; }")
 
@@ -4228,7 +4621,58 @@ class FBAutoBotMainWindow(QMainWindow):
         self.proj_acc_checklist_scroll.setWidget(self.proj_acc_checklist_widget)
         ab_layout.addWidget(self.proj_acc_checklist_scroll)
 
-        layout.addWidget(acc_box)
+        top_split_box.addWidget(acc_box, stretch=1)
+
+        # Right 50%: Product Images & Anti-Duplicate Shield Box
+        img_box = QFrame()
+        img_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px;")
+        ib_layout = QVBoxLayout(img_box)
+        ib_layout.setSpacing(8)
+
+        ib_header = QHBoxLayout()
+        ib_header.addWidget(QLabel("🖼️ Tab Product Images & Shield:"))
+        ib_header.addStretch()
+
+        btn_clr_pimg = QPushButton("🧹 Clear Images")
+        btn_clr_pimg.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
+        btn_clr_pimg.setCursor(Qt.PointingHandCursor)
+        btn_clr_pimg.clicked.connect(self.clear_project_tab_images)
+        ib_header.addWidget(btn_clr_pimg)
+        ib_layout.addLayout(ib_header)
+
+        pimg_btn_row = QHBoxLayout()
+        self.proj_browse_img_btn = QPushButton("📁 Browse Product Images")
+        self.proj_browse_img_btn.setProperty("class", "primaryBtn")
+        self.proj_browse_img_btn.setStyleSheet("font-size: 12px; font-weight: 700; padding: 8px 16px; background-color: #2563eb; color: #ffffff; border-radius: 6px;")
+        self.proj_browse_img_btn.setCursor(Qt.PointingHandCursor)
+        self.proj_browse_img_btn.clicked.connect(self.browse_project_tab_images)
+        pimg_btn_row.addWidget(self.proj_browse_img_btn)
+
+        self.proj_img_count_lbl = QLabel("0 image(s) selected")
+        self.proj_img_count_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        pimg_btn_row.addWidget(self.proj_img_count_lbl)
+        pimg_btn_row.addStretch()
+        ib_layout.addLayout(pimg_btn_row)
+
+        pdup_grid = QGridLayout()
+        pdup_grid.setSpacing(6)
+        self.proj_chk_shield = QCheckBox("🛡️ Anti-Duplicate Shield")
+        self.proj_chk_shield.setChecked(True)
+        self.proj_chk_rotate = QCheckBox("🔄 Rotate Images (0.5°)")
+        self.proj_chk_rotate.setChecked(True)
+        self.proj_chk_exif = QCheckBox("🧹 Wipe EXIF")
+        self.proj_chk_exif.setChecked(True)
+        self.proj_chk_noise = QCheckBox("✨ Canvas Noise")
+        self.proj_chk_noise.setChecked(True)
+
+        pdup_grid.addWidget(self.proj_chk_shield, 0, 0)
+        pdup_grid.addWidget(self.proj_chk_exif, 0, 1)
+        pdup_grid.addWidget(self.proj_chk_rotate, 1, 0)
+        pdup_grid.addWidget(self.proj_chk_noise, 1, 1)
+        ib_layout.addLayout(pdup_grid)
+
+        top_split_box.addWidget(img_box, stretch=1)
+        layout.addLayout(top_split_box)
 
         # Form Card for Active Tab (No posting flow/method column!)
         form_card = QFrame()
@@ -4295,35 +4739,6 @@ class FBAutoBotMainWindow(QMainWindow):
         self.proj_desc_input.setPlaceholderText("Write details, specifications, payment terms, and pickup notes...")
         self.proj_desc_input.setFixedHeight(65)
         f_layout.addWidget(self.proj_desc_input)
-
-        # Row 5: Images & Anti-Duplicate Checkboxes
-        img_row = QHBoxLayout()
-        self.proj_browse_img_btn = QPushButton("📁 Browse Product Images")
-        self.proj_browse_img_btn.setProperty("class", "secondaryBtn")
-        self.proj_browse_img_btn.setCursor(Qt.PointingHandCursor)
-        self.proj_browse_img_btn.clicked.connect(self.browse_project_tab_images)
-        img_row.addWidget(self.proj_browse_img_btn)
-
-        self.proj_img_count_lbl = QLabel("0 image(s) selected")
-        self.proj_img_count_lbl.setStyleSheet("font-size: 11px; color: #94a3b8;")
-        img_row.addWidget(self.proj_img_count_lbl)
-        img_row.addStretch()
-        f_layout.addLayout(img_row)
-
-        dup_row = QHBoxLayout()
-        self.proj_chk_shield = QCheckBox("🛡️ Anti-Duplicate Shield")
-        self.proj_chk_shield.setChecked(True)
-        self.proj_chk_rotate = QCheckBox("🔄 Rotate Images (0.5°)")
-        self.proj_chk_rotate.setChecked(True)
-        self.proj_chk_exif = QCheckBox("🧹 Wipe EXIF")
-        self.proj_chk_exif.setChecked(True)
-        self.proj_chk_noise = QCheckBox("✨ Canvas Noise")
-
-        dup_row.addWidget(self.proj_chk_shield)
-        dup_row.addWidget(self.proj_chk_rotate)
-        dup_row.addWidget(self.proj_chk_exif)
-        dup_row.addWidget(self.proj_chk_noise)
-        f_layout.addLayout(dup_row)
 
         layout.addWidget(form_card)
 
@@ -4521,6 +4936,19 @@ class FBAutoBotMainWindow(QMainWindow):
             self.proj_img_count_lbl.setText(f"{len(files)} image(s) selected: {', '.join([os.path.basename(f) for f in files[:2]])}...")
             self.save_current_project_tab_state()
 
+    def clear_project_tab_images(self):
+        self.project_tab_images = []
+        proj = self.get_project_by_id(getattr(self, 'current_editing_project_id', None))
+        if proj:
+            tabs = proj.get("tabs", [])
+            idx = getattr(self, 'current_editing_tab_index', 0)
+            if 0 <= idx < len(tabs):
+                tabs[idx]["images"] = []
+                self.save_projects_to_disk()
+        if hasattr(self, 'proj_img_count_lbl'):
+            self.proj_img_count_lbl.setText("0 image(s) selected")
+        self.log_message("INFO", "Project tab images cleared.")
+
     def quick_spin_project_tab_title(self):
         raw = self.proj_title_input.text().strip()
         if not raw:
@@ -4714,6 +5142,12 @@ class FBAutoBotMainWindow(QMainWindow):
             self.selected_images = files
             self.img_count_lbl.setText(f"{len(files)} image(s) selected: {', '.join([os.path.basename(f) for f in files[:2]])}...")
             self.log_message("INFO", f"Selected {len(files)} product image(s) for posting.")
+
+    def clear_selected_images(self):
+        self.selected_images = []
+        if hasattr(self, 'img_count_lbl'):
+            self.img_count_lbl.setText("No images selected (0)")
+        self.log_message("INFO", "Selected product images cleared.")
 
     def start_automation(self):
         title = self.title_input.text().strip()

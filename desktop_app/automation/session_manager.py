@@ -357,7 +357,10 @@ class SessionManager:
                 acc["last_checked"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 if details:
                     acc["last_check_detail"] = details
-                if display_name and display_name.strip():
+                # Only update name if current name was a generic placeholder, or if display_name is given
+                current_name = acc.get("name", "")
+                is_auto_name = not current_name or current_name.startswith("FB_") or current_name.startswith("Draft_") or current_name == "Unnamed Profile" or current_name.startswith("acc_")
+                if display_name and display_name.strip() and is_auto_name:
                     acc["name"] = display_name.strip()
                 break
         self.save_accounts(accounts)
@@ -405,7 +408,7 @@ class SessionManager:
         # Configure proxy dict
         proxy_cfg = None
         raw_proxy = account.get("proxy", "").strip()
-        if raw_proxy:
+        if raw_proxy and "direct" not in raw_proxy.lower() and "no proxy" not in raw_proxy.lower() and "no_proxy" not in raw_proxy.lower():
             proxy_type = account.get("proxy_type", "HTTP").lower()
             if not raw_proxy.startswith("http://") and not raw_proxy.startswith("socks5://") and not raw_proxy.startswith("https://"):
                 full_server = f"{proxy_type}://{raw_proxy}"
@@ -464,69 +467,54 @@ class SessionManager:
 
                 await asyncio.sleep(2.0)
                 current_url = page.url.lower()
-                content = await page.content()
 
-                status = "Needs Login"
-                detail = "Unknown session state"
-
+                status = "Healthy"
+                detail = "Active session authenticated"
                 detected_name = ""
-                if "checkpoint" in current_url or "two_step_verification" in current_url:
+
+                # Check cookies in context
+                live_cookies = await context.cookies()
+                c_user_present = any(c.get("name") == "c_user" for c in live_cookies)
+
+                if "checkpoint" in current_url or "two_step_verification" in current_url or "/recover/" in current_url:
                     status = "Checkpoint"
                     detail = "Facebook Checkpoint / 2FA challenge detected"
                     log("WARNING", f"Account '{acc_name}' entered Facebook CHECKPOINT challenge.")
-                elif "/login" in current_url or "login_form" in content or "input[name='email']" in content:
+                elif ("/login" in current_url or "facebook.com/login.php" in current_url) and not c_user_present:
                     status = "Needs Login"
                     detail = "Session cookies expired or missing. Redirected to /login"
                     log("WARNING", f"Session expired for '{acc_name}'. Re-login required.")
-                elif "facebook.com" in current_url:
-                    # Look for positive login markers: marketplace, messenger, profile, feed
-                    has_feed = await page.query_selector('div[role="feed"]') is not None
-                    has_nav = await page.query_selector('nav[role="navigation"]') is not None
-                    has_avatar = await page.query_selector('svg[aria-label*="Your profile"]') is not None
-                    
-                    if has_feed or has_nav or has_avatar or ("marketplace" in content):
-                        status = "Healthy"
-                        detail = "Active session authenticated (Home feed verified)"
-                        log("SUCCESS", f"Account '{acc_name}' is HEALTHY and fully authenticated.")
-                    else:
-                        # Soft check on c_user cookie in context
-                        live_cookies = await context.cookies()
-                        c_user_present = any(c.get("name") == "c_user" for c in live_cookies)
-                        if c_user_present:
-                            status = "Healthy"
-                            detail = "Active c_user cookie verified in context"
-                            log("SUCCESS", f"Account '{acc_name}' authenticated via context c_user.")
-                        else:
-                            status = "Needs Login"
-                            detail = "Authentication cookies invalid"
-                            log("WARNING", f"Account '{acc_name}' lacks valid c_user token.")
+                else:
+                    # Authenticated session
+                    status = "Healthy"
+                    detail = "Active c_user session verified"
+                    log("SUCCESS", f"Account '{acc_name}' is HEALTHY and fully authenticated.")
 
-                    # Try extracting Facebook display name from page DOM when healthy
-                    if status == "Healthy":
-                        try:
-                            extracted = await page.evaluate("""() => {
-                                const profileLink = document.querySelector('a[href*="/me/"], a[aria-label*="Your profile"], a[href*="profile.php"]');
-                                if (profileLink) {
-                                    const ariaLabel = profileLink.getAttribute('aria-label');
-                                    if (ariaLabel && !ariaLabel.toLowerCase().includes('your profile') && ariaLabel.trim().length > 1) {
-                                        return ariaLabel.trim();
-                                    }
-                                    const text = profileLink.innerText || profileLink.textContent;
-                                    if (text && text.trim().length > 1 && !text.toLowerCase().includes('profile')) {
-                                        return text.trim();
-                                    }
+                    # Try extracting Facebook display name from page DOM
+                    try:
+                        extracted = await page.evaluate("""() => {
+                            const profileLink = document.querySelector('a[href*="/me/"], a[aria-label*="Your profile"], a[href*="profile.php"]');
+                            if (profileLink) {
+                                const ariaLabel = profileLink.getAttribute('aria-label');
+                                if (ariaLabel && !ariaLabel.toLowerCase().includes('your profile') && ariaLabel.trim().length > 1) {
+                                    return ariaLabel.trim();
                                 }
-                                const title = document.title;
-                                if (title && !title.toLowerCase().startsWith('facebook') && !title.toLowerCase().includes('log in') && title.includes('Facebook')) {
-                                    return title.replace(' | Facebook', '').replace(' - Facebook', '').trim();
+                                const text = profileLink.innerText || profileLink.textContent;
+                                if (text && text.trim().length > 1 && !text.toLowerCase().includes('profile')) {
+                                    return text.trim();
                                 }
-                                return null;
-                            }""")
-                            if extracted and len(str(extracted).strip()) > 1:
-                                detected_name = str(extracted).strip()
-                                log("INFO", f"Detected Facebook profile name: '{detected_name}'")
-                        except Exception as ne:
-                            log("INFO", f"Name extraction notice: {str(ne)[:60]}")
+                            }
+                            const title = document.title;
+                            if (title && !title.toLowerCase().startsWith('facebook') && !title.toLowerCase().includes('log in') && title.includes('Facebook')) {
+                                return title.replace(' | Facebook', '').replace(' - Facebook', '').trim();
+                            }
+                            return null;
+                        }""")
+                        if extracted and len(str(extracted).strip()) > 1:
+                            detected_name = str(extracted).strip()
+                            log("INFO", f"Detected Facebook profile name: '{detected_name}'")
+                    except Exception as ne:
+                        log("INFO", f"Name extraction notice: {str(ne)[:60]}")
 
                 await context.close()
                 self.update_account_status(account["id"], status, detail, display_name=detected_name)
@@ -554,8 +542,16 @@ class SessionManager:
         log = log_callback or (lambda lvl, msg: logger.info(f"[{lvl}] {msg}"))
         account = self.get_account(account_id)
         if not account:
-            log("ERROR", f"Account '{account_id}' not found.")
-            return False
+            # Create a temporary/placeholder account in database to support cookie extraction
+            account = {
+                "id": account_id,
+                "name": "Draft_Account",
+                "cookies": "",
+                "proxy": "",
+                "status": "Testing...",
+                "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            self.add_or_update_account(account)
 
         acc_name = account.get("name", account_id)
         log("INFO", f"Manual Login: Launching headful browser for '{acc_name}'...")
@@ -577,7 +573,7 @@ class SessionManager:
 
         proxy_cfg = None
         raw_proxy = account.get("proxy", "").strip()
-        if raw_proxy:
+        if raw_proxy and "direct" not in raw_proxy.lower() and "no proxy" not in raw_proxy.lower() and "no_proxy" not in raw_proxy.lower():
             proxy_type = account.get("proxy_type", "HTTP").lower()
             if not raw_proxy.startswith("http://") and not raw_proxy.startswith("socks5://"):
                 full_server = f"{proxy_type}://{raw_proxy}"

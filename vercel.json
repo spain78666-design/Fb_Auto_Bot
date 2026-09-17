@@ -2,9 +2,13 @@
   "version": 2,
   "builds": [
     { "src": "landing_page/index.html", "use": "@vercel/static" },
+    { "src": "landing_page/admin-panel.html", "use": "@vercel/static" },
     { "src": "landing_page/assets/*", "use": "@vercel/static" }
   ],
   "routes": [
+    { "src": "/admin-panel", "dest": "/landing_page/admin-panel.html" },
+    { "src": "/admin-panel/(.*)", "dest": "/landing_page/admin-panel.html" },
+    { "src": "/admin", "dest": "/landing_page/admin-panel.html" },
     { "src": "/assets/(.*)", "dest": "/landing_page/assets/$1" },
     { "src": "/(.*)", "dest": "/landing_page/index.html" }
   ]

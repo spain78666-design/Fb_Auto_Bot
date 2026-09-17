@@ -421,12 +421,12 @@ class FacebookGroupBot:
         self.log("INFO", f"🌐 Navigating directly to FewFeed Tool: {target_url}...")
         try:
             await self.page.goto(target_url, wait_until="domcontentloaded", timeout=40000)
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(3.0)
         except Exception as e:
             self.log("WARNING", f"FewFeed tool navigation notice: {str(e)[:80]}. Retrying...")
             try:
                 await self.page.goto(target_url, wait_until="load", timeout=30000)
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(3.0)
             except Exception as e2:
                 self.log("ERROR", f"Could not reach {target_url}: {str(e2)[:80]}")
 
@@ -435,56 +435,111 @@ class FacebookGroupBot:
             cf_email = self.account_data.get("cuefeed_email") or self.account_data.get("fewfeed_email") or "codeabm71@gmail.com"
             cf_pass = self.account_data.get("cuefeed_pass") or self.account_data.get("fewfeed_pass") or "Fewfeew"
 
-            for attempt in range(2):
-                email_inp = await self.page.query_selector("input[type='email'], input[name*='email' i], input[placeholder*='Email' i], input[placeholder*='email' i], input[name*='user' i]")
-                pass_inp = await self.page.query_selector("input[type='password'], input[name*='pass' i], input[placeholder*='Password' i], input[placeholder*='pass' i]")
-                is_signin_page = "signin" in self.page.url.lower() or "login" in self.page.url.lower()
+            # Check if login or signin page is detected
+            is_signin_page = "signin" in self.page.url.lower() or "login" in self.page.url.lower()
+            
+            if is_signin_page:
+                self.log("INFO", "⏳ FewFeed login page detected. Waiting up to 8s for inputs to load...")
+                try:
+                    await self.page.wait_for_selector("input", timeout=8000)
+                except Exception:
+                    pass
 
-                if (email_inp and pass_inp and await email_inp.is_visible()) or is_signin_page:
-                    self.log("INFO", f"🔑 Auto-logging into FewFeed Account ({cf_email})...")
-                    if email_inp and await email_inp.is_visible():
-                        await email_inp.click()
-                        await email_inp.fill(cf_email)
-                        await asyncio.sleep(0.3)
-                    if pass_inp and await pass_inp.is_visible():
-                        await pass_inp.click()
-                        await pass_inp.fill(cf_pass)
-                        await asyncio.sleep(0.3)
+            # Robust locator for inputs
+            email_inp = None
+            pass_inp = None
+            
+            inputs = await self.page.query_selector_all("input")
+            for inp in inputs:
+                try:
+                    inp_type = (await inp.get_attribute("type") or "").lower()
+                    inp_placeholder = (await inp.get_attribute("placeholder") or "").lower()
+                    inp_name = (await inp.get_attribute("name") or "").lower()
+                    
+                    if inp_type == "password" or "pass" in inp_placeholder or "pass" in inp_name:
+                        pass_inp = inp
+                    elif inp_type == "email" or "email" in inp_placeholder or "email" in inp_name or "user" in inp_name:
+                        email_inp = inp
+                except Exception:
+                    continue
 
+            # Fallbacks if specific attributes aren't matching
+            if inputs and not email_inp:
+                email_inp = inputs[0]
+            if len(inputs) >= 2 and not pass_inp:
+                pass_inp = inputs[1]
+
+            if email_inp and pass_inp:
+                self.log("INFO", f"🔑 Auto-filling FewFeed Account credentials ({cf_email})...")
+                try:
+                    await email_inp.click()
+                    await email_inp.fill("")
+                    await email_inp.fill(cf_email)
+                    await asyncio.sleep(0.3)
+                    
+                    await pass_inp.click()
+                    await pass_inp.fill("")
+                    await pass_inp.fill(cf_pass)
+                    await asyncio.sleep(0.3)
+
+                    # Find login button
                     login_btn = await self.page.query_selector("button:has-text('Sign In'), button:has-text('Sign in'), button:has-text('Login'), button:has-text('Log in'), button[type='submit'], input[type='submit']")
+                    if not login_btn:
+                        buttons = await self.page.query_selector_all("button")
+                        for btn in buttons:
+                            try:
+                                btn_text = (await btn.text_content() or "").lower()
+                                if "sign" in btn_text or "log" in btn_text or "enter" in btn_text:
+                                    login_btn = btn
+                                    break
+                            except Exception:
+                                continue
+
                     if login_btn and await login_btn.is_visible():
                         await login_btn.click()
-                    elif pass_inp:
+                    else:
                         await pass_inp.press("Enter")
 
-                    await asyncio.sleep(3.5)
+                    self.log("INFO", "⏳ Submitted login. Waiting 6 seconds for redirect to complete...")
+                    await asyncio.sleep(6.0)
+
                     # Re-navigate to target tool URL if redirected after login
                     if target_url not in self.page.url:
                         await self.page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(2.0)
-                    break
-                else:
-                    break
+                        await asyncio.sleep(3.0)
+                except Exception as form_err:
+                    self.log("WARNING", f"Form interaction issue: {str(form_err)[:60]}")
 
         except Exception as err:
-            self.log("INFO", f"CueFeed auto-login check: {str(err)[:60]}")
+            self.log("INFO", f"FewFeed auto-login check: {str(err)[:60]}")
 
         # Check for 'Login FB to use' button or FB attachment requirement
         try:
-            fb_login_btn = await self.page.query_selector("button:has-text('Login FB to use'), a:has-text('Login FB to use'), button:has-text('Login FB'), button:has-text('Connect FB')")
+            fb_login_btn = await self.page.query_selector("button:has-text('Login FB to use'), a:has-text('Login FB to use'), button:has-text('Login FB'), button:has-text('Connect FB'), div:has-text('Login FB'), span:has-text('Login FB')")
+            if not fb_login_btn:
+                all_elems = await self.page.query_selector_all("button, a, div, span")
+                for elem in all_elems:
+                    try:
+                        txt = (await elem.text_content() or "").lower()
+                        if "login fb" in txt or "connect fb" in txt or "attach fb" in txt:
+                            fb_login_btn = elem
+                            break
+                    except Exception:
+                        continue
+
             if fb_login_btn and await fb_login_btn.is_visible():
                 self.log("INFO", "🔗 'Login FB to use' button detected. Clicking to attach Facebook account...")
                 await fb_login_btn.click()
-                await asyncio.sleep(2.5)
+                await asyncio.sleep(4.0)
                 self.log("INFO", "🔄 Refreshing tool page to confirm Facebook account attachment...")
                 await self.page.reload(wait_until="domcontentloaded")
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(3.0)
             else:
                 page_text = (await self.page.content()).lower()
                 if "login fb to use" in page_text or "login fb" in page_text:
                     self.log("INFO", "🔄 Refreshing FewFeed page to attach active Facebook session...")
                     await self.page.reload(wait_until="domcontentloaded")
-                    await asyncio.sleep(2.0)
+                    await asyncio.sleep(3.0)
         except Exception as fb_err:
             self.log("INFO", f"FB attachment verification: {str(fb_err)[:60]}")
 
