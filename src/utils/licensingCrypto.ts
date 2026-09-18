@@ -84,9 +84,10 @@ export function sanitizeCustomerSlug(name: string): string {
  * Extracts and normalizes HWID (e.g. FBAUTO-3F8A-9B1C-7E4D -> 3F8A9B1C7E4D or full standard)
  */
 export function normalizeHwid(hwid: string): { full: string; hex: string } {
+  if (!hwid) return { full: '', hex: '' };
   const clean = hwid.trim().toUpperCase();
-  // Strip known prefixes to isolate machine hex signature
-  const strippedPrefix = clean.replace(/^(FBAUTO|FBAC)-?/i, '');
+  // Strip known prefixes (FBAUTO, FBAC with or without hyphen/space)
+  const strippedPrefix = clean.replace(/^(FBAUTO|FBAC)[-\s]?/i, '');
   const hexOnly = strippedPrefix.replace(/[^A-F0-9]/g, '');
 
   let fullHwid = clean;

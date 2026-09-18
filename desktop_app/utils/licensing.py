@@ -119,11 +119,16 @@ class LicenseManager:
 
     @classmethod
     def normalize_hwid_hex(cls, hwid: str) -> str:
+        if not hwid:
+            return ""
         clean = hwid.strip().upper()
-        # Strip prefixes FBAUTO- / FBAC- to isolate machine hex signature
-        stripped = clean.replace("FBAUTO-", "").replace("FBAC-", "")
+        # Strip prefixes FBAUTO / FBAC (with or without hyphens) to isolate raw machine hex
+        import re
+        stripped = re.sub(r'^(FBAUTO|FBAC)[-\s]?', '', clean)
         hex_only = "".join(c for c in stripped if c in "0123456789ABCDEF")
-        return hex_only[:16] if hex_only else "".join(c for c in clean if c.isalnum())[:16]
+        if not hex_only:
+            hex_only = "".join(c for c in clean if c in "0123456789ABCDEF")
+        return hex_only[:16]
 
     @classmethod
     def generate_key(cls, hwid: str, customer: str = "Valued Client", tier: str = "1 Month License", expiry_days: int = 30) -> str:
@@ -168,7 +173,8 @@ class LicenseManager:
 
             tier_code = parts[1].upper()
             customer_slug = parts[2].upper()
-            key_hwid_hex = parts[3].upper()
+            key_hwid_raw = parts[3].upper()
+            key_hwid_hex = cls.normalize_hwid_hex(key_hwid_raw)
             expiry_hex = parts[4].upper()
             sig = parts[5].upper()
 
@@ -185,6 +191,7 @@ class LicenseManager:
 
             # Verify Hardware ID (Strict lock: Key generated for machine A CANNOT run on machine B)
             hwid_matched = (
+                key_hwid_raw in ["DEVUNLIMITED", "ANYKEYS"] or
                 key_hwid_hex in ["DEVUNLIMITED", "ANYKEYS"] or
                 key_hwid_hex == current_hwid_hex or
                 current_hwid_hex.startswith(key_hwid_hex) or
@@ -193,7 +200,7 @@ class LicenseManager:
                 (len(current_hwid_hex) >= 6 and current_hwid_hex in key_hwid_hex)
             )
             if not hwid_matched:
-                return False, f"Hardware ID mismatch! This license is locked to machine ID [{key_hwid_hex}], but this PC is [{current_hwid_hex}]. Keys cannot be transferred across PCs.", {}
+                return False, f"Hardware ID mismatch! This license is locked to machine ID [{key_hwid_raw}], but this PC is [{current_hwid_hex}]. Keys cannot be transferred across PCs.", {}
 
             tier_map = {
                 "MTH": "Monthly (30 Days)",
