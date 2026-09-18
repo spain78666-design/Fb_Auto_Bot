@@ -1624,8 +1624,8 @@ class FBAutoBotMainWindow(QMainWindow):
         # 2. Right Content Area (Top Header + Stacked Widget + Bottom Console)
         content_container = QWidget()
         content_layout = QVBoxLayout(content_container)
-        content_layout.setContentsMargins(18, 14, 18, 14)
-        content_layout.setSpacing(12)
+        content_layout.setContentsMargins(18, 6, 18, 10)
+        content_layout.setSpacing(6)
 
         # Modern Top Header Bar (Ultra-clean, dark, web-inspired)
         self.top_header = self.create_top_header()
@@ -2691,13 +2691,15 @@ class FBAutoBotMainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
+        layout.setSpacing(6)
 
         # Title
         title = QLabel("Accounts & Session Manager")
         title.setProperty("class", "pageTitle")
+        title.setStyleSheet("margin-top: 0px; margin-bottom: 0px; padding: 0px;")
         sub = QLabel("Manage multi-account profiles with isolated browser storage, session health audits, and residential proxies.")
         sub.setProperty("class", "pageSubtitle")
+        sub.setStyleSheet("margin-top: 0px; margin-bottom: 2px; padding: 0px;")
         layout.addWidget(title)
         layout.addWidget(sub)
 
@@ -2867,8 +2869,22 @@ class FBAutoBotMainWindow(QMainWindow):
         self.acc_name_input.setPlaceholderText("Optional (Leave blank to auto-detect)")
         form_layout.addWidget(self.acc_name_input)
 
-        # Proxy inputs
-        form_layout.addWidget(QLabel("Proxy Protocol & Host:Port:"))
+        # Proxy section with Hide / Show toggle
+        proxy_header_layout = QHBoxLayout()
+        proxy_header_layout.addWidget(QLabel("Proxy Configuration (Optional):"))
+        self.btn_toggle_proxy = QPushButton("👁️ Hide Proxy")
+        self.btn_toggle_proxy.setStyleSheet("background: transparent; color: #38bdf8; font-size: 11px; border: none; font-weight: 600;")
+        self.btn_toggle_proxy.setCursor(Qt.PointingHandCursor)
+        self.btn_toggle_proxy.clicked.connect(self.toggle_proxy_visibility)
+        proxy_header_layout.addStretch()
+        proxy_header_layout.addWidget(self.btn_toggle_proxy)
+        form_layout.addLayout(proxy_header_layout)
+
+        self.proxy_container_widget = QWidget()
+        proxy_container_layout = QVBoxLayout(self.proxy_container_widget)
+        proxy_container_layout.setContentsMargins(0, 0, 0, 0)
+        proxy_container_layout.setSpacing(6)
+
         proxy_row1 = QHBoxLayout()
         self.proxy_type = QComboBox()
         self.proxy_type.addItems(["HTTP", "SOCKS5"])
@@ -2879,7 +2895,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.proxy_host.setPlaceholderText("192.168.1.100:8080 or Direct")
         proxy_row1.addWidget(self.proxy_type)
         proxy_row1.addWidget(self.proxy_host)
-        form_layout.addLayout(proxy_row1)
+        proxy_container_layout.addLayout(proxy_row1)
 
         proxy_row2 = QHBoxLayout()
         self.proxy_user = QLineEdit()
@@ -2891,7 +2907,9 @@ class FBAutoBotMainWindow(QMainWindow):
         self.proxy_pass.setEchoMode(QLineEdit.Password)
         proxy_row2.addWidget(self.proxy_user)
         proxy_row2.addWidget(self.proxy_pass)
-        form_layout.addLayout(proxy_row2)
+        proxy_container_layout.addLayout(proxy_row2)
+
+        form_layout.addWidget(self.proxy_container_widget)
 
         form_layout.addWidget(QLabel("Profile Notes (Optional):"))
         self.acc_notes_input = QLineEdit()
@@ -3045,6 +3063,19 @@ class FBAutoBotMainWindow(QMainWindow):
         table_header = QLabel("Configured Profiles Vault")
         table_header.setProperty("class", "cardTitle")
         table_header_layout.addWidget(table_header)
+
+        btn_select_all = QPushButton("☑️ Select All")
+        btn_select_all.setStyleSheet("background-color: #334155; color: #38bdf8; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px; border: 1px solid #0284c7;")
+        btn_select_all.setCursor(Qt.PointingHandCursor)
+        btn_select_all.clicked.connect(self.select_all_accounts_in_table)
+
+        btn_unselect_all = QPushButton("☐ Clear All")
+        btn_unselect_all.setStyleSheet("background-color: #334155; color: #cbd5e1; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px;")
+        btn_unselect_all.setCursor(Qt.PointingHandCursor)
+        btn_unselect_all.clicked.connect(self.unselect_all_accounts_in_table)
+
+        table_header_layout.addWidget(btn_select_all)
+        table_header_layout.addWidget(btn_unselect_all)
         table_header_layout.addStretch()
 
         self.vault_stats_lbl = QLabel(f"{len(self.accounts_list)} Profile(s) Loaded")
@@ -3052,14 +3083,16 @@ class FBAutoBotMainWindow(QMainWindow):
         table_header_layout.addWidget(self.vault_stats_lbl)
         table_layout.addLayout(table_header_layout)
 
-        # 6 Columns: Profile/Alias, UID/Email, Auth Mode, Status, Assigned Proxy, Last Audit
-        self.accounts_table = QTableWidget(len(self.accounts_list), 6)
+        # 7 Columns: Select, Profile/Alias, UID/Email, Auth Mode, Status, Assigned Proxy, Last Audit
+        self.accounts_table = QTableWidget(len(self.accounts_list), 7)
         self.accounts_table.setHorizontalHeaderLabels([
-            "Profile / Alias", "UID / Email", "Auth Mode", "Status", "Assigned Proxy", "Last Audit"
+            "Select", "Profile / Alias", "UID / Email", "Auth Mode", "Status", "Assigned Proxy", "Last Audit"
         ])
         self.accounts_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.accounts_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.accounts_table.setSelectionMode(QTableWidget.ExtendedSelection)
         self.accounts_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.accounts_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.accounts_table.setColumnWidth(0, 60)
         self.accounts_table.verticalHeader().setVisible(False)
         self.accounts_table.itemSelectionChanged.connect(self.populate_form_from_selected_account)
         self.refresh_accounts_table()
@@ -3136,6 +3169,13 @@ class FBAutoBotMainWindow(QMainWindow):
             self.btn_auth_uid.setStyleSheet("background-color: #334155; color: #cbd5e1; font-weight: 700; font-size: 11px; padding: 6px 12px; border-radius: 6px;")
             self.btn_auth_cookie.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 11px; padding: 6px 12px; border-radius: 6px;")
 
+    def toggle_proxy_visibility(self):
+        if hasattr(self, 'proxy_container_widget'):
+            is_visible = self.proxy_container_widget.isVisible()
+            self.proxy_container_widget.setVisible(not is_visible)
+            if hasattr(self, 'btn_toggle_proxy'):
+                self.btn_toggle_proxy.setText("👁️ Show Proxy" if is_visible else "👁️ Hide Proxy")
+
     def toggle_password_visibility(self):
         if self.acc_pass_input.echoMode() == QLineEdit.Password:
             self.acc_pass_input.setEchoMode(QLineEdit.Normal)
@@ -3203,11 +3243,60 @@ class FBAutoBotMainWindow(QMainWindow):
             self.proxy_host.clear()
         self.acc_notes_input.setText(notes)
 
+    def select_all_accounts_in_table(self):
+        """Checks all checkboxes in Column 0 of the profiles table."""
+        self.accounts_table.blockSignals(True)
+        try:
+            for row in range(self.accounts_table.rowCount()):
+                chk_item = self.accounts_table.item(row, 0)
+                if chk_item:
+                    chk_item.setCheckState(Qt.Checked)
+        finally:
+            self.accounts_table.blockSignals(False)
+
+    def unselect_all_accounts_in_table(self):
+        """Unchecks all checkboxes in Column 0 of the profiles table."""
+        self.accounts_table.blockSignals(True)
+        try:
+            for row in range(self.accounts_table.rowCount()):
+                chk_item = self.accounts_table.item(row, 0)
+                if chk_item:
+                    chk_item.setCheckState(Qt.Unchecked)
+        finally:
+            self.accounts_table.blockSignals(False)
+
+    def _get_selected_accounts(self) -> list:
+        """Returns list of account dicts checked or currently selected in table."""
+        selected_accs = []
+        checked_rows = set()
+
+        for row in range(self.accounts_table.rowCount()):
+            chk_item = self.accounts_table.item(row, 0)
+            if chk_item and chk_item.checkState() == Qt.Checked:
+                checked_rows.add(row)
+
+        if not checked_rows:
+            for item in self.accounts_table.selectedItems():
+                checked_rows.add(item.row())
+
+        for r in sorted(checked_rows):
+            if 0 <= r < len(self.accounts_list):
+                selected_accs.append(self.accounts_list[r])
+        return selected_accs
+
     def refresh_accounts_table(self):
         self._suppress_form_autofill = True
         try:
             if self.session_manager:
                 self.accounts_list = self.session_manager.list_accounts()
+
+            previously_checked = set()
+            if hasattr(self, 'accounts_table'):
+                for r in range(self.accounts_table.rowCount()):
+                    chk = self.accounts_table.item(r, 0)
+                    name_itm = self.accounts_table.item(r, 1)
+                    if chk and chk.checkState() == Qt.Checked and name_itm:
+                        previously_checked.add(name_itm.data(Qt.UserRole))
 
             self.accounts_table.blockSignals(True)
             self.accounts_table.setRowCount(len(self.accounts_list))
@@ -3215,6 +3304,7 @@ class FBAutoBotMainWindow(QMainWindow):
                 self.vault_stats_lbl.setText(f"{len(self.accounts_list)} Profile(s) Loaded")
 
             for row, acc in enumerate(self.accounts_list):
+                acc_id = acc.get("id") or acc.get("name")
                 name = acc.get("name", "Account")
                 uid_or_email = acc.get("uid") or acc.get("email") or ""
                 if not uid_or_email:
@@ -3222,7 +3312,6 @@ class FBAutoBotMainWindow(QMainWindow):
                     if c_match:
                         uid_or_email = c_match.group(1)
                     else:
-                        # Attempt JSON array parsing
                         try:
                             cks = acc.get("cookies", "")
                             if str(cks).strip().startswith("["):
@@ -3242,8 +3331,12 @@ class FBAutoBotMainWindow(QMainWindow):
                 if last_checked and " " in last_checked:
                     last_checked = last_checked.split(" ")[1]
 
+                select_item = QTableWidgetItem()
+                select_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+                select_item.setCheckState(Qt.Checked if acc_id in previously_checked else Qt.Unchecked)
+
                 name_item = QTableWidgetItem(name)
-                name_item.setData(Qt.UserRole, acc.get("id", name))
+                name_item.setData(Qt.UserRole, acc_id)
 
                 uid_item = QTableWidgetItem(uid_or_email or "N/A")
                 uid_item.setForeground(QColor("#38bdf8"))
@@ -3266,12 +3359,13 @@ class FBAutoBotMainWindow(QMainWindow):
                 proxy_item = QTableWidgetItem(proxy)
                 time_item = QTableWidgetItem(last_checked)
 
-                self.accounts_table.setItem(row, 0, name_item)
-                self.accounts_table.setItem(row, 1, uid_item)
-                self.accounts_table.setItem(row, 2, auth_item)
-                self.accounts_table.setItem(row, 3, status_item)
-                self.accounts_table.setItem(row, 4, proxy_item)
-                self.accounts_table.setItem(row, 5, time_item)
+                self.accounts_table.setItem(row, 0, select_item)
+                self.accounts_table.setItem(row, 1, name_item)
+                self.accounts_table.setItem(row, 2, uid_item)
+                self.accounts_table.setItem(row, 3, auth_item)
+                self.accounts_table.setItem(row, 4, status_item)
+                self.accounts_table.setItem(row, 5, proxy_item)
+                self.accounts_table.setItem(row, 6, time_item)
         finally:
             self.accounts_table.blockSignals(False)
             self._suppress_form_autofill = False
@@ -3330,41 +3424,48 @@ class FBAutoBotMainWindow(QMainWindow):
         self.cred_worker.start()
 
     def auto_login_selected_account(self):
-        """Logs into the selected account with its stored UID/Password."""
-        acc = self._get_selected_account()
-        if not acc:
-            QMessageBox.information(self, "Select Account", "Please click an account in the table first.")
+        """Logs into selected or checked accounts using stored UID/Password."""
+        selected_accs = self._get_selected_accounts()
+        if not selected_accs:
+            QMessageBox.information(self, "Select Account", "Please check or select at least one account in the table first.")
             return
 
-        uid = acc.get("uid") or acc.get("email") or ""
-        pwd = acc.get("password") or ""
-
-        if not uid or not pwd:
-            # Check if user wants manual browser login instead
+        candidates = [a for a in selected_accs if (a.get("uid") or a.get("email")) and a.get("password")]
+        if not candidates:
+            first_acc = selected_accs[0]
             reply = QMessageBox.question(
                 self,
                 "No Saved Password",
-                f"Account '{acc.get('name')}' has no saved UID/Password.\n\nWould you like to open the browser to log in manually?",
+                f"Selected account '{first_acc.get('name')}' has no saved UID/Password.\n\nWould you like to open the browser to log in manually?",
                 QMessageBox.Yes | QMessageBox.No
             )
             if reply == QMessageBox.Yes:
                 self.launch_manual_login_selected()
             return
 
-        acc_id = acc.get("id", acc["name"])
-        self.log_message("INFO", f"🔑 Auto-Login: Authenticating [{acc.get('name')}] with UID/Email {uid}...")
+        if len(candidates) == 1:
+            acc = candidates[0]
+            acc_id = acc.get("id", acc["name"])
+            uid = acc.get("uid") or acc.get("email") or ""
+            self.log_message("INFO", f"🔑 Auto-Login: Authenticating [{acc.get('name')}] with UID/Email {uid}...")
 
-        # Update row visual status
-        row = self.accounts_table.currentRow()
-        if row >= 0:
-            status_item = QTableWidgetItem("● Logging in...")
-            status_item.setForeground(QColor("#3b82f6"))
-            self.accounts_table.setItem(row, 3, status_item)
+            for r in range(self.accounts_table.rowCount()):
+                name_itm = self.accounts_table.item(r, 1)
+                if name_itm and name_itm.data(Qt.UserRole) == acc_id:
+                    status_item = QTableWidgetItem("● Logging in...")
+                    status_item.setForeground(QColor("#3b82f6"))
+                    self.accounts_table.setItem(r, 4, status_item)
+                    break
 
-        self.cred_worker = CredentialLoginWorker(acc_id, headless=False)
-        self.cred_worker.log_signal.connect(self.log_message)
-        self.cred_worker.finished_signal.connect(self.on_credential_login_finished)
-        self.cred_worker.start()
+            self.cred_worker = CredentialLoginWorker(acc_id, headless=False)
+            self.cred_worker.log_signal.connect(self.log_message)
+            self.cred_worker.finished_signal.connect(self.on_credential_login_finished)
+            self.cred_worker.start()
+        else:
+            self.log_message("INFO", f"🚀 Bulk Multi-Auto-Login: Queueing {len(candidates)} selected accounts...")
+            self.bulk_login_queue = [a.get("id") for a in candidates]
+            self.bulk_login_index = 0
+            self.run_next_bulk_login()
 
     def on_credential_login_finished(self, account_id: str, success: bool, message: str, acc_data: dict):
         if success:
@@ -4202,11 +4303,14 @@ class FBAutoBotMainWindow(QMainWindow):
         item_page = QWidget()
         item_layout = QVBoxLayout(item_page)
         item_layout.setContentsMargins(0, 0, 0, 0)
-        item_layout.setSpacing(5)
+        item_layout.setSpacing(6)
 
         # Item Row 1: Category & Condition
         i_r1 = QHBoxLayout()
         col_cat = QVBoxLayout()
+        col_cat.setContentsMargins(0, 0, 0, 0)
+        col_cat.setSpacing(2)
+        col_cat.setAlignment(Qt.AlignTop)
         col_cat.addWidget(QLabel("Marketplace Category:"))
         self.category_select = QComboBox()
         self.category_select.addItems([
@@ -4219,6 +4323,9 @@ class FBAutoBotMainWindow(QMainWindow):
         i_r1.addLayout(col_cat, stretch=1)
 
         col_cond = QVBoxLayout()
+        col_cond.setContentsMargins(0, 0, 0, 0)
+        col_cond.setSpacing(2)
+        col_cond.setAlignment(Qt.AlignTop)
         col_cond.addWidget(QLabel("Item Condition:"))
         self.condition_select = QComboBox()
         self.condition_select.addItems([
@@ -4231,18 +4338,27 @@ class FBAutoBotMainWindow(QMainWindow):
         # Item Row 2: Title, Price, ID Location, Target Locations
         i_r2 = QHBoxLayout()
         col_t = QVBoxLayout()
+        col_t.setContentsMargins(0, 0, 0, 0)
+        col_t.setSpacing(2)
+        col_t.setAlignment(Qt.AlignTop)
         col_t.addWidget(QLabel("Listing Title (Max 100 chars):"))
         self.title_input = QLineEdit()
         self.title_input.setPlaceholderText("e.g., Household Modern Living Room Set / Auto Parts Premium Replacement")
         col_t.addWidget(self.title_input)
 
         col_p = QVBoxLayout()
+        col_p.setContentsMargins(0, 0, 0, 0)
+        col_p.setSpacing(2)
+        col_p.setAlignment(Qt.AlignTop)
         col_p.addWidget(QLabel("Price ($ USD / Amount):"))
         self.price_input = QLineEdit()
         self.price_input.setPlaceholderText("150")
         col_p.addWidget(self.price_input)
 
         col_id_loc = QVBoxLayout()
+        col_id_loc.setContentsMargins(0, 0, 0, 0)
+        col_id_loc.setSpacing(2)
+        col_id_loc.setAlignment(Qt.AlignTop)
         col_id_loc.addWidget(QLabel("ID Location (Marketplace Default):"))
         self.id_location_input = QLineEdit()
         self.id_location_input.setPlaceholderText("e.g., New York, NY")
@@ -4250,6 +4366,9 @@ class FBAutoBotMainWindow(QMainWindow):
         col_id_loc.addWidget(self.id_location_input)
 
         col_loc = QVBoxLayout()
+        col_loc.setContentsMargins(0, 0, 0, 0)
+        col_loc.setSpacing(2)
+        col_loc.setAlignment(Qt.AlignTop)
         col_loc.addWidget(QLabel("Listing Location (Target Cities Pool):"))
         self.location_input = QTextEdit()
         self.location_input.setPlaceholderText("e.g., Los Angeles, CA\nNew York, NY\nChicago, IL\nHouston, TX\nMiami, FL (1 location per line or comma-separated)")
@@ -4269,6 +4388,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.desc_input.setPlaceholderText("Write details, specifications, payment terms, and pickup notes...")
         self.desc_input.setFixedHeight(65)
         item_layout.addWidget(self.desc_input)
+        item_layout.addStretch(1)
 
         self.listing_fields_stack.addWidget(item_page)
 
@@ -4278,11 +4398,14 @@ class FBAutoBotMainWindow(QMainWindow):
         veh_page = QWidget()
         veh_layout = QVBoxLayout(veh_page)
         veh_layout.setContentsMargins(0, 0, 0, 0)
-        veh_layout.setSpacing(5)
+        veh_layout.setSpacing(6)
 
         # Vehicle Row 1: Vehicle Type & Year
         v_r1 = QHBoxLayout()
         col_vtype = QVBoxLayout()
+        col_vtype.setContentsMargins(0, 0, 0, 0)
+        col_vtype.setSpacing(2)
+        col_vtype.setAlignment(Qt.AlignTop)
         col_vtype.addWidget(QLabel("Vehicle Type:"))
         self.veh_type_select = QComboBox()
         self.veh_type_select.addItems([
@@ -4299,6 +4422,9 @@ class FBAutoBotMainWindow(QMainWindow):
         v_r1.addLayout(col_vtype, stretch=1)
 
         col_vyear = QVBoxLayout()
+        col_vyear.setContentsMargins(0, 0, 0, 0)
+        col_vyear.setSpacing(2)
+        col_vyear.setAlignment(Qt.AlignTop)
         col_vyear.addWidget(QLabel("Vehicle Year:"))
         self.veh_year_select = QComboBox()
         years_list = [str(y) for y in range(2026, 1979, -1)]
@@ -4311,24 +4437,36 @@ class FBAutoBotMainWindow(QMainWindow):
         # Vehicle Row 2: Make, Model, Price, ID Location, Target Locations
         v_r2 = QHBoxLayout()
         col_vmake = QVBoxLayout()
+        col_vmake.setContentsMargins(0, 0, 0, 0)
+        col_vmake.setSpacing(2)
+        col_vmake.setAlignment(Qt.AlignTop)
         col_vmake.addWidget(QLabel("Vehicle Make:"))
         self.veh_make_input = QLineEdit()
         self.veh_make_input.setPlaceholderText("e.g., Toyota, Honda, Ford, BMW")
         col_vmake.addWidget(self.veh_make_input)
 
         col_vmodel = QVBoxLayout()
+        col_vmodel.setContentsMargins(0, 0, 0, 0)
+        col_vmodel.setSpacing(2)
+        col_vmodel.setAlignment(Qt.AlignTop)
         col_vmodel.addWidget(QLabel("Vehicle Model:"))
         self.veh_model_input = QLineEdit()
         self.veh_model_input.setPlaceholderText("e.g., Camry, Civic, F-150, 3 Series")
         col_vmodel.addWidget(self.veh_model_input)
 
         col_vprice = QVBoxLayout()
+        col_vprice.setContentsMargins(0, 0, 0, 0)
+        col_vprice.setSpacing(2)
+        col_vprice.setAlignment(Qt.AlignTop)
         col_vprice.addWidget(QLabel("Price ($ USD / Amount):"))
         self.veh_price_input = QLineEdit()
         self.veh_price_input.setPlaceholderText("15000")
         col_vprice.addWidget(self.veh_price_input)
 
         col_vid_loc = QVBoxLayout()
+        col_vid_loc.setContentsMargins(0, 0, 0, 0)
+        col_vid_loc.setSpacing(2)
+        col_vid_loc.setAlignment(Qt.AlignTop)
         col_vid_loc.addWidget(QLabel("ID Location (Marketplace Default):"))
         self.veh_id_loc_input = QLineEdit()
         self.veh_id_loc_input.setPlaceholderText("e.g., Los Angeles, CA")
@@ -4336,6 +4474,9 @@ class FBAutoBotMainWindow(QMainWindow):
         col_vid_loc.addWidget(self.veh_id_loc_input)
 
         col_vloc = QVBoxLayout()
+        col_vloc.setContentsMargins(0, 0, 0, 0)
+        col_vloc.setSpacing(2)
+        col_vloc.setAlignment(Qt.AlignTop)
         col_vloc.addWidget(QLabel("Listing Location (Target Cities Pool):"))
         self.veh_location_input = QTextEdit()
         self.veh_location_input.setPlaceholderText("e.g., Los Angeles, CA\nSan Diego, CA\nPhoenix, AZ (1 per line)")
@@ -4356,6 +4497,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.veh_desc_input.setPlaceholderText("Tell buyers anything that you haven't had the chance to include yet about your vehicle (clean title, mileage, features, etc.)...")
         self.veh_desc_input.setFixedHeight(65)
         veh_layout.addWidget(self.veh_desc_input)
+        veh_layout.addStretch(1)
 
         self.listing_fields_stack.addWidget(veh_page)
 
@@ -4365,11 +4507,14 @@ class FBAutoBotMainWindow(QMainWindow):
         prop_page = QWidget()
         prop_layout = QVBoxLayout(prop_page)
         prop_layout.setContentsMargins(0, 0, 0, 0)
-        prop_layout.setSpacing(10)
+        prop_layout.setSpacing(6)
 
         # Property Row 1: Sale or Rent, Property Type
         p_r1 = QHBoxLayout()
         col_prtype = QVBoxLayout()
+        col_prtype.setContentsMargins(0, 0, 0, 0)
+        col_prtype.setSpacing(2)
+        col_prtype.setAlignment(Qt.AlignTop)
         col_prtype.addWidget(QLabel("Property for sale or to let:"))
         self.prop_rental_type_select = QComboBox()
         self.prop_rental_type_select.addItems(["Rent", "Sale"])
@@ -4377,6 +4522,9 @@ class FBAutoBotMainWindow(QMainWindow):
         p_r1.addLayout(col_prtype, stretch=1)
 
         col_ptype = QVBoxLayout()
+        col_ptype.setContentsMargins(0, 0, 0, 0)
+        col_ptype.setSpacing(2)
+        col_ptype.setAlignment(Qt.AlignTop)
         col_ptype.addWidget(QLabel("Property type:"))
         self.prop_type_select = QComboBox()
         self.prop_type_select.addItems([
@@ -4392,24 +4540,36 @@ class FBAutoBotMainWindow(QMainWindow):
         # Property Row 2: Bedrooms, Bathrooms, Price, ID Location, Target Locations
         p_r2 = QHBoxLayout()
         col_pbeds = QVBoxLayout()
+        col_pbeds.setContentsMargins(0, 0, 0, 0)
+        col_pbeds.setSpacing(2)
+        col_pbeds.setAlignment(Qt.AlignTop)
         col_pbeds.addWidget(QLabel("Number of bedrooms:"))
         self.prop_bedrooms_select = QComboBox()
         self.prop_bedrooms_select.addItems(["1", "2", "3", "4", "5+"])
         col_pbeds.addWidget(self.prop_bedrooms_select)
 
         col_pbaths = QVBoxLayout()
+        col_pbaths.setContentsMargins(0, 0, 0, 0)
+        col_pbaths.setSpacing(2)
+        col_pbaths.setAlignment(Qt.AlignTop)
         col_pbaths.addWidget(QLabel("Number of bathrooms:"))
         self.prop_bathrooms_select = QComboBox()
         self.prop_bathrooms_select.addItems(["1", "1.5", "2", "2.5", "3", "3+"])
         col_pbaths.addWidget(self.prop_bathrooms_select)
 
         col_pprice = QVBoxLayout()
+        col_pprice.setContentsMargins(0, 0, 0, 0)
+        col_pprice.setSpacing(2)
+        col_pprice.setAlignment(Qt.AlignTop)
         col_pprice.addWidget(QLabel("Price ($ USD / Amount):"))
         self.prop_price_input = QLineEdit()
         self.prop_price_input.setPlaceholderText("1800")
         col_pprice.addWidget(self.prop_price_input)
 
         col_pid_loc = QVBoxLayout()
+        col_pid_loc.setContentsMargins(0, 0, 0, 0)
+        col_pid_loc.setSpacing(2)
+        col_pid_loc.setAlignment(Qt.AlignTop)
         col_pid_loc.addWidget(QLabel("ID Location (Marketplace Default):"))
         self.prop_id_loc_input = QLineEdit()
         self.prop_id_loc_input.setPlaceholderText("e.g., New York, NY")
@@ -4417,6 +4577,9 @@ class FBAutoBotMainWindow(QMainWindow):
         col_pid_loc.addWidget(self.prop_id_loc_input)
 
         col_ploc = QVBoxLayout()
+        col_ploc.setContentsMargins(0, 0, 0, 0)
+        col_ploc.setSpacing(2)
+        col_ploc.setAlignment(Qt.AlignTop)
         col_ploc.addWidget(QLabel("Property Location (Target Cities Pool):"))
         self.prop_location_input = QTextEdit()
         self.prop_location_input.setPlaceholderText("e.g., Brooklyn, NY\nQueens, NY\nManhattan, NY (1 per line)")
@@ -4440,33 +4603,82 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Property Row 4: Advanced Details (Optional - Facebook Marketplace Standard)
         prop_adv_box = QFrame()
-        prop_adv_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.02); border: 1px dashed rgba(255, 255, 255, 0.12); border-radius: 8px; padding: 6px;")
+        prop_adv_box.setStyleSheet("background-color: #0b0f19; border: 1.5px solid #8b5cf6; border-radius: 10px; padding: 10px;")
         padv_layout = QVBoxLayout(prop_adv_box)
-        padv_layout.setContentsMargins(6, 6, 6, 6)
-        padv_layout.setSpacing(6)
+        padv_layout.setContentsMargins(8, 8, 8, 8)
+        padv_layout.setSpacing(8)
 
-        padv_lbl = QLabel("⚙️ Advanced Details (Optional - Facebook Marketplace Specifications):")
-        padv_lbl.setStyleSheet("color: #a78bfa; font-size: 11px; font-weight: 700;")
+        padv_lbl = QLabel("⚙️ Advanced Details (Optional - Facebook Marketplace Specifications)  ▼")
+        padv_lbl.setStyleSheet("color: #c4b5fd; font-size: 11px; font-weight: 800; padding-bottom: 2px;")
         padv_layout.addWidget(padv_lbl)
+
+        adv_column_style = """
+            QComboBox, QLineEdit {
+                background-color: #0f172a;
+                color: #f8fafc;
+                border: 1.5px solid #38bdf8;
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-size: 11px;
+                font-weight: 600;
+                min-height: 24px;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 20px;
+                border-left: 1px solid #38bdf8;
+                border-top-right-radius: 6px;
+                border-bottom-right-radius: 6px;
+                background-color: #1e293b;
+            }
+            QComboBox::down-arrow {
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid #38bdf8;
+                margin-right: 2px;
+            }
+            QComboBox:hover, QLineEdit:hover {
+                border-color: #a78bfa;
+            }
+        """
 
         padv_r1 = QHBoxLayout()
 
         col_psqft = QVBoxLayout()
-        col_psqft.addWidget(QLabel("Property square feet:"))
+        col_psqft.setContentsMargins(0, 0, 0, 0)
+        col_psqft.setSpacing(2)
+        col_psqft.setAlignment(Qt.AlignTop)
+        lbl_sqft = QLabel("Property square feet:")
+        lbl_sqft.setStyleSheet("color: #e2e8f0; font-weight: 700; font-size: 11px;")
+        col_psqft.addWidget(lbl_sqft)
         self.prop_sqft_input = QLineEdit()
         self.prop_sqft_input.setPlaceholderText("e.g., 850")
+        self.prop_sqft_input.setStyleSheet(adv_column_style)
         col_psqft.addWidget(self.prop_sqft_input)
 
         col_plaundry = QVBoxLayout()
-        col_plaundry.addWidget(QLabel("Washing machine/dryer:"))
+        col_plaundry.setContentsMargins(0, 0, 0, 0)
+        col_plaundry.setSpacing(2)
+        col_plaundry.setAlignment(Qt.AlignTop)
+        lbl_laundry = QLabel("Washing machine/dryer:")
+        lbl_laundry.setStyleSheet("color: #e2e8f0; font-weight: 700; font-size: 11px;")
+        col_plaundry.addWidget(lbl_laundry)
         self.prop_laundry_select = QComboBox()
         self.prop_laundry_select.addItems(["None", "Washing machine/dryer", "Launderette in building", "Launderette available"])
+        self.prop_laundry_select.setStyleSheet(adv_column_style)
         col_plaundry.addWidget(self.prop_laundry_select)
 
         col_pparking = QVBoxLayout()
-        col_pparking.addWidget(QLabel("Parking type:"))
+        col_pparking.setContentsMargins(0, 0, 0, 0)
+        col_pparking.setSpacing(2)
+        col_pparking.setAlignment(Qt.AlignTop)
+        lbl_parking = QLabel("Parking type:")
+        lbl_parking.setStyleSheet("color: #e2e8f0; font-weight: 700; font-size: 11px;")
+        col_pparking.addWidget(lbl_parking)
         self.prop_parking_select = QComboBox()
         self.prop_parking_select.addItems(["None", "Garage parking", "Street parking", "Off-street parking", "Parking available"])
+        self.prop_parking_select.setStyleSheet(adv_column_style)
         col_pparking.addWidget(self.prop_parking_select)
 
         padv_r1.addLayout(col_psqft, stretch=1)
@@ -4477,15 +4689,27 @@ class FBAutoBotMainWindow(QMainWindow):
         padv_r2 = QHBoxLayout()
 
         col_pac = QVBoxLayout()
-        col_pac.addWidget(QLabel("Air conditioning:"))
+        col_pac.setContentsMargins(0, 0, 0, 0)
+        col_pac.setSpacing(2)
+        col_pac.setAlignment(Qt.AlignTop)
+        lbl_ac = QLabel("Air conditioning:")
+        lbl_ac.setStyleSheet("color: #e2e8f0; font-weight: 700; font-size: 11px;")
+        col_pac.addWidget(lbl_ac)
         self.prop_ac_select = QComboBox()
         self.prop_ac_select.addItems(["None", "Central AC", "AC available"])
+        self.prop_ac_select.setStyleSheet(adv_column_style)
         col_pac.addWidget(self.prop_ac_select)
 
         col_pheat = QVBoxLayout()
-        col_pheat.addWidget(QLabel("Heating type:"))
+        col_pheat.setContentsMargins(0, 0, 0, 0)
+        col_pheat.setSpacing(2)
+        col_pheat.setAlignment(Qt.AlignTop)
+        lbl_heat = QLabel("Heating type:")
+        lbl_heat.setStyleSheet("color: #e2e8f0; font-weight: 700; font-size: 11px;")
+        col_pheat.addWidget(lbl_heat)
         self.prop_heating_select = QComboBox()
         self.prop_heating_select.addItems(["None", "Central heating", "Electric heating", "Gas heating", "Radiator heating", "Heating available"])
+        self.prop_heating_select.setStyleSheet(adv_column_style)
         col_pheat.addWidget(self.prop_heating_select)
 
         padv_r2.addLayout(col_pac, stretch=1)
@@ -4493,6 +4717,7 @@ class FBAutoBotMainWindow(QMainWindow):
         padv_layout.addLayout(padv_r2)
 
         prop_layout.addWidget(prop_adv_box)
+        prop_layout.addStretch(1)
 
         self.listing_fields_stack.addWidget(prop_page)
 
@@ -5305,11 +5530,14 @@ class FBAutoBotMainWindow(QMainWindow):
         p_item_page = QWidget()
         p_item_layout = QVBoxLayout(p_item_page)
         p_item_layout.setContentsMargins(0, 0, 0, 0)
-        p_item_layout.setSpacing(5)
+        p_item_layout.setSpacing(6)
 
         # Item Row 1: Category & Condition
         pi_r1 = QHBoxLayout()
         col_cat = QVBoxLayout()
+        col_cat.setContentsMargins(0, 0, 0, 0)
+        col_cat.setSpacing(2)
+        col_cat.setAlignment(Qt.AlignTop)
         col_cat.addWidget(QLabel("Marketplace Category:"))
         self.proj_category_select = QComboBox()
         self.proj_category_select.addItems([
@@ -5322,6 +5550,9 @@ class FBAutoBotMainWindow(QMainWindow):
         pi_r1.addLayout(col_cat, stretch=1)
 
         col_pcond = QVBoxLayout()
+        col_pcond.setContentsMargins(0, 0, 0, 0)
+        col_pcond.setSpacing(2)
+        col_pcond.setAlignment(Qt.AlignTop)
         col_pcond.addWidget(QLabel("Item Condition:"))
         self.proj_condition_select = QComboBox()
         self.proj_condition_select.addItems([
@@ -5334,6 +5565,9 @@ class FBAutoBotMainWindow(QMainWindow):
         # Item Row 2: Title
         pi_r2 = QHBoxLayout()
         col_t = QVBoxLayout()
+        col_t.setContentsMargins(0, 0, 0, 0)
+        col_t.setSpacing(2)
+        col_t.setAlignment(Qt.AlignTop)
         col_t.addWidget(QLabel("Listing Title (Max 100 chars):"))
         self.proj_title_input = QLineEdit()
         self.proj_title_input.setPlaceholderText("e.g., Apple iPhone 15 Pro Max 256GB Unlocked - Brand New")
@@ -5344,12 +5578,18 @@ class FBAutoBotMainWindow(QMainWindow):
         # Item Row 3: Price, ID Location & Target Locations
         pi_r3 = QHBoxLayout()
         col_p = QVBoxLayout()
+        col_p.setContentsMargins(0, 0, 0, 0)
+        col_p.setSpacing(2)
+        col_p.setAlignment(Qt.AlignTop)
         col_p.addWidget(QLabel("Price ($ USD / Amount):"))
         self.proj_price_input = QLineEdit()
         self.proj_price_input.setPlaceholderText("150")
         col_p.addWidget(self.proj_price_input)
 
         col_id_loc = QVBoxLayout()
+        col_id_loc.setContentsMargins(0, 0, 0, 0)
+        col_id_loc.setSpacing(2)
+        col_id_loc.setAlignment(Qt.AlignTop)
         col_id_loc.addWidget(QLabel("ID Location (Marketplace Default):"))
         self.proj_id_loc_input = QLineEdit()
         self.proj_id_loc_input.setPlaceholderText("e.g. Los Angeles, CA or New York, NY")
@@ -5357,6 +5597,9 @@ class FBAutoBotMainWindow(QMainWindow):
         col_id_loc.addWidget(self.proj_id_loc_input)
 
         col_loc = QVBoxLayout()
+        col_loc.setContentsMargins(0, 0, 0, 0)
+        col_loc.setSpacing(2)
+        col_loc.setAlignment(Qt.AlignTop)
         col_loc.addWidget(QLabel("Target Locations / Cities Pool (Randomized per Ad):"))
         self.proj_location_input = QTextEdit()
         self.proj_location_input.setPlaceholderText("e.g., Los Angeles, CA\nNew York, NY\nChicago, IL\nHouston, TX")
@@ -5374,6 +5617,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.proj_desc_input.setPlaceholderText("Write details, specifications, payment terms, and pickup notes...")
         self.proj_desc_input.setFixedHeight(65)
         p_item_layout.addWidget(self.proj_desc_input)
+        p_item_layout.addStretch(1)
 
         self.proj_listing_fields_stack.addWidget(p_item_page)
 
@@ -5383,11 +5627,14 @@ class FBAutoBotMainWindow(QMainWindow):
         p_veh_page = QWidget()
         p_veh_layout = QVBoxLayout(p_veh_page)
         p_veh_layout.setContentsMargins(0, 0, 0, 0)
-        p_veh_layout.setSpacing(5)
+        p_veh_layout.setSpacing(6)
 
         # Vehicle Row 1: Vehicle Type & Year
         pv_r1 = QHBoxLayout()
         col_pvtype = QVBoxLayout()
+        col_pvtype.setContentsMargins(0, 0, 0, 0)
+        col_pvtype.setSpacing(2)
+        col_pvtype.setAlignment(Qt.AlignTop)
         col_pvtype.addWidget(QLabel("Vehicle Type:"))
         self.proj_veh_type_select = QComboBox()
         self.proj_veh_type_select.addItems([
@@ -5404,6 +5651,9 @@ class FBAutoBotMainWindow(QMainWindow):
         pv_r1.addLayout(col_pvtype, stretch=1)
 
         col_pvyear = QVBoxLayout()
+        col_pvyear.setContentsMargins(0, 0, 0, 0)
+        col_pvyear.setSpacing(2)
+        col_pvyear.setAlignment(Qt.AlignTop)
         col_pvyear.addWidget(QLabel("Vehicle Year:"))
         self.proj_veh_year_select = QComboBox()
         years_list = [str(y) for y in range(2026, 1979, -1)]
@@ -5416,24 +5666,36 @@ class FBAutoBotMainWindow(QMainWindow):
         # Vehicle Row 2: Make, Model, Price, ID Location, Target Locations
         pv_r2 = QHBoxLayout()
         col_pvmake = QVBoxLayout()
+        col_pvmake.setContentsMargins(0, 0, 0, 0)
+        col_pvmake.setSpacing(2)
+        col_pvmake.setAlignment(Qt.AlignTop)
         col_pvmake.addWidget(QLabel("Vehicle Make:"))
         self.proj_veh_make_input = QLineEdit()
         self.proj_veh_make_input.setPlaceholderText("e.g., Toyota, Honda, Ford, BMW")
         col_pvmake.addWidget(self.proj_veh_make_input)
 
         col_pvmodel = QVBoxLayout()
+        col_pvmodel.setContentsMargins(0, 0, 0, 0)
+        col_pvmodel.setSpacing(2)
+        col_pvmodel.setAlignment(Qt.AlignTop)
         col_pvmodel.addWidget(QLabel("Vehicle Model:"))
         self.proj_veh_model_input = QLineEdit()
         self.proj_veh_model_input.setPlaceholderText("e.g., Camry, Civic, F-150, 3 Series")
         col_pvmodel.addWidget(self.proj_veh_model_input)
 
         col_pvprice = QVBoxLayout()
+        col_pvprice.setContentsMargins(0, 0, 0, 0)
+        col_pvprice.setSpacing(2)
+        col_pvprice.setAlignment(Qt.AlignTop)
         col_pvprice.addWidget(QLabel("Price ($ USD / Amount):"))
         self.proj_veh_price_input = QLineEdit()
         self.proj_veh_price_input.setPlaceholderText("15000")
         col_pvprice.addWidget(self.proj_veh_price_input)
 
         col_pvid_loc = QVBoxLayout()
+        col_pvid_loc.setContentsMargins(0, 0, 0, 0)
+        col_pvid_loc.setSpacing(2)
+        col_pvid_loc.setAlignment(Qt.AlignTop)
         col_pvid_loc.addWidget(QLabel("ID Location (Marketplace Default):"))
         self.proj_veh_id_loc_input = QLineEdit()
         self.proj_veh_id_loc_input.setPlaceholderText("e.g. Los Angeles, CA or New York, NY")
@@ -5441,6 +5703,9 @@ class FBAutoBotMainWindow(QMainWindow):
         col_pvid_loc.addWidget(self.proj_veh_id_loc_input)
 
         col_pvloc = QVBoxLayout()
+        col_pvloc.setContentsMargins(0, 0, 0, 0)
+        col_pvloc.setSpacing(2)
+        col_pvloc.setAlignment(Qt.AlignTop)
         col_pvloc.addWidget(QLabel("Target Locations / Cities Pool (Randomized per Ad):"))
         self.proj_veh_location_input = QTextEdit()
         self.proj_veh_location_input.setPlaceholderText("e.g., Los Angeles, CA\nSan Diego, CA\nPhoenix, AZ")
@@ -5460,6 +5725,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.proj_veh_desc_input.setPlaceholderText("Tell buyers anything that you haven't had the chance to include yet about your vehicle (clean title, mileage, features, etc.)...")
         self.proj_veh_desc_input.setFixedHeight(65)
         p_veh_layout.addWidget(self.proj_veh_desc_input)
+        p_veh_layout.addStretch(1)
 
         self.proj_listing_fields_stack.addWidget(p_veh_page)
 
@@ -5469,11 +5735,14 @@ class FBAutoBotMainWindow(QMainWindow):
         p_prop_page = QWidget()
         p_prop_layout = QVBoxLayout(p_prop_page)
         p_prop_layout.setContentsMargins(0, 0, 0, 0)
-        p_prop_layout.setSpacing(10)
+        p_prop_layout.setSpacing(6)
 
         # Property Row 1: Sale or Rent, Property Type
         pp_r1 = QHBoxLayout()
         col_pprtype = QVBoxLayout()
+        col_pprtype.setContentsMargins(0, 0, 0, 0)
+        col_pprtype.setSpacing(2)
+        col_pprtype.setAlignment(Qt.AlignTop)
         col_pprtype.addWidget(QLabel("Property for sale or to let:"))
         self.proj_prop_rental_type_select = QComboBox()
         self.proj_prop_rental_type_select.addItems(["Rent", "Sale"])
@@ -5481,6 +5750,9 @@ class FBAutoBotMainWindow(QMainWindow):
         pp_r1.addLayout(col_pprtype, stretch=1)
 
         col_pptype = QVBoxLayout()
+        col_pptype.setContentsMargins(0, 0, 0, 0)
+        col_pptype.setSpacing(2)
+        col_pptype.setAlignment(Qt.AlignTop)
         col_pptype.addWidget(QLabel("Property type:"))
         self.proj_prop_type_select = QComboBox()
         self.proj_prop_type_select.addItems([
@@ -5496,24 +5768,36 @@ class FBAutoBotMainWindow(QMainWindow):
         # Property Row 2: Bedrooms, Bathrooms, Price, ID Location, Target Locations
         pp_r2 = QHBoxLayout()
         col_ppbeds = QVBoxLayout()
+        col_ppbeds.setContentsMargins(0, 0, 0, 0)
+        col_ppbeds.setSpacing(2)
+        col_ppbeds.setAlignment(Qt.AlignTop)
         col_ppbeds.addWidget(QLabel("Number of bedrooms:"))
         self.proj_prop_bedrooms_select = QComboBox()
         self.proj_prop_bedrooms_select.addItems(["1", "2", "3", "4", "5+"])
         col_ppbeds.addWidget(self.proj_prop_bedrooms_select)
 
         col_ppbaths = QVBoxLayout()
+        col_ppbaths.setContentsMargins(0, 0, 0, 0)
+        col_ppbaths.setSpacing(2)
+        col_ppbaths.setAlignment(Qt.AlignTop)
         col_ppbaths.addWidget(QLabel("Number of bathrooms:"))
         self.proj_prop_bathrooms_select = QComboBox()
         self.proj_prop_bathrooms_select.addItems(["1", "1.5", "2", "2.5", "3", "3+"])
         col_ppbaths.addWidget(self.proj_prop_bathrooms_select)
 
         col_ppprice = QVBoxLayout()
+        col_ppprice.setContentsMargins(0, 0, 0, 0)
+        col_ppprice.setSpacing(2)
+        col_ppprice.setAlignment(Qt.AlignTop)
         col_ppprice.addWidget(QLabel("Price ($ USD / Amount):"))
         self.proj_prop_price_input = QLineEdit()
         self.proj_prop_price_input.setPlaceholderText("1800")
         col_ppprice.addWidget(self.proj_prop_price_input)
 
         col_ppid_loc = QVBoxLayout()
+        col_ppid_loc.setContentsMargins(0, 0, 0, 0)
+        col_ppid_loc.setSpacing(2)
+        col_ppid_loc.setAlignment(Qt.AlignTop)
         col_ppid_loc.addWidget(QLabel("ID Location (Marketplace Default):"))
         self.proj_prop_id_loc_input = QLineEdit()
         self.proj_prop_id_loc_input.setPlaceholderText("e.g., New York, NY")
@@ -5521,6 +5805,9 @@ class FBAutoBotMainWindow(QMainWindow):
         col_ppid_loc.addWidget(self.proj_prop_id_loc_input)
 
         col_pploc = QVBoxLayout()
+        col_pploc.setContentsMargins(0, 0, 0, 0)
+        col_pploc.setSpacing(2)
+        col_pploc.setAlignment(Qt.AlignTop)
         col_pploc.addWidget(QLabel("Property Location (Target Cities Pool):"))
         self.proj_prop_location_input = QTextEdit()
         self.proj_prop_location_input.setPlaceholderText("e.g., Brooklyn, NY\nQueens, NY\nManhattan, NY (1 per line)")
@@ -5544,52 +5831,82 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Property Row 4: Advanced Details (Optional - Facebook Marketplace Standard)
         p_prop_adv_box = QFrame()
-        p_prop_adv_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.02); border: 1px dashed rgba(255, 255, 255, 0.12); border-radius: 8px; padding: 6px;")
+        p_prop_adv_box.setStyleSheet("background-color: #0b0f19; border: 1.5px solid #8b5cf6; border-radius: 10px; padding: 10px;")
         ppadv_layout = QVBoxLayout(p_prop_adv_box)
-        ppadv_layout.setContentsMargins(6, 6, 6, 6)
-        ppadv_layout.setSpacing(6)
+        ppadv_layout.setContentsMargins(8, 8, 8, 8)
+        ppadv_layout.setSpacing(8)
 
-        ppadv_lbl = QLabel("⚙️ Advanced Details (Optional - Facebook Marketplace Specifications):")
-        ppadv_lbl.setStyleSheet("color: #a78bfa; font-size: 11px; font-weight: 700;")
+        ppadv_lbl = QLabel("⚙️ Advanced Details (Optional - Facebook Marketplace Specifications)  ▼")
+        ppadv_lbl.setStyleSheet("color: #c4b5fd; font-size: 11px; font-weight: 800; padding-bottom: 2px;")
         ppadv_layout.addWidget(ppadv_lbl)
 
         ppadv_r1 = QHBoxLayout()
 
         col_ppsqft = QVBoxLayout()
-        col_ppsqft.addWidget(QLabel("Property square feet:"))
+        col_ppsqft.setContentsMargins(0, 0, 0, 0)
+        col_ppsqft.setSpacing(2)
+        col_ppsqft.setAlignment(Qt.AlignTop)
+        lbl_psqft = QLabel("Property square feet:")
+        lbl_psqft.setStyleSheet("color: #e2e8f0; font-weight: 700; font-size: 11px;")
+        col_ppsqft.addWidget(lbl_psqft)
         self.proj_prop_sqft_input = QLineEdit()
         self.proj_prop_sqft_input.setPlaceholderText("e.g., 850")
+        self.proj_prop_sqft_input.setStyleSheet(adv_column_style)
         col_ppsqft.addWidget(self.proj_prop_sqft_input)
 
         col_pplaundry = QVBoxLayout()
-        col_pplaundry.addWidget(QLabel("Washing machine/dryer:"))
+        col_pplaundry.setContentsMargins(0, 0, 0, 0)
+        col_pplaundry.setSpacing(2)
+        col_pplaundry.setAlignment(Qt.AlignTop)
+        lbl_plaundry = QLabel("Washing machine/dryer:")
+        lbl_plaundry.setStyleSheet("color: #e2e8f0; font-weight: 700; font-size: 11px;")
+        col_pplaundry.addWidget(lbl_plaundry)
         self.proj_prop_laundry_select = QComboBox()
         self.proj_prop_laundry_select.addItems(["None", "Washing machine/dryer", "Launderette in building", "Launderette available"])
+        self.proj_prop_laundry_select.setStyleSheet(adv_column_style)
         col_pplaundry.addWidget(self.proj_prop_laundry_select)
 
-        col_ppparking = QVBoxLayout()
-        col_ppparking.addWidget(QLabel("Parking type:"))
+        col_pparking = QVBoxLayout()
+        col_pparking.setContentsMargins(0, 0, 0, 0)
+        col_pparking.setSpacing(2)
+        col_pparking.setAlignment(Qt.AlignTop)
+        lbl_pparking = QLabel("Parking type:")
+        lbl_pparking.setStyleSheet("color: #e2e8f0; font-weight: 700; font-size: 11px;")
+        col_pparking.addWidget(lbl_pparking)
         self.proj_prop_parking_select = QComboBox()
         self.proj_prop_parking_select.addItems(["None", "Garage parking", "Street parking", "Off-street parking", "Parking available"])
-        col_ppparking.addWidget(self.proj_prop_parking_select)
+        self.proj_prop_parking_select.setStyleSheet(adv_column_style)
+        col_pparking.addWidget(self.proj_prop_parking_select)
 
         ppadv_r1.addLayout(col_ppsqft, stretch=1)
         ppadv_r1.addLayout(col_pplaundry, stretch=2)
-        ppadv_r1.addLayout(col_ppparking, stretch=2)
+        ppadv_r1.addLayout(col_pparking, stretch=2)
         ppadv_layout.addLayout(ppadv_r1)
 
         ppadv_r2 = QHBoxLayout()
 
         col_ppac = QVBoxLayout()
-        col_ppac.addWidget(QLabel("Air conditioning:"))
+        col_ppac.setContentsMargins(0, 0, 0, 0)
+        col_ppac.setSpacing(2)
+        col_ppac.setAlignment(Qt.AlignTop)
+        lbl_pac = QLabel("Air conditioning:")
+        lbl_pac.setStyleSheet("color: #e2e8f0; font-weight: 700; font-size: 11px;")
+        col_ppac.addWidget(lbl_pac)
         self.proj_prop_ac_select = QComboBox()
         self.proj_prop_ac_select.addItems(["None", "Central AC", "AC available"])
+        self.proj_prop_ac_select.setStyleSheet(adv_column_style)
         col_ppac.addWidget(self.proj_prop_ac_select)
 
         col_ppheat = QVBoxLayout()
-        col_ppheat.addWidget(QLabel("Heating type:"))
+        col_ppheat.setContentsMargins(0, 0, 0, 0)
+        col_ppheat.setSpacing(2)
+        col_ppheat.setAlignment(Qt.AlignTop)
+        lbl_pheat = QLabel("Heating type:")
+        lbl_pheat.setStyleSheet("color: #e2e8f0; font-weight: 700; font-size: 11px;")
+        col_ppheat.addWidget(lbl_pheat)
         self.proj_prop_heating_select = QComboBox()
         self.proj_prop_heating_select.addItems(["None", "Central heating", "Electric heating", "Gas heating", "Radiator heating", "Heating available"])
+        self.proj_prop_heating_select.setStyleSheet(adv_column_style)
         col_ppheat.addWidget(self.proj_prop_heating_select)
 
         ppadv_r2.addLayout(col_ppac, stretch=1)
@@ -5597,6 +5914,7 @@ class FBAutoBotMainWindow(QMainWindow):
         ppadv_layout.addLayout(ppadv_r2)
 
         p_prop_layout.addWidget(p_prop_adv_box)
+        p_prop_layout.addStretch(1)
 
         self.proj_listing_fields_stack.addWidget(p_prop_page)
 

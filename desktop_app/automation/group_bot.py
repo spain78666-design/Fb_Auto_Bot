@@ -165,6 +165,17 @@ def copy_fewfeed_session_data(src_profile_dir: str, dst_profile_dir: str):
         except Exception:
             pass
 
+    # Copy storage state JSON if present
+    for st_file in ["fewfeed_storage_state.json", "state.json"]:
+        for s_folder in [src_profile_dir, src_default]:
+            sf = os.path.join(s_folder, st_file)
+            if os.path.isfile(sf):
+                for d_folder in [dst_profile_dir, dst_default]:
+                    try:
+                        shutil.copy2(sf, os.path.join(d_folder, st_file))
+                    except Exception:
+                        pass
+
     for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
         fpath = os.path.join(dst_profile_dir, fname)
         if os.path.exists(fpath) or os.path.islink(fpath):
@@ -722,6 +733,7 @@ class FacebookGroupBot:
     async def run_fewfeed_group_joining(self, group_codes: List[str], delay_seconds: int = 15) -> int:
         """
         Automates FewFeed 'Auto Join To Facebook Groups' via direct tool URL.
+        Injects Group IDs, sets THREAD (1) and DELAY, skips LIMIT and questions, and clicks 'JOINs'.
         """
         if not group_codes:
             self.log("INFO", "No target group codes provided for joining. Skipping joining phase.")
@@ -731,101 +743,145 @@ class FacebookGroupBot:
         self.log("INFO", f"👥 [FewFeed Auto Join] Starting automated joining for {len(group_codes)} group(s)...")
         self.set_progress(10)
 
-        # Step 1: Directly open Auto Join Tool URL
-        await self.open_fewfeed_tool_page("https://fewfeed.app/tool/auto-join-fb-group")
+        # Step 1: Open Auto Join Tool URL
+        target_join_url = "https://fewfeed.app/tool/auto-join-fb-groups"
+        await self.open_fewfeed_tool_page(target_join_url)
         self.set_progress(25)
 
-        # Step 2: Fill Group Codes into FewFeed tool textarea / input
+        # Step 2: Inject Group IDs, THREAD (1), and DELAY (seconds)
         codes_text = "\n".join(group_codes)
-        input_filled = False
+        thread_val = "1"
+        delay_val = str(delay_seconds if delay_seconds and delay_seconds > 0 else 120)
 
-        input_selectors = [
-            'textarea[placeholder*="ID" i]',
-            'textarea[placeholder*="group" i]',
-            'textarea[placeholder*="list" i]',
-            'textarea[name*="group" i]',
-            'textarea[id*="group" i]',
-            'textarea',
-            'input[type="text"][placeholder*="group" i]',
-            'div[contenteditable="true"]'
-        ]
+        self.log("INFO", f"📋 Injecting {len(group_codes)} Group ID(s), THREAD={thread_val}, DELAY={delay_val}s into FewFeed Auto Join tool...")
 
-        for sel in input_selectors:
-            try:
-                inp = await self.page.query_selector(sel)
-                if inp and await inp.is_visible():
-                    await inp.scroll_into_view_if_needed()
-                    await inp.click()
-                    await inp.fill("")
-                    await inp.fill(codes_text)
-                    input_filled = True
-                    self.log("SUCCESS", f"📋 Injected {len(group_codes)} Group IDs into FewFeed Auto Join input field.")
-                    break
-            except Exception:
-                continue
+        injection_res = await self.page.evaluate("""(data) => {
+            const { codesText, threadStr, delayStr } = data;
+            let filledTa = false;
+            let filledThread = false;
+            let filledDelay = false;
 
-        if not input_filled:
-            try:
-                injected = await self.page.evaluate("""(text) => {
-                    const ta = document.querySelector('textarea') || document.querySelector('input[type="text"]');
-                    if (ta) {
-                        ta.value = text;
-                        ta.dispatchEvent(new Event('input', { bubbles: true }));
-                        ta.dispatchEvent(new Event('change', { bubbles: true }));
-                        return true;
-                    }
-                    return false;
-                }""", codes_text)
-                if injected:
-                    input_filled = True
-                    self.log("SUCCESS", f"📋 Injected {len(group_codes)} Group IDs into FewFeed via DOM bridge.")
-            except Exception as ex:
-                self.log("WARNING", f"Input bridge: {str(ex)[:70]}")
+            // 1. Fill Textarea (Group IDs)
+            const textareas = Array.from(document.querySelectorAll('textarea'));
+            let mainTa = textareas.find(ta => {
+                const ph = (ta.placeholder || '').toLowerCase();
+                const nm = (ta.name || '').toLowerCase();
+                const id = (ta.id || '').toLowerCase();
+                return ph.includes('id') || ph.includes('group') || nm.includes('group') || id.includes('group');
+            }) || textareas[0];
 
-        # Step 3: Set Delay if input is available
-        try:
-            delay_input = await self.page.query_selector('input[type="number"], input[name*="delay" i], input[placeholder*="delay" i], input[placeholder*="second" i]')
-            if delay_input and await delay_input.is_visible():
-                await delay_input.fill(str(delay_seconds))
-                self.log("INFO", f"⏳ Set FewFeed Auto Join interval: {delay_seconds}s")
-        except Exception:
-            pass
+            if (mainTa) {
+                mainTa.value = codesText;
+                mainTa.dispatchEvent(new Event('input', { bubbles: true }));
+                mainTa.dispatchEvent(new Event('change', { bubbles: true }));
+                filledTa = true;
+            }
 
-        # Step 4: Click Start Join / Submit button inside FewFeed
-        self.log("INFO", "🚀 Triggering 'Start Join' in FewFeed...")
-        start_btn_selectors = [
-            'button:has-text("Start Join")',
-            'button:has-text("Start Joining")',
-            'button:has-text("Start")',
-            'button:has-text("Join")',
-            'button:has-text("Run")',
-            'button[type="submit"]',
-            'div[role="button"]:has-text("Start")'
-        ]
+            // 2. Search for THREAD and DELAY inputs by label / parent text
+            const inputs = Array.from(document.querySelectorAll('input'));
 
-        started = False
-        for bsel in start_btn_selectors:
-            try:
-                sbtn = await self.page.query_selector(bsel)
-                if sbtn and await sbtn.is_visible():
-                    await sbtn.scroll_into_view_if_needed()
-                    await asyncio.sleep(0.5)
-                    await sbtn.click()
-                    started = True
-                    self.log("SUCCESS", "✅ Clicked 'Start Join' in FewFeed Auto Join Extension Tool!")
-                    break
-            except Exception:
-                continue
+            for (const inp of inputs) {
+                const pText = (inp.parentElement ? inp.parentElement.innerText : '').toUpperCase();
+                const prevText = (inp.previousElementSibling ? inp.previousElementSibling.innerText : '').toUpperCase();
+                
+                if (pText.includes('THREAD') || prevText.includes('THREAD')) {
+                    inp.value = threadStr;
+                    inp.dispatchEvent(new Event('input', { bubbles: true }));
+                    inp.dispatchEvent(new Event('change', { bubbles: true }));
+                    filledThread = true;
+                }
+                
+                if (pText.includes('DELAY') || prevText.includes('DELAY')) {
+                    inp.value = delayStr;
+                    inp.dispatchEvent(new Event('input', { bubbles: true }));
+                    inp.dispatchEvent(new Event('change', { bubbles: true }));
+                    filledDelay = true;
+                }
+            }
 
-        if not started:
-            self.log("INFO", "FewFeed Auto Join task started or ready.")
+            // Fallback for Thread and Delay by input position if not matched by label
+            if (!filledThread || !filledDelay) {
+                const numInputs = inputs.filter(i => i.type === 'number' || i.type === 'text' || !i.type);
+                if (numInputs.length >= 1 && !filledThread) {
+                    numInputs[0].value = threadStr;
+                    numInputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+                    numInputs[0].dispatchEvent(new Event('change', { bubbles: true }));
+                    filledThread = true;
+                }
+                if (numInputs.length >= 2 && !filledDelay) {
+                    numInputs[1].value = delayStr;
+                    numInputs[1].dispatchEvent(new Event('input', { bubbles: true }));
+                    numInputs[1].dispatchEvent(new Event('change', { bubbles: true }));
+                    filledDelay = true;
+                }
+            }
+
+            return { filledTa, filledThread, filledDelay };
+        }""", {
+            "codesText": codes_text,
+            "threadStr": thread_val,
+            "delayStr": delay_val
+        })
+
+        if injection_res.get("filledTa"):
+            self.log("SUCCESS", f"📋 Group IDs injected into FewFeed Auto Join textarea.")
+        else:
+            self.log("WARNING", "⚠️ Group IDs textarea fallback triggered.")
+
+        if injection_res.get("filledThread"):
+            self.log("SUCCESS", f"🧵 THREAD set to: {thread_val}")
+
+        if injection_res.get("filledDelay"):
+            self.log("SUCCESS", f"⏱️ DELAY set to: {delay_val} seconds")
+
+        # Step 3: Trigger 'JOINs' button
+        self.log("INFO", "🚀 Clicking 'JOINs' button in FewFeed Auto Join tool...")
+        await asyncio.sleep(1.5)
+
+        btn_clicked = await self.page.evaluate("""() => {
+            const elements = Array.from(document.querySelectorAll('button, input[type="submit"], input[type="button"], div[role="button"], a.btn'));
+            let btn = elements.find(el => {
+                const txt = (el.innerText || el.value || '').trim().toUpperCase();
+                return txt === 'JOINS' || txt === 'JOIN' || txt.includes('JOIN');
+            });
+            if (btn) {
+                btn.scrollIntoView({ block: 'center' });
+                btn.click();
+                return true;
+            }
+            return false;
+        }""")
+
+        if not btn_clicked:
+            start_btn_selectors = [
+                'button:has-text("JOINs")',
+                'button:has-text("JOIN")',
+                'button:has-text("Join")',
+                'button:has-text("Start Join")',
+                'button[type="submit"]'
+            ]
+            for bsel in start_btn_selectors:
+                try:
+                    sbtn = await self.page.query_selector(bsel)
+                    if sbtn and await sbtn.is_visible():
+                        await sbtn.scroll_into_view_if_needed()
+                        await asyncio.sleep(0.3)
+                        await sbtn.click()
+                        btn_clicked = True
+                        break
+                except Exception:
+                    continue
+
+        if btn_clicked:
+            self.log("SUCCESS", "✅ 'JOINs' button clicked successfully! FewFeed Auto Join operation is active.")
+        else:
+            self.log("WARNING", "⚠️ 'JOINs' button click notice. Please verify 'JOINs' button on FewFeed tab.")
 
         self.set_progress(45)
 
-        # Wait for initial joining cycles
-        wait_cycles = min(len(group_codes) * delay_seconds, 60)
+        # Wait cycles
+        wait_cycles = min(len(group_codes) * int(delay_val), 60)
         self.log("INFO", f"⏳ Monitoring FewFeed automated group joining progress ({wait_cycles}s window)...")
-        
         for w in range(0, max(5, int(wait_cycles / 5))):
             if self._cancel_requested:
                 break
