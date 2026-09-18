@@ -360,54 +360,71 @@ class DistinctDataMapper:
     def generate_distinct_images(
         images_pool: List[str],
         tabs_count: int,
+        imgs_per_post: int = 1,
         temp_dir: Optional[str] = None,
         log_callback: Optional[Callable[[str, str], None]] = None
     ) -> List[List[str]]:
         """
-        Allocates a strictly separate, distinct image file for each tab.
-        If images_pool has fewer images than tabs_count, generates unique, anti-duplicate
-        mutated images on disk (micro-rotation, EXIF wipe, noise/color jitter) so each tab
-        receives a physically unique file with a distinct file hash.
+        Allocates strictly distinct, non-duplicate image files for each tab according to imgs_per_post.
+        If images_pool has fewer images than (tabs_count * imgs_per_post), generates unique, anti-duplicate
+        mutated images on disk (micro-rotation, EXIF wipe, noise/color jitter, unique binary checksums) so
+        Facebook never flags any listing as a duplicate.
         """
         log = log_callback or (lambda lvl, msg: None)
         valid_images = [os.path.abspath(img) for img in images_pool if os.path.exists(img)]
+        imgs_per_post = max(1, int(imgs_per_post or 1))
 
         if not valid_images:
-            # No images provided on disk
             return [[] for _ in range(tabs_count)]
 
-        # If user uploaded at least tabs_count unique images, assign 1 unique image per tab
-        if len(valid_images) >= tabs_count:
-            log("INFO", f"🖼️ Distinct Image Mapping: {len(valid_images)} distinct images available for {tabs_count} tabs. 1-to-1 unique mapping assigned.")
-            return [[valid_images[i]] for i in range(tabs_count)]
-
-        # If fewer images than tabs, generate unique anti-duplicate image files per tab
-        log("INFO", f"🖼️ Distinct Image Generator: {len(valid_images)} base image(s) provided for {tabs_count} tabs. Generating distinct mutated variants per tab...")
-
-        tab_images: List[List[str]] = []
+        total_required_images = tabs_count * imgs_per_post
         out_dir = temp_dir or os.path.join(tempfile.gettempdir(), "fb_distinct_tab_images")
         try:
             os.makedirs(out_dir, exist_ok=True)
         except Exception:
             pass
 
+        log("INFO", f"🖼️ Image Distributor: Allocating {imgs_per_post} image(s) per tab across {tabs_count} tabs (Total required: {total_required_images}, Base available: {len(valid_images)})...")
+
+        # If we have enough unique images to give every tab completely separate original files
+        if len(valid_images) >= total_required_images:
+            tab_images = []
+            for tab_idx in range(tabs_count):
+                start = tab_idx * imgs_per_post
+                end = start + imgs_per_post
+                tab_imgs = valid_images[start:end]
+                tab_images.append(tab_imgs)
+            log("SUCCESS", f"✅ Assigned 100% unique base image slices across all {tabs_count} tabs without reuse.")
+            return tab_images
+
+        # If fewer images than required, distribute available base images and synthesize unique mutated files
+        tab_images: List[List[str]] = []
+        assigned_file_hashes = set()
+
         for tab_idx in range(tabs_count):
-            base_img = valid_images[tab_idx % len(valid_images)]
-            cycle = tab_idx // len(valid_images)
+            current_tab_files = []
+            for img_idx in range(imgs_per_post):
+                global_img_counter = (tab_idx * imgs_per_post) + img_idx
+                base_img = valid_images[global_img_counter % len(valid_images)]
+                cycle = global_img_counter // len(valid_images)
 
-            if cycle == 0 and tab_idx < len(valid_images):
-                # First usage uses original file directly
-                tab_images.append([base_img])
-            else:
-                # Generate unique variant for this tab
-                variant_path = DistinctDataMapper._create_image_variant(
-                    base_img,
-                    tab_idx=tab_idx + 1,
-                    out_dir=out_dir,
-                    log=log
-                )
-                tab_images.append([variant_path])
+                if cycle == 0 and global_img_counter < len(valid_images) and base_img not in assigned_file_hashes:
+                    # First time this base image is used across the entire campaign
+                    current_tab_files.append(base_img)
+                    assigned_file_hashes.add(base_img)
+                else:
+                    # Synthesize an anti-duplicate shielded variant on disk with unique visual & metadata checksum
+                    variant_path = DistinctDataMapper._create_image_variant(
+                        base_img,
+                        tab_idx=global_img_counter + 1,
+                        out_dir=out_dir,
+                        log=log
+                    )
+                    current_tab_files.append(variant_path)
 
+            tab_images.append(current_tab_files)
+
+        log("SUCCESS", f"✅ Created anti-duplicate protected image sets ({imgs_per_post} image(s)/tab) for all {tabs_count} tabs.")
         return tab_images
 
     @staticmethod
@@ -483,7 +500,8 @@ class DistinctDataMapper:
 
         # 2. Resolve Distinct Images
         imgs_pool = base_payload.get("images", [])
-        distinct_imgs = cls.generate_distinct_images(imgs_pool, tabs_count, log_callback=log)
+        imgs_per_post = base_payload.get("images_per_post", 1) or base_payload.get("images_per_tab", 1)
+        distinct_imgs = cls.generate_distinct_images(imgs_pool, tabs_count, imgs_per_post=imgs_per_post, log_callback=log)
 
         # 3. Assemble distinct payload for each tab
         tab_payloads: List[Dict[str, Any]] = []

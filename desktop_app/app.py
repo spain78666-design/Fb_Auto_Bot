@@ -2705,6 +2705,7 @@ class FBAutoBotMainWindow(QMainWindow):
         # Left Card: Import / Add Profile with Stacked View (Single vs Bulk) & ScrollArea
         left_card = QFrame()
         left_card.setProperty("class", "glassCard")
+        left_card.setMinimumWidth(390)
         left_card_layout = QVBoxLayout(left_card)
         left_card_layout.setContentsMargins(0, 0, 0, 0)
         left_card_layout.setSpacing(0)
@@ -2712,6 +2713,8 @@ class FBAutoBotMainWindow(QMainWindow):
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
         left_scroll.setFrameShape(QFrame.NoFrame)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         left_scroll.setStyleSheet(
             "QScrollArea { background: transparent; border: none; }"
             "QScrollBar:vertical { width: 8px; background: rgba(15, 23, 42, 0.6); border-radius: 4px; }"
@@ -2735,26 +2738,26 @@ class FBAutoBotMainWindow(QMainWindow):
         form_layout.setContentsMargins(0, 0, 0, 0)
         form_layout.setSpacing(10)
 
-        title_row = QHBoxLayout()
         form_title = QLabel("Add / Update Facebook Account")
         form_title.setProperty("class", "cardTitle")
-        title_row.addWidget(form_title)
-        title_row.addStretch()
+        form_layout.addWidget(form_title)
 
+        mode_switch_row = QHBoxLayout()
         btn_new_acc = QPushButton("➕ New Account (Clear)")
-        btn_new_acc.setStyleSheet("background-color: #334155; color: #38bdf8; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 6px; border: 1px solid #0284c7;")
+        btn_new_acc.setStyleSheet("background-color: #334155; color: #38bdf8; font-weight: 700; font-size: 11px; padding: 5px 10px; border-radius: 6px; border: 1px solid #0284c7;")
         btn_new_acc.setCursor(Qt.PointingHandCursor)
         btn_new_acc.setToolTip("Clears all form fields to enter a fresh new account")
         btn_new_acc.clicked.connect(self.clear_account_form)
-        title_row.addWidget(btn_new_acc)
 
         btn_go_bulk = QPushButton("📦 Bulk Add Mode")
-        btn_go_bulk.setStyleSheet("background-color: #4f46e5; color: #ffffff; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
+        btn_go_bulk.setStyleSheet("background-color: #4f46e5; color: #ffffff; font-weight: 700; font-size: 11px; padding: 5px 10px; border-radius: 6px;")
         btn_go_bulk.setCursor(Qt.PointingHandCursor)
         btn_go_bulk.setToolTip("Switch to multi-account / bulk import (UID|Pass or Cookies)")
         btn_go_bulk.clicked.connect(self.switch_to_bulk_accounts_mode)
-        title_row.addWidget(btn_go_bulk)
-        form_layout.addLayout(title_row)
+
+        mode_switch_row.addWidget(btn_new_acc)
+        mode_switch_row.addWidget(btn_go_bulk)
+        form_layout.addLayout(mode_switch_row)
 
         # Auth Method Selector (UID+Pass vs Cookie)
         auth_switch_layout = QHBoxLayout()
@@ -2894,36 +2897,40 @@ class FBAutoBotMainWindow(QMainWindow):
         self.acc_notes_input.setPlaceholderText("e.g., Verified US seller account")
         form_layout.addWidget(self.acc_notes_input)
 
-        # Single Form Actions
-        btn_row = QHBoxLayout()
+        # Single Form Actions (Clean 2x2 grid layout so all buttons are visible with zero horizontal scroll)
+        btn_grid = QGridLayout()
+        btn_grid.setSpacing(6)
+
+        add_btn = QPushButton("➕ Add / Save Account")
+        add_btn.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 11px; padding: 8px 12px; border-radius: 6px;")
+        add_btn.setCursor(Qt.PointingHandCursor)
+        add_btn.setToolTip("Saves account credentials, clears the form immediately for the next account, and tests session.")
+        add_btn.clicked.connect(self.save_account)
+
         self.btn_single_login = QPushButton("⚡ Login & Extract Cookie")
         self.btn_single_login.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: 700; font-size: 11px; padding: 8px 12px; border-radius: 6px;")
         self.btn_single_login.setCursor(Qt.PointingHandCursor)
         self.btn_single_login.setToolTip("Automatically logs into Facebook using UID/Password, generates fresh cookies, and sets status to Healthy.")
         self.btn_single_login.clicked.connect(self.login_single_account)
 
-        add_btn = QPushButton("➕ Add Account")
-        add_btn.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 12px; padding: 8px 14px; border-radius: 6px;")
-        add_btn.setCursor(Qt.PointingHandCursor)
-        add_btn.setToolTip("Saves account credentials, clears the form immediately for the next account, and tests session.")
-        add_btn.clicked.connect(self.save_account)
+        test_btn = QPushButton("🌐 Test Proxy")
+        test_btn.setProperty("class", "secondaryBtn")
+        test_btn.setStyleSheet("font-size: 11px; padding: 7px 10px;")
+        test_btn.setCursor(Qt.PointingHandCursor)
+        test_btn.clicked.connect(self.test_proxy)
 
-        btn_clear = QPushButton("🧹 Clear")
+        btn_clear = QPushButton("🧹 Clear Form")
         btn_clear.setProperty("class", "secondaryBtn")
-        btn_clear.setStyleSheet("font-size: 11px; padding: 8px 10px;")
+        btn_clear.setStyleSheet("font-size: 11px; padding: 7px 10px;")
+        btn_clear.setCursor(Qt.PointingHandCursor)
         btn_clear.setToolTip("Clear all fields in this form")
         btn_clear.clicked.connect(self.clear_account_form)
 
-        test_btn = QPushButton("Test Proxy")
-        test_btn.setProperty("class", "secondaryBtn")
-        test_btn.setStyleSheet("font-size: 11px; padding: 8px 10px;")
-        test_btn.clicked.connect(self.test_proxy)
-
-        btn_row.addWidget(self.btn_single_login)
-        btn_row.addWidget(add_btn)
-        btn_row.addWidget(btn_clear)
-        btn_row.addWidget(test_btn)
-        form_layout.addLayout(btn_row)
+        btn_grid.addWidget(add_btn, 0, 0)
+        btn_grid.addWidget(self.btn_single_login, 0, 1)
+        btn_grid.addWidget(test_btn, 1, 0)
+        btn_grid.addWidget(btn_clear, 1, 1)
+        form_layout.addLayout(btn_grid)
         form_layout.addStretch()
 
         # ----------------------------------------------------
@@ -2934,19 +2941,19 @@ class FBAutoBotMainWindow(QMainWindow):
         bulk_layout.setContentsMargins(0, 0, 0, 0)
         bulk_layout.setSpacing(10)
 
-        bulk_title_row = QHBoxLayout()
         bulk_title = QLabel("📦 Bulk Accounts Import (UID/Pass or Cookies)")
         bulk_title.setProperty("class", "cardTitle")
-        bulk_title_row.addWidget(bulk_title)
-        bulk_title_row.addStretch()
+        bulk_layout.addWidget(bulk_title)
 
+        bulk_top_bar = QHBoxLayout()
         btn_back_single = QPushButton("⬅️ Single Mode")
         btn_back_single.setProperty("class", "secondaryBtn")
         btn_back_single.setStyleSheet("font-size: 11px; padding: 4px 10px; font-weight: 700;")
         btn_back_single.setCursor(Qt.PointingHandCursor)
         btn_back_single.clicked.connect(self.switch_to_single_accounts_mode)
-        bulk_title_row.addWidget(btn_back_single)
-        bulk_layout.addLayout(bulk_title_row)
+        bulk_top_bar.addWidget(btn_back_single)
+        bulk_top_bar.addStretch()
+        bulk_layout.addLayout(bulk_top_bar)
 
         # File upload bar
         file_bar = QHBoxLayout()
@@ -2992,26 +2999,30 @@ class FBAutoBotMainWindow(QMainWindow):
         bproxy_row.addWidget(self.bulk_proxy_host)
         bulk_layout.addLayout(bproxy_row)
 
-        bulk_btn_row = QHBoxLayout()
+        bulk_btn_grid = QGridLayout()
+        bulk_btn_grid.setSpacing(6)
+
         self.btn_execute_bulk_import = QPushButton("🚀 Import All Accounts")
-        self.btn_execute_bulk_import.setStyleSheet("background-color: #059669; color: #ffffff; font-weight: 800; font-size: 11px; padding: 7px 14px; border-radius: 6px;")
+        self.btn_execute_bulk_import.setStyleSheet("background-color: #059669; color: #ffffff; font-weight: 800; font-size: 11px; padding: 8px 12px; border-radius: 6px;")
         self.btn_execute_bulk_import.setCursor(Qt.PointingHandCursor)
         self.btn_execute_bulk_import.clicked.connect(self.import_bulk_accounts)
 
+        self.btn_clear_bulk = QPushButton("🧹 Clear Inputs")
+        self.btn_clear_bulk.setProperty("class", "secondaryBtn")
+        self.btn_clear_bulk.setStyleSheet("font-size: 11px; padding: 8px 10px;")
+        self.btn_clear_bulk.setCursor(Qt.PointingHandCursor)
+        self.btn_clear_bulk.clicked.connect(self.clear_bulk_inputs)
+
         self.btn_bulk_auto_login = QPushButton("⚡ Auto-Login & Generate Cookies (Bulk)")
-        self.btn_bulk_auto_login.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: 800; font-size: 11px; padding: 7px 14px; border-radius: 6px;")
+        self.btn_bulk_auto_login.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: 800; font-size: 11px; padding: 8px 12px; border-radius: 6px;")
         self.btn_bulk_auto_login.setCursor(Qt.PointingHandCursor)
         self.btn_bulk_auto_login.setToolTip("Sequentially logs into all bulk accounts using UID/Password, generates live cookies, and makes them Healthy.")
         self.btn_bulk_auto_login.clicked.connect(self.auto_login_bulk_accounts)
 
-        self.btn_clear_bulk = QPushButton("🧹 Clear")
-        self.btn_clear_bulk.setProperty("class", "secondaryBtn")
-        self.btn_clear_bulk.clicked.connect(self.clear_bulk_inputs)
-
-        bulk_btn_row.addWidget(self.btn_execute_bulk_import)
-        bulk_btn_row.addWidget(self.btn_bulk_auto_login)
-        bulk_btn_row.addWidget(self.btn_clear_bulk)
-        bulk_layout.addLayout(bulk_btn_row)
+        bulk_btn_grid.addWidget(self.btn_execute_bulk_import, 0, 0)
+        bulk_btn_grid.addWidget(self.btn_clear_bulk, 0, 1)
+        bulk_btn_grid.addWidget(self.btn_bulk_auto_login, 1, 0, 1, 2)
+        bulk_layout.addLayout(bulk_btn_grid)
         bulk_layout.addStretch()
 
         self.acc_mode_stack.addWidget(single_form_widget) # Index 0
@@ -4048,19 +4059,76 @@ class FBAutoBotMainWindow(QMainWindow):
         img_btn_row.addStretch()
         ib_layout.addLayout(img_btn_row)
 
-        # Image Filename Tags Scroll Area (prevents layout distortion/expansion!)
-        self.img_tags_scroll = QScrollArea()
-        self.img_tags_scroll.setFixedHeight(55)
-        self.img_tags_scroll.setWidgetResizable(True)
-        self.img_tags_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(15, 23, 42, 0.5); border-radius: 6px; } QScrollBar { background: transparent; }")
+        # Collapsible Dropdown for Product Images
+        self.img_dropdown_btn = QPushButton("📷 No images selected  ▼")
+        self.img_dropdown_btn.setCursor(Qt.PointingHandCursor)
+        self.img_dropdown_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(15, 23, 42, 0.9);
+                border: 1px solid rgba(59, 130, 246, 0.6);
+                border-radius: 8px;
+                color: #f1f5f9;
+                font-size: 12px;
+                font-weight: 600;
+                padding: 7px 12px;
+                text-align: left;
+            }
+            QPushButton:hover {
+                border-color: #60a5fa;
+                background-color: rgba(30, 41, 59, 0.95);
+            }
+        """)
+        self.img_dropdown_btn.clicked.connect(self.toggle_standard_images_dropdown)
+        ib_layout.addWidget(self.img_dropdown_btn)
 
-        self.img_tags_widget = QWidget()
-        self.img_tags_layout = QHBoxLayout(self.img_tags_widget)
-        self.img_tags_layout.setContentsMargins(6, 4, 6, 4)
-        self.img_tags_layout.setSpacing(6)
-        self.img_tags_layout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.img_tags_scroll.setWidget(self.img_tags_widget)
-        ib_layout.addWidget(self.img_tags_scroll)
+        # Dropdown Expandable Panel
+        self.img_dropdown_panel = QFrame()
+        self.img_dropdown_panel.setStyleSheet("""
+            QFrame {
+                background-color: rgba(15, 23, 42, 0.98);
+                border: 1px solid rgba(59, 130, 246, 0.5);
+                border-radius: 8px;
+            }
+        """)
+        self.img_dropdown_panel.setVisible(False)
+        p_layout = QVBoxLayout(self.img_dropdown_panel)
+        p_layout.setContentsMargins(8, 8, 8, 8)
+        p_layout.setSpacing(6)
+
+        p_header = QHBoxLayout()
+        lbl_p = QLabel("📂 Attached Images (Click ✕ to remove):")
+        lbl_p.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700; border: none; background: transparent;")
+        p_header.addWidget(lbl_p)
+        p_header.addStretch()
+
+        btn_add_more = QPushButton("➕ Add More")
+        btn_add_more.setStyleSheet("background: transparent; border: none; color: #34d399; font-size: 11px; font-weight: 700;")
+        btn_add_more.setCursor(Qt.PointingHandCursor)
+        btn_add_more.clicked.connect(self.browse_images)
+        p_header.addWidget(btn_add_more)
+
+        btn_close_drop = QPushButton("▲ Close")
+        btn_close_drop.setStyleSheet("background: transparent; border: none; color: #38bdf8; font-size: 11px; font-weight: 700; margin-left: 6px;")
+        btn_close_drop.setCursor(Qt.PointingHandCursor)
+        btn_close_drop.clicked.connect(self.toggle_standard_images_dropdown)
+        p_header.addWidget(btn_close_drop)
+        p_layout.addLayout(p_header)
+
+        self.img_dropdown_scroll = QScrollArea()
+        self.img_dropdown_scroll.setFixedHeight(120)
+        self.img_dropdown_scroll.setWidgetResizable(True)
+        self.img_dropdown_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.05); background: rgba(2, 6, 23, 0.7); border-radius: 6px; } QScrollBar { background: transparent; }")
+
+        self.img_dropdown_items_widget = QWidget()
+        self.img_dropdown_items_widget.setStyleSheet("background: transparent; border: none;")
+        self.img_dropdown_items_layout = QVBoxLayout(self.img_dropdown_items_widget)
+        self.img_dropdown_items_layout.setContentsMargins(4, 4, 4, 4)
+        self.img_dropdown_items_layout.setSpacing(4)
+        self.img_dropdown_items_layout.setAlignment(Qt.AlignTop)
+        self.img_dropdown_scroll.setWidget(self.img_dropdown_items_widget)
+        p_layout.addWidget(self.img_dropdown_scroll)
+
+        ib_layout.addWidget(self.img_dropdown_panel)
 
         flags_grid = QGridLayout()
         flags_grid.setSpacing(6)
@@ -4085,7 +4153,7 @@ class FBAutoBotMainWindow(QMainWindow):
         top_split_row.addWidget(img_box, stretch=1)
         f_layout.addLayout(top_split_row)
 
-        # Row 2: Listing Type, Tabs per ID, Category, Condition
+        # Row 2: Listing Type & Multi-Tab Configuration
         row2 = QHBoxLayout()
 
         col_ltype = QVBoxLayout()
@@ -4119,43 +4187,47 @@ class FBAutoBotMainWindow(QMainWindow):
         col_imgs.addWidget(self.imgs_per_post_spin)
         row2.addLayout(col_imgs, stretch=1)
 
+        f_layout.addLayout(row2)
+
+        # ----------------------------------------------------------------------
+        # Dynamic Stacked Form for Listing Types
+        # ----------------------------------------------------------------------
+        self.listing_fields_stack = QStackedWidget()
+
+        # ======================================================================
+        # PAGE 0: Item for sale
+        # ======================================================================
+        item_page = QWidget()
+        item_layout = QVBoxLayout(item_page)
+        item_layout.setContentsMargins(0, 0, 0, 0)
+        item_layout.setSpacing(10)
+
+        # Item Row 1: Category & Condition
+        i_r1 = QHBoxLayout()
         col_cat = QVBoxLayout()
         col_cat.addWidget(QLabel("Marketplace Category:"))
         self.category_select = QComboBox()
         self.category_select.addItems([
-            "Household",
-            "Appliances",
-            "Auto Parts",
-            "Electronics & Computers",
-            "Home & Kitchen",
-            "Tools & Appliances",
-            "Furniture & Decor",
-            "Vehicles & Parts",
-            "Apparel & Accessories",
-            "Mobile Phones & Tablets",
-            "Sports & Outdoors",
-            "Toys & Games"
+            "Household", "Appliances", "Auto Parts", "Electronics & Computers",
+            "Home & Kitchen", "Tools & Appliances", "Furniture & Decor",
+            "Vehicles & Parts", "Apparel & Accessories", "Mobile Phones & Tablets",
+            "Sports & Outdoors", "Toys & Games"
         ])
         col_cat.addWidget(self.category_select)
-        row2.addLayout(col_cat, stretch=2)
+        i_r1.addLayout(col_cat, stretch=1)
 
         col_cond = QVBoxLayout()
         col_cond.addWidget(QLabel("Item Condition:"))
         self.condition_select = QComboBox()
         self.condition_select.addItems([
-            "New",
-            "Used – like new",
-            "Used – good",
-            "Used – fair"
+            "New", "Used – like new", "Used – good", "Used – fair"
         ])
         col_cond.addWidget(self.condition_select)
-        row2.addLayout(col_cond, stretch=2)
+        i_r1.addLayout(col_cond, stretch=1)
+        item_layout.addLayout(i_r1)
 
-        f_layout.addLayout(row2)
-
-        # Row 3: Title, Price, ID Location, and Listing Location Pool
-        row3 = QHBoxLayout()
-
+        # Item Row 2: Title, Price, ID Location, Target Locations
+        i_r2 = QHBoxLayout()
         col_t = QVBoxLayout()
         col_t.addWidget(QLabel("Listing Title (Max 100 chars):"))
         self.title_input = QLineEdit()
@@ -4183,19 +4255,248 @@ class FBAutoBotMainWindow(QMainWindow):
         self.location_input.setToolTip("Enter locations separated by commas or newlines. The bot randomly selects 1 location for each ad.")
         col_loc.addWidget(self.location_input)
 
-        row3.addLayout(col_t, stretch=3)
-        row3.addLayout(col_p, stretch=1)
-        row3.addLayout(col_id_loc, stretch=2)
-        row3.addLayout(col_loc, stretch=3)
-        f_layout.addLayout(row3)
+        i_r2.addLayout(col_t, stretch=3)
+        i_r2.addLayout(col_p, stretch=1)
+        i_r2.addLayout(col_id_loc, stretch=2)
+        i_r2.addLayout(col_loc, stretch=3)
+        item_layout.addLayout(i_r2)
 
-        # Row 4: Description
-        f_layout.addWidget(QLabel("Product Description:"))
-
+        # Item Row 3: Description
+        item_layout.addWidget(QLabel("Product Description:"))
         self.desc_input = QTextEdit()
         self.desc_input.setPlaceholderText("Write details, specifications, payment terms, and pickup notes...")
         self.desc_input.setFixedHeight(65)
-        f_layout.addWidget(self.desc_input)
+        item_layout.addWidget(self.desc_input)
+
+        self.listing_fields_stack.addWidget(item_page)
+
+        # ======================================================================
+        # PAGE 1: Vehicle for sale
+        # ======================================================================
+        veh_page = QWidget()
+        veh_layout = QVBoxLayout(veh_page)
+        veh_layout.setContentsMargins(0, 0, 0, 0)
+        veh_layout.setSpacing(10)
+
+        # Vehicle Row 1: Vehicle Type & Year
+        v_r1 = QHBoxLayout()
+        col_vtype = QVBoxLayout()
+        col_vtype.addWidget(QLabel("Vehicle Type:"))
+        self.veh_type_select = QComboBox()
+        self.veh_type_select.addItems([
+            "Car/van",
+            "Motorcycle",
+            "Power sport",
+            "Motorhome/caravan",
+            "Trailer",
+            "Boat",
+            "Commercial/Industrial",
+            "Other"
+        ])
+        col_vtype.addWidget(self.veh_type_select)
+        v_r1.addLayout(col_vtype, stretch=1)
+
+        col_vyear = QVBoxLayout()
+        col_vyear.addWidget(QLabel("Vehicle Year:"))
+        self.veh_year_select = QComboBox()
+        years_list = [str(y) for y in range(2026, 1979, -1)]
+        self.veh_year_select.addItems(years_list)
+        self.veh_year_select.setCurrentText("2022")
+        col_vyear.addWidget(self.veh_year_select)
+        v_r1.addLayout(col_vyear, stretch=1)
+        veh_layout.addLayout(v_r1)
+
+        # Vehicle Row 2: Make, Model, Price, ID Location, Target Locations
+        v_r2 = QHBoxLayout()
+        col_vmake = QVBoxLayout()
+        col_vmake.addWidget(QLabel("Vehicle Make:"))
+        self.veh_make_input = QLineEdit()
+        self.veh_make_input.setPlaceholderText("e.g., Toyota, Honda, Ford, BMW")
+        col_vmake.addWidget(self.veh_make_input)
+
+        col_vmodel = QVBoxLayout()
+        col_vmodel.addWidget(QLabel("Vehicle Model:"))
+        self.veh_model_input = QLineEdit()
+        self.veh_model_input.setPlaceholderText("e.g., Camry, Civic, F-150, 3 Series")
+        col_vmodel.addWidget(self.veh_model_input)
+
+        col_vprice = QVBoxLayout()
+        col_vprice.addWidget(QLabel("Price ($ USD / Amount):"))
+        self.veh_price_input = QLineEdit()
+        self.veh_price_input.setPlaceholderText("15000")
+        col_vprice.addWidget(self.veh_price_input)
+
+        col_vid_loc = QVBoxLayout()
+        col_vid_loc.addWidget(QLabel("ID Location (Marketplace Default):"))
+        self.veh_id_loc_input = QLineEdit()
+        self.veh_id_loc_input.setPlaceholderText("e.g., Los Angeles, CA")
+        self.veh_id_loc_input.setToolTip("Sets the Facebook ID's primary Marketplace location on the homepage before listing.")
+        col_vid_loc.addWidget(self.veh_id_loc_input)
+
+        col_vloc = QVBoxLayout()
+        col_vloc.addWidget(QLabel("Listing Location (Target Cities Pool):"))
+        self.veh_location_input = QTextEdit()
+        self.veh_location_input.setPlaceholderText("e.g., Los Angeles, CA\nSan Diego, CA\nPhoenix, AZ (1 per line)")
+        self.veh_location_input.setFixedHeight(65)
+        self.veh_location_input.setToolTip("Enter locations separated by commas or newlines. The bot randomly selects 1 location for each ad.")
+        col_vloc.addWidget(self.veh_location_input)
+
+        v_r2.addLayout(col_vmake, stretch=2)
+        v_r2.addLayout(col_vmodel, stretch=2)
+        v_r2.addLayout(col_vprice, stretch=1)
+        v_r2.addLayout(col_vid_loc, stretch=2)
+        v_r2.addLayout(col_vloc, stretch=3)
+        veh_layout.addLayout(v_r2)
+
+        # Vehicle Row 3: Description
+        veh_layout.addWidget(QLabel("Vehicle Description:"))
+        self.veh_desc_input = QTextEdit()
+        self.veh_desc_input.setPlaceholderText("Tell buyers anything that you haven't had the chance to include yet about your vehicle (clean title, mileage, features, etc.)...")
+        self.veh_desc_input.setFixedHeight(65)
+        veh_layout.addWidget(self.veh_desc_input)
+
+        self.listing_fields_stack.addWidget(veh_page)
+
+        # ======================================================================
+        # PAGE 2: Property for sale or rent
+        # ======================================================================
+        prop_page = QWidget()
+        prop_layout = QVBoxLayout(prop_page)
+        prop_layout.setContentsMargins(0, 0, 0, 0)
+        prop_layout.setSpacing(10)
+
+        # Property Row 1: Sale or Rent, Property Type
+        p_r1 = QHBoxLayout()
+        col_prtype = QVBoxLayout()
+        col_prtype.addWidget(QLabel("Property for sale or to let:"))
+        self.prop_rental_type_select = QComboBox()
+        self.prop_rental_type_select.addItems(["Rent", "Sale"])
+        col_prtype.addWidget(self.prop_rental_type_select)
+        p_r1.addLayout(col_prtype, stretch=1)
+
+        col_ptype = QVBoxLayout()
+        col_ptype.addWidget(QLabel("Property type:"))
+        self.prop_type_select = QComboBox()
+        self.prop_type_select.addItems([
+            "House",
+            "Townhouse",
+            "Flat/apartment",
+            "Room only"
+        ])
+        col_ptype.addWidget(self.prop_type_select)
+        p_r1.addLayout(col_ptype, stretch=1)
+        prop_layout.addLayout(p_r1)
+
+        # Property Row 2: Bedrooms, Bathrooms, Price, ID Location, Target Locations
+        p_r2 = QHBoxLayout()
+        col_pbeds = QVBoxLayout()
+        col_pbeds.addWidget(QLabel("Number of bedrooms:"))
+        self.prop_bedrooms_select = QComboBox()
+        self.prop_bedrooms_select.addItems(["1", "2", "3", "4", "5+"])
+        col_pbeds.addWidget(self.prop_bedrooms_select)
+
+        col_pbaths = QVBoxLayout()
+        col_pbaths.addWidget(QLabel("Number of bathrooms:"))
+        self.prop_bathrooms_select = QComboBox()
+        self.prop_bathrooms_select.addItems(["1", "1.5", "2", "2.5", "3", "3+"])
+        col_pbaths.addWidget(self.prop_bathrooms_select)
+
+        col_pprice = QVBoxLayout()
+        col_pprice.addWidget(QLabel("Price ($ USD / Amount):"))
+        self.prop_price_input = QLineEdit()
+        self.prop_price_input.setPlaceholderText("1800")
+        col_pprice.addWidget(self.prop_price_input)
+
+        col_pid_loc = QVBoxLayout()
+        col_pid_loc.addWidget(QLabel("ID Location (Marketplace Default):"))
+        self.prop_id_loc_input = QLineEdit()
+        self.prop_id_loc_input.setPlaceholderText("e.g., New York, NY")
+        self.prop_id_loc_input.setToolTip("Sets the Facebook ID's primary Marketplace location on the homepage before listing.")
+        col_pid_loc.addWidget(self.prop_id_loc_input)
+
+        col_ploc = QVBoxLayout()
+        col_ploc.addWidget(QLabel("Property Location (Target Cities Pool):"))
+        self.prop_location_input = QTextEdit()
+        self.prop_location_input.setPlaceholderText("e.g., Brooklyn, NY\nQueens, NY\nManhattan, NY (1 per line)")
+        self.prop_location_input.setFixedHeight(65)
+        self.prop_location_input.setToolTip("Enter locations separated by commas or newlines. The bot randomly selects 1 location for each ad.")
+        col_ploc.addWidget(self.prop_location_input)
+
+        p_r2.addLayout(col_pbeds, stretch=1)
+        p_r2.addLayout(col_pbaths, stretch=1)
+        p_r2.addLayout(col_pprice, stretch=1)
+        p_r2.addLayout(col_pid_loc, stretch=2)
+        p_r2.addLayout(col_ploc, stretch=3)
+        prop_layout.addLayout(p_r2)
+
+        # Property Row 3: Description
+        prop_layout.addWidget(QLabel("Property Description:"))
+        self.prop_desc_input = QTextEdit()
+        self.prop_desc_input.setPlaceholderText("Include details such as utilities, amenities, any deposits needed and when it's available...")
+        self.prop_desc_input.setFixedHeight(65)
+        prop_layout.addWidget(self.prop_desc_input)
+
+        # Property Row 4: Advanced Details (Optional - Facebook Marketplace Standard)
+        prop_adv_box = QFrame()
+        prop_adv_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.02); border: 1px dashed rgba(255, 255, 255, 0.12); border-radius: 8px; padding: 6px;")
+        padv_layout = QVBoxLayout(prop_adv_box)
+        padv_layout.setContentsMargins(6, 6, 6, 6)
+        padv_layout.setSpacing(6)
+
+        padv_lbl = QLabel("⚙️ Advanced Details (Optional - Facebook Marketplace Specifications):")
+        padv_lbl.setStyleSheet("color: #a78bfa; font-size: 11px; font-weight: 700;")
+        padv_layout.addWidget(padv_lbl)
+
+        padv_r1 = QHBoxLayout()
+
+        col_psqft = QVBoxLayout()
+        col_psqft.addWidget(QLabel("Property square feet:"))
+        self.prop_sqft_input = QLineEdit()
+        self.prop_sqft_input.setPlaceholderText("e.g., 850")
+        col_psqft.addWidget(self.prop_sqft_input)
+
+        col_plaundry = QVBoxLayout()
+        col_plaundry.addWidget(QLabel("Washing machine/dryer:"))
+        self.prop_laundry_select = QComboBox()
+        self.prop_laundry_select.addItems(["None", "Washing machine/dryer", "Launderette in building", "Launderette available"])
+        col_plaundry.addWidget(self.prop_laundry_select)
+
+        col_pparking = QVBoxLayout()
+        col_pparking.addWidget(QLabel("Parking type:"))
+        self.prop_parking_select = QComboBox()
+        self.prop_parking_select.addItems(["None", "Garage parking", "Street parking", "Off-street parking", "Parking available"])
+        col_pparking.addWidget(self.prop_parking_select)
+
+        padv_r1.addLayout(col_psqft, stretch=1)
+        padv_r1.addLayout(col_plaundry, stretch=2)
+        padv_r1.addLayout(col_pparking, stretch=2)
+        padv_layout.addLayout(padv_r1)
+
+        padv_r2 = QHBoxLayout()
+
+        col_pac = QVBoxLayout()
+        col_pac.addWidget(QLabel("Air conditioning:"))
+        self.prop_ac_select = QComboBox()
+        self.prop_ac_select.addItems(["None", "Central AC", "AC available"])
+        col_pac.addWidget(self.prop_ac_select)
+
+        col_pheat = QVBoxLayout()
+        col_pheat.addWidget(QLabel("Heating type:"))
+        self.prop_heating_select = QComboBox()
+        self.prop_heating_select.addItems(["None", "Central heating", "Electric heating", "Gas heating", "Radiator heating", "Heating available"])
+        col_pheat.addWidget(self.prop_heating_select)
+
+        padv_r2.addLayout(col_pac, stretch=1)
+        padv_r2.addLayout(col_pheat, stretch=1)
+        padv_layout.addLayout(padv_r2)
+
+        prop_layout.addWidget(prop_adv_box)
+
+        self.listing_fields_stack.addWidget(prop_page)
+
+        # Connect Listing Type dropdown to stack
+        self.listing_type_select.currentIndexChanged.connect(self.listing_fields_stack.setCurrentIndex)
+        f_layout.addWidget(self.listing_fields_stack)
 
         layout.addWidget(form_card)
 
@@ -4696,37 +4997,68 @@ class FBAutoBotMainWindow(QMainWindow):
 
         layout.addLayout(top_bar)
 
-        # Tab Selector Pills Container
+        # Tab Selector Pills Container & Multi-Tab Hub (Prevents preview collapse on 14+ tabs)
         tabs_bar_card = QFrame()
-        tabs_bar_card.setStyleSheet("background-color: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 8px;")
-        tb_layout = QHBoxLayout(tabs_bar_card)
-        tb_layout.setContentsMargins(8, 6, 8, 6)
-        tb_layout.setSpacing(8)
+        tabs_bar_card.setStyleSheet("background-color: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 10px;")
+        tb_main_layout = QVBoxLayout(tabs_bar_card)
+        tb_main_layout.setContentsMargins(10, 8, 10, 8)
+        tb_main_layout.setSpacing(8)
 
-        self.proj_tabs_scroll = QScrollArea()
-        self.proj_tabs_scroll.setFixedHeight(40)
-        self.proj_tabs_scroll.setWidgetResizable(True)
-        self.proj_tabs_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; } QScrollBar { background: transparent; }")
+        # Header Row: Tab Count Badge + Quick Dropdown + Action Buttons
+        tb_top_row = QHBoxLayout()
+        self.proj_tabs_count_badge = QLabel("📑 Configured Tabs: 0 Total")
+        self.proj_tabs_count_badge.setStyleSheet("font-size: 12px; font-weight: 800; color: #38bdf8; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 6px; padding: 4px 10px;")
+        tb_top_row.addWidget(self.proj_tabs_count_badge)
 
-        self.proj_tabs_widget = QWidget()
-        self.proj_tabs_layout = QHBoxLayout(self.proj_tabs_widget)
-        self.proj_tabs_layout.setContentsMargins(0, 0, 0, 0)
-        self.proj_tabs_layout.setSpacing(6)
-        self.proj_tabs_scroll.setWidget(self.proj_tabs_widget)
-        tb_layout.addWidget(self.proj_tabs_scroll, stretch=4)
+        tb_top_row.addWidget(QLabel("Quick Jump:"))
+        self.proj_tab_quick_combo = QComboBox()
+        self.proj_tab_quick_combo.setMinimumWidth(160)
+        self.proj_tab_quick_combo.setFixedHeight(28)
+        self.proj_tab_quick_combo.setToolTip("Quickly select and jump to any configured tab")
+        self.proj_tab_quick_combo.currentIndexChanged.connect(self.on_quick_tab_combo_changed)
+        tb_top_row.addWidget(self.proj_tab_quick_combo)
+
+        tb_top_row.addStretch()
+
+        btn_add_tab_tray = QPushButton("➕ Add Tab")
+        btn_add_tab_tray.setStyleSheet("background-color: rgba(5, 150, 105, 0.25); color: #34d399; border: 1px solid rgba(5, 150, 105, 0.5); border-radius: 6px; font-size: 11px; font-weight: 700; padding: 4px 10px;")
+        btn_add_tab_tray.setCursor(Qt.PointingHandCursor)
+        btn_add_tab_tray.clicked.connect(self.add_tab_to_current_project)
+        tb_top_row.addWidget(btn_add_tab_tray)
 
         btn_dup_tab = QPushButton("📋 Duplicate Tab")
         btn_dup_tab.setProperty("class", "secondaryBtn")
         btn_dup_tab.setStyleSheet("font-size: 11px; padding: 4px 10px;")
         btn_dup_tab.setCursor(Qt.PointingHandCursor)
         btn_dup_tab.clicked.connect(self.duplicate_current_project_tab)
-        tb_layout.addWidget(btn_dup_tab)
+        tb_top_row.addWidget(btn_dup_tab)
 
         btn_del_tab = QPushButton("🗑️ Delete Tab")
         btn_del_tab.setStyleSheet("background-color: rgba(220, 38, 38, 0.2); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.4); border-radius: 6px; font-size: 11px; padding: 4px 10px;")
         btn_del_tab.setCursor(Qt.PointingHandCursor)
         btn_del_tab.clicked.connect(self.delete_current_project_tab)
-        tb_layout.addWidget(btn_del_tab)
+        tb_top_row.addWidget(btn_del_tab)
+
+        tb_main_layout.addLayout(tb_top_row)
+
+        # Tab Pills Scroll Area (Responsive multi-row grid with visible vertical scrollbar)
+        self.proj_tabs_scroll = QScrollArea()
+        self.proj_tabs_scroll.setMinimumHeight(60)
+        self.proj_tabs_scroll.setMaximumHeight(140)
+        self.proj_tabs_scroll.setWidgetResizable(True)
+        self.proj_tabs_scroll.setStyleSheet("""
+            QScrollArea { border: 1px solid rgba(255, 255, 255, 0.05); background: rgba(10, 15, 29, 0.6); border-radius: 8px; }
+            QScrollBar:vertical { width: 8px; background: rgba(15, 23, 42, 0.6); border-radius: 4px; }
+            QScrollBar::handle:vertical { background: #334155; border-radius: 4px; min-height: 20px; }
+            QScrollBar::handle:vertical:hover { background: #6366f1; }
+        """)
+
+        self.proj_tabs_widget = QWidget()
+        self.proj_tabs_layout = QGridLayout(self.proj_tabs_widget)
+        self.proj_tabs_layout.setContentsMargins(6, 6, 6, 6)
+        self.proj_tabs_layout.setSpacing(6)
+        self.proj_tabs_scroll.setWidget(self.proj_tabs_widget)
+        tb_main_layout.addWidget(self.proj_tabs_scroll)
 
         layout.addWidget(tabs_bar_card)
 
@@ -4810,19 +5142,76 @@ class FBAutoBotMainWindow(QMainWindow):
         pimg_btn_row.addStretch()
         ib_layout.addLayout(pimg_btn_row)
 
-        # Image Filename Tags Scroll Area for Project Tab
-        self.proj_img_tags_scroll = QScrollArea()
-        self.proj_img_tags_scroll.setFixedHeight(55)
-        self.proj_img_tags_scroll.setWidgetResizable(True)
-        self.proj_img_tags_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(15, 23, 42, 0.5); border-radius: 6px; } QScrollBar { background: transparent; }")
+        # Collapsible Dropdown for Project Tab Images
+        self.proj_img_dropdown_btn = QPushButton("📷 No images selected  ▼")
+        self.proj_img_dropdown_btn.setCursor(Qt.PointingHandCursor)
+        self.proj_img_dropdown_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(15, 23, 42, 0.9);
+                border: 1px solid rgba(59, 130, 246, 0.6);
+                border-radius: 8px;
+                color: #f1f5f9;
+                font-size: 12px;
+                font-weight: 600;
+                padding: 7px 12px;
+                text-align: left;
+            }
+            QPushButton:hover {
+                border-color: #60a5fa;
+                background-color: rgba(30, 41, 59, 0.95);
+            }
+        """)
+        self.proj_img_dropdown_btn.clicked.connect(self.toggle_project_images_dropdown)
+        ib_layout.addWidget(self.proj_img_dropdown_btn)
 
-        self.proj_img_tags_widget = QWidget()
-        self.proj_img_tags_layout = QHBoxLayout(self.proj_img_tags_widget)
-        self.proj_img_tags_layout.setContentsMargins(6, 4, 6, 4)
-        self.proj_img_tags_layout.setSpacing(6)
-        self.proj_img_tags_layout.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.proj_img_tags_scroll.setWidget(self.proj_img_tags_widget)
-        ib_layout.addWidget(self.proj_img_tags_scroll)
+        # Project Images Dropdown Expandable Panel
+        self.proj_img_dropdown_panel = QFrame()
+        self.proj_img_dropdown_panel.setStyleSheet("""
+            QFrame {
+                background-color: rgba(15, 23, 42, 0.98);
+                border: 1px solid rgba(59, 130, 246, 0.5);
+                border-radius: 8px;
+            }
+        """)
+        self.proj_img_dropdown_panel.setVisible(False)
+        pib_layout = QVBoxLayout(self.proj_img_dropdown_panel)
+        pib_layout.setContentsMargins(8, 8, 8, 8)
+        pib_layout.setSpacing(6)
+
+        pib_header = QHBoxLayout()
+        lbl_pib = QLabel("📂 Tab Attached Images (Click ✕ to remove):")
+        lbl_pib.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700; border: none; background: transparent;")
+        pib_header.addWidget(lbl_pib)
+        pib_header.addStretch()
+
+        btn_proj_add_more = QPushButton("➕ Add More")
+        btn_proj_add_more.setStyleSheet("background: transparent; border: none; color: #34d399; font-size: 11px; font-weight: 700;")
+        btn_proj_add_more.setCursor(Qt.PointingHandCursor)
+        btn_proj_add_more.clicked.connect(self.browse_project_tab_images)
+        pib_header.addWidget(btn_proj_add_more)
+
+        btn_proj_close_drop = QPushButton("▲ Close")
+        btn_proj_close_drop.setStyleSheet("background: transparent; border: none; color: #38bdf8; font-size: 11px; font-weight: 700; margin-left: 6px;")
+        btn_proj_close_drop.setCursor(Qt.PointingHandCursor)
+        btn_proj_close_drop.clicked.connect(self.toggle_project_images_dropdown)
+        pib_header.addWidget(btn_proj_close_drop)
+        pib_layout.addLayout(pib_header)
+
+        self.proj_img_dropdown_scroll = QScrollArea()
+        self.proj_img_dropdown_scroll.setFixedHeight(120)
+        self.proj_img_dropdown_scroll.setWidgetResizable(True)
+        self.proj_img_dropdown_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.05); background: rgba(2, 6, 23, 0.7); border-radius: 6px; } QScrollBar { background: transparent; }")
+
+        self.proj_img_dropdown_items_widget = QWidget()
+        self.proj_img_dropdown_items_widget.setStyleSheet("background: transparent; border: none;")
+        self.proj_img_dropdown_items_layout = QVBoxLayout(self.proj_img_dropdown_items_widget)
+        self.proj_img_dropdown_items_layout.setContentsMargins(4, 4, 4, 4)
+        self.proj_img_dropdown_items_layout.setSpacing(4)
+        self.proj_img_dropdown_items_layout.setAlignment(Qt.AlignTop)
+        self.proj_img_dropdown_scroll.setWidget(self.proj_img_dropdown_items_widget)
+        pib_layout.addWidget(self.proj_img_dropdown_scroll)
+
+        ib_layout.addWidget(self.proj_img_dropdown_panel)
 
         pdup_grid = QGridLayout()
         pdup_grid.setSpacing(6)
@@ -4850,7 +5239,7 @@ class FBAutoBotMainWindow(QMainWindow):
         f_layout = QVBoxLayout(form_card)
         f_layout.setSpacing(12)
 
-        # Row 1: Tab Name, Listing Type, Category & Condition
+        # Row 1: Tab Name & Listing Type
         r1 = QHBoxLayout()
         col_tname = QVBoxLayout()
         col_tname.addWidget(QLabel("Tab Identifier / Name:"))
@@ -4870,6 +5259,23 @@ class FBAutoBotMainWindow(QMainWindow):
         col_ltype.addWidget(self.proj_listing_type_select)
         r1.addLayout(col_ltype, stretch=2)
 
+        f_layout.addLayout(r1)
+
+        # ----------------------------------------------------------------------
+        # Dynamic Stacked Form for Project Tab
+        # ----------------------------------------------------------------------
+        self.proj_listing_fields_stack = QStackedWidget()
+
+        # ======================================================================
+        # PAGE 0: Item for sale
+        # ======================================================================
+        p_item_page = QWidget()
+        p_item_layout = QVBoxLayout(p_item_page)
+        p_item_layout.setContentsMargins(0, 0, 0, 0)
+        p_item_layout.setSpacing(10)
+
+        # Item Row 1: Category & Condition
+        pi_r1 = QHBoxLayout()
         col_cat = QVBoxLayout()
         col_cat.addWidget(QLabel("Marketplace Category:"))
         self.proj_category_select = QComboBox()
@@ -4880,35 +5286,30 @@ class FBAutoBotMainWindow(QMainWindow):
             "Sports & Outdoors", "Toys & Games"
         ])
         col_cat.addWidget(self.proj_category_select)
-        r1.addLayout(col_cat, stretch=2)
+        pi_r1.addLayout(col_cat, stretch=1)
 
         col_pcond = QVBoxLayout()
         col_pcond.addWidget(QLabel("Item Condition:"))
         self.proj_condition_select = QComboBox()
         self.proj_condition_select.addItems([
-            "New",
-            "Used – like new",
-            "Used – good",
-            "Used – fair"
+            "New", "Used – like new", "Used – good", "Used – fair"
         ])
         col_pcond.addWidget(self.proj_condition_select)
-        r1.addLayout(col_pcond, stretch=2)
+        pi_r1.addLayout(col_pcond, stretch=1)
+        p_item_layout.addLayout(pi_r1)
 
-        f_layout.addLayout(r1)
-
-        # Row 2: Title
-        r2 = QHBoxLayout()
+        # Item Row 2: Title
+        pi_r2 = QHBoxLayout()
         col_t = QVBoxLayout()
         col_t.addWidget(QLabel("Listing Title (Max 100 chars):"))
-
         self.proj_title_input = QLineEdit()
         self.proj_title_input.setPlaceholderText("e.g., Apple iPhone 15 Pro Max 256GB Unlocked - Brand New")
         col_t.addWidget(self.proj_title_input)
-        r2.addLayout(col_t)
-        f_layout.addLayout(r2)
+        pi_r2.addLayout(col_t)
+        p_item_layout.addLayout(pi_r2)
 
-        # Row 3: Price, ID Location & Target Locations
-        r3 = QHBoxLayout()
+        # Item Row 3: Price, ID Location & Target Locations
+        pi_r3 = QHBoxLayout()
         col_p = QVBoxLayout()
         col_p.addWidget(QLabel("Price ($ USD / Amount):"))
         self.proj_price_input = QLineEdit()
@@ -4929,18 +5330,246 @@ class FBAutoBotMainWindow(QMainWindow):
         self.proj_location_input.setFixedHeight(65)
         col_loc.addWidget(self.proj_location_input)
 
-        r3.addLayout(col_p, stretch=1)
-        r3.addLayout(col_id_loc, stretch=2)
-        r3.addLayout(col_loc, stretch=3)
-        f_layout.addLayout(r3)
+        pi_r3.addLayout(col_p, stretch=1)
+        pi_r3.addLayout(col_id_loc, stretch=2)
+        pi_r3.addLayout(col_loc, stretch=3)
+        p_item_layout.addLayout(pi_r3)
 
-        # Row 4: Product Description
-        f_layout.addWidget(QLabel("Product Description:"))
-
+        # Item Row 4: Product Description
+        p_item_layout.addWidget(QLabel("Product Description:"))
         self.proj_desc_input = QTextEdit()
         self.proj_desc_input.setPlaceholderText("Write details, specifications, payment terms, and pickup notes...")
         self.proj_desc_input.setFixedHeight(65)
-        f_layout.addWidget(self.proj_desc_input)
+        p_item_layout.addWidget(self.proj_desc_input)
+
+        self.proj_listing_fields_stack.addWidget(p_item_page)
+
+        # ======================================================================
+        # PAGE 1: Vehicle for sale
+        # ======================================================================
+        p_veh_page = QWidget()
+        p_veh_layout = QVBoxLayout(p_veh_page)
+        p_veh_layout.setContentsMargins(0, 0, 0, 0)
+        p_veh_layout.setSpacing(10)
+
+        # Vehicle Row 1: Vehicle Type & Year
+        pv_r1 = QHBoxLayout()
+        col_pvtype = QVBoxLayout()
+        col_pvtype.addWidget(QLabel("Vehicle Type:"))
+        self.proj_veh_type_select = QComboBox()
+        self.proj_veh_type_select.addItems([
+            "Car/van",
+            "Motorcycle",
+            "Power sport",
+            "Motorhome/caravan",
+            "Trailer",
+            "Boat",
+            "Commercial/Industrial",
+            "Other"
+        ])
+        col_pvtype.addWidget(self.proj_veh_type_select)
+        pv_r1.addLayout(col_pvtype, stretch=1)
+
+        col_pvyear = QVBoxLayout()
+        col_pvyear.addWidget(QLabel("Vehicle Year:"))
+        self.proj_veh_year_select = QComboBox()
+        years_list = [str(y) for y in range(2026, 1979, -1)]
+        self.proj_veh_year_select.addItems(years_list)
+        self.proj_veh_year_select.setCurrentText("2022")
+        col_pvyear.addWidget(self.proj_veh_year_select)
+        pv_r1.addLayout(col_pvyear, stretch=1)
+        p_veh_layout.addLayout(pv_r1)
+
+        # Vehicle Row 2: Make, Model, Price, ID Location, Target Locations
+        pv_r2 = QHBoxLayout()
+        col_pvmake = QVBoxLayout()
+        col_pvmake.addWidget(QLabel("Vehicle Make:"))
+        self.proj_veh_make_input = QLineEdit()
+        self.proj_veh_make_input.setPlaceholderText("e.g., Toyota, Honda, Ford, BMW")
+        col_pvmake.addWidget(self.proj_veh_make_input)
+
+        col_pvmodel = QVBoxLayout()
+        col_pvmodel.addWidget(QLabel("Vehicle Model:"))
+        self.proj_veh_model_input = QLineEdit()
+        self.proj_veh_model_input.setPlaceholderText("e.g., Camry, Civic, F-150, 3 Series")
+        col_pvmodel.addWidget(self.proj_veh_model_input)
+
+        col_pvprice = QVBoxLayout()
+        col_pvprice.addWidget(QLabel("Price ($ USD / Amount):"))
+        self.proj_veh_price_input = QLineEdit()
+        self.proj_veh_price_input.setPlaceholderText("15000")
+        col_pvprice.addWidget(self.proj_veh_price_input)
+
+        col_pvid_loc = QVBoxLayout()
+        col_pvid_loc.addWidget(QLabel("ID Location (Marketplace Default):"))
+        self.proj_veh_id_loc_input = QLineEdit()
+        self.proj_veh_id_loc_input.setPlaceholderText("e.g. Los Angeles, CA or New York, NY")
+        self.proj_veh_id_loc_input.setToolTip("Sets location link under 'Create new listing' on Marketplace homepage before starting listing")
+        col_pvid_loc.addWidget(self.proj_veh_id_loc_input)
+
+        col_pvloc = QVBoxLayout()
+        col_pvloc.addWidget(QLabel("Target Locations / Cities Pool (Randomized per Ad):"))
+        self.proj_veh_location_input = QTextEdit()
+        self.proj_veh_location_input.setPlaceholderText("e.g., Los Angeles, CA\nSan Diego, CA\nPhoenix, AZ")
+        self.proj_veh_location_input.setFixedHeight(65)
+        col_pvloc.addWidget(self.proj_veh_location_input)
+
+        pv_r2.addLayout(col_pvmake, stretch=2)
+        pv_r2.addLayout(col_pvmodel, stretch=2)
+        pv_r2.addLayout(col_pvprice, stretch=1)
+        pv_r2.addLayout(col_pvid_loc, stretch=2)
+        pv_r2.addLayout(col_pvloc, stretch=3)
+        p_veh_layout.addLayout(pv_r2)
+
+        # Vehicle Row 3: Description
+        p_veh_layout.addWidget(QLabel("Vehicle Description:"))
+        self.proj_veh_desc_input = QTextEdit()
+        self.proj_veh_desc_input.setPlaceholderText("Tell buyers anything that you haven't had the chance to include yet about your vehicle (clean title, mileage, features, etc.)...")
+        self.proj_veh_desc_input.setFixedHeight(65)
+        p_veh_layout.addWidget(self.proj_veh_desc_input)
+
+        self.proj_listing_fields_stack.addWidget(p_veh_page)
+
+        # ======================================================================
+        # PAGE 2: Property for sale or rent
+        # ======================================================================
+        p_prop_page = QWidget()
+        p_prop_layout = QVBoxLayout(p_prop_page)
+        p_prop_layout.setContentsMargins(0, 0, 0, 0)
+        p_prop_layout.setSpacing(10)
+
+        # Property Row 1: Sale or Rent, Property Type
+        pp_r1 = QHBoxLayout()
+        col_pprtype = QVBoxLayout()
+        col_pprtype.addWidget(QLabel("Property for sale or to let:"))
+        self.proj_prop_rental_type_select = QComboBox()
+        self.proj_prop_rental_type_select.addItems(["Rent", "Sale"])
+        col_pprtype.addWidget(self.proj_prop_rental_type_select)
+        pp_r1.addLayout(col_pprtype, stretch=1)
+
+        col_pptype = QVBoxLayout()
+        col_pptype.addWidget(QLabel("Property type:"))
+        self.proj_prop_type_select = QComboBox()
+        self.proj_prop_type_select.addItems([
+            "House",
+            "Townhouse",
+            "Flat/apartment",
+            "Room only"
+        ])
+        col_pptype.addWidget(self.proj_prop_type_select)
+        pp_r1.addLayout(col_pptype, stretch=1)
+        p_prop_layout.addLayout(pp_r1)
+
+        # Property Row 2: Bedrooms, Bathrooms, Price, ID Location, Target Locations
+        pp_r2 = QHBoxLayout()
+        col_ppbeds = QVBoxLayout()
+        col_ppbeds.addWidget(QLabel("Number of bedrooms:"))
+        self.proj_prop_bedrooms_select = QComboBox()
+        self.proj_prop_bedrooms_select.addItems(["1", "2", "3", "4", "5+"])
+        col_ppbeds.addWidget(self.proj_prop_bedrooms_select)
+
+        col_ppbaths = QVBoxLayout()
+        col_ppbaths.addWidget(QLabel("Number of bathrooms:"))
+        self.proj_prop_bathrooms_select = QComboBox()
+        self.proj_prop_bathrooms_select.addItems(["1", "1.5", "2", "2.5", "3", "3+"])
+        col_ppbaths.addWidget(self.proj_prop_bathrooms_select)
+
+        col_ppprice = QVBoxLayout()
+        col_ppprice.addWidget(QLabel("Price ($ USD / Amount):"))
+        self.proj_prop_price_input = QLineEdit()
+        self.proj_prop_price_input.setPlaceholderText("1800")
+        col_ppprice.addWidget(self.proj_prop_price_input)
+
+        col_ppid_loc = QVBoxLayout()
+        col_ppid_loc.addWidget(QLabel("ID Location (Marketplace Default):"))
+        self.proj_prop_id_loc_input = QLineEdit()
+        self.proj_prop_id_loc_input.setPlaceholderText("e.g., New York, NY")
+        self.proj_prop_id_loc_input.setToolTip("Sets the Facebook ID's primary Marketplace location on the homepage before listing.")
+        col_ppid_loc.addWidget(self.proj_prop_id_loc_input)
+
+        col_pploc = QVBoxLayout()
+        col_pploc.addWidget(QLabel("Property Location (Target Cities Pool):"))
+        self.proj_prop_location_input = QTextEdit()
+        self.proj_prop_location_input.setPlaceholderText("e.g., Brooklyn, NY\nQueens, NY\nManhattan, NY (1 per line)")
+        self.proj_prop_location_input.setFixedHeight(65)
+        self.proj_prop_location_input.setToolTip("Enter locations separated by commas or newlines. The bot randomly selects 1 location for each ad.")
+        col_pploc.addWidget(self.proj_prop_location_input)
+
+        pp_r2.addLayout(col_ppbeds, stretch=1)
+        pp_r2.addLayout(col_ppbaths, stretch=1)
+        pp_r2.addLayout(col_ppprice, stretch=1)
+        pp_r2.addLayout(col_ppid_loc, stretch=2)
+        pp_r2.addLayout(col_pploc, stretch=3)
+        p_prop_layout.addLayout(pp_r2)
+
+        # Property Row 3: Description
+        p_prop_layout.addWidget(QLabel("Property Description:"))
+        self.proj_prop_desc_input = QTextEdit()
+        self.proj_prop_desc_input.setPlaceholderText("Include details such as utilities, amenities, any deposits needed and when it's available...")
+        self.proj_prop_desc_input.setFixedHeight(65)
+        p_prop_layout.addWidget(self.proj_prop_desc_input)
+
+        # Property Row 4: Advanced Details (Optional - Facebook Marketplace Standard)
+        p_prop_adv_box = QFrame()
+        p_prop_adv_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.02); border: 1px dashed rgba(255, 255, 255, 0.12); border-radius: 8px; padding: 6px;")
+        ppadv_layout = QVBoxLayout(p_prop_adv_box)
+        ppadv_layout.setContentsMargins(6, 6, 6, 6)
+        ppadv_layout.setSpacing(6)
+
+        ppadv_lbl = QLabel("⚙️ Advanced Details (Optional - Facebook Marketplace Specifications):")
+        ppadv_lbl.setStyleSheet("color: #a78bfa; font-size: 11px; font-weight: 700;")
+        ppadv_layout.addWidget(ppadv_lbl)
+
+        ppadv_r1 = QHBoxLayout()
+
+        col_ppsqft = QVBoxLayout()
+        col_ppsqft.addWidget(QLabel("Property square feet:"))
+        self.proj_prop_sqft_input = QLineEdit()
+        self.proj_prop_sqft_input.setPlaceholderText("e.g., 850")
+        col_ppsqft.addWidget(self.proj_prop_sqft_input)
+
+        col_pplaundry = QVBoxLayout()
+        col_pplaundry.addWidget(QLabel("Washing machine/dryer:"))
+        self.proj_prop_laundry_select = QComboBox()
+        self.proj_prop_laundry_select.addItems(["None", "Washing machine/dryer", "Launderette in building", "Launderette available"])
+        col_pplaundry.addWidget(self.proj_prop_laundry_select)
+
+        col_ppparking = QVBoxLayout()
+        col_ppparking.addWidget(QLabel("Parking type:"))
+        self.proj_prop_parking_select = QComboBox()
+        self.proj_prop_parking_select.addItems(["None", "Garage parking", "Street parking", "Off-street parking", "Parking available"])
+        col_ppparking.addWidget(self.proj_prop_parking_select)
+
+        ppadv_r1.addLayout(col_ppsqft, stretch=1)
+        ppadv_r1.addLayout(col_pplaundry, stretch=2)
+        ppadv_r1.addLayout(col_ppparking, stretch=2)
+        ppadv_layout.addLayout(ppadv_r1)
+
+        ppadv_r2 = QHBoxLayout()
+
+        col_ppac = QVBoxLayout()
+        col_ppac.addWidget(QLabel("Air conditioning:"))
+        self.proj_prop_ac_select = QComboBox()
+        self.proj_prop_ac_select.addItems(["None", "Central AC", "AC available"])
+        col_ppac.addWidget(self.proj_prop_ac_select)
+
+        col_ppheat = QVBoxLayout()
+        col_ppheat.addWidget(QLabel("Heating type:"))
+        self.proj_prop_heating_select = QComboBox()
+        self.proj_prop_heating_select.addItems(["None", "Central heating", "Electric heating", "Gas heating", "Radiator heating", "Heating available"])
+        col_ppheat.addWidget(self.proj_prop_heating_select)
+
+        ppadv_r2.addLayout(col_ppac, stretch=1)
+        ppadv_r2.addLayout(col_ppheat, stretch=1)
+        ppadv_layout.addLayout(ppadv_r2)
+
+        p_prop_layout.addWidget(p_prop_adv_box)
+
+        self.proj_listing_fields_stack.addWidget(p_prop_page)
+
+        # Connect Project Listing Type dropdown to stack
+        self.proj_listing_type_select.currentIndexChanged.connect(self.proj_listing_fields_stack.setCurrentIndex)
+        f_layout.addWidget(self.proj_listing_fields_stack)
 
         layout.addWidget(form_card)
         scroll.setWidget(container)
@@ -4949,6 +5578,10 @@ class FBAutoBotMainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(scroll)
         return view
+
+    def on_quick_tab_combo_changed(self, index):
+        if index >= 0 and index != self.current_editing_tab_index:
+            self.switch_project_tab(index)
 
     def render_project_tabs_bar(self):
         proj = self.get_project_by_id(self.current_editing_project_id)
@@ -4961,23 +5594,50 @@ class FBAutoBotMainWindow(QMainWindow):
                 item.widget().deleteLater()
 
         tabs = proj.get("tabs", [])
-        for i, tdata in enumerate(tabs):
-            t_name = tdata.get("tab_name") or f"Tab {i+1}"
-            btn = QPushButton(f"📑 {t_name}")
-            btn.setCursor(Qt.PointingHandCursor)
-            if i == self.current_editing_tab_index:
-                btn.setStyleSheet("background-color: #4f46e5; color: #ffffff; border: 1px solid #6366f1; font-weight: 700; border-radius: 6px; padding: 4px 10px;")
-            else:
-                btn.setStyleSheet("background-color: rgba(255, 255, 255, 0.05); color: #cbd5e1; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 4px 10px;")
-            btn.clicked.connect(lambda checked, idx=i: self.switch_project_tab(idx))
-            self.proj_tabs_layout.addWidget(btn)
+        total_tabs = len(tabs)
 
+        if hasattr(self, 'proj_tabs_count_badge'):
+            self.proj_tabs_count_badge.setText(f"📑 Configured Tabs: {total_tabs} Total (Active: Tab {self.current_editing_tab_index + 1})")
+
+        # Update quick jump combobox without triggering re-entrant events
+        if hasattr(self, 'proj_tab_quick_combo'):
+            self.proj_tab_quick_combo.blockSignals(True)
+            self.proj_tab_quick_combo.clear()
+            for i, tdata in enumerate(tabs):
+                t_name = tdata.get("tab_name") or f"Tab {i+1}"
+                self.proj_tab_quick_combo.addItem(f"Tab {i+1}: {t_name}", i)
+            if 0 <= self.current_editing_tab_index < total_tabs:
+                self.proj_tab_quick_combo.setCurrentIndex(self.current_editing_tab_index)
+            self.proj_tab_quick_combo.blockSignals(False)
+
+        cols_per_row = 6
+        active_btn_ref = None
+
+        for i, tdata in enumerate(tabs):
+            row = i // cols_per_row
+            col = i % cols_per_row
+            t_name = tdata.get("tab_name") or f"Tab {i+1}"
+            btn = QPushButton(f"📑 Tab {i+1}: {t_name[:16]}")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setToolTip(f"Tab {i+1}: {t_name}\nCategory: {tdata.get('category', 'Household')}\nPrice: ${tdata.get('price', '0')}\nClick to view and edit tab settings below")
+            if i == self.current_editing_tab_index:
+                btn.setStyleSheet("background-color: #4f46e5; color: #ffffff; border: 1px solid #818cf8; font-weight: 800; border-radius: 6px; padding: 5px 8px; font-size: 11px;")
+                active_btn_ref = btn
+            else:
+                btn.setStyleSheet("background-color: rgba(255, 255, 255, 0.05); color: #cbd5e1; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 5px 8px; font-size: 11px;")
+            btn.clicked.connect(lambda checked, idx=i: self.switch_project_tab(idx))
+            self.proj_tabs_layout.addWidget(btn, row, col)
+
+        add_row = total_tabs // cols_per_row
+        add_col = total_tabs % cols_per_row
         btn_add = QPushButton("➕ Add Tab")
-        btn_add.setStyleSheet("background-color: rgba(5, 150, 105, 0.2); color: #34d399; border: 1px solid rgba(5, 150, 105, 0.4); border-radius: 6px; font-weight: 700; padding: 4px 10px;")
+        btn_add.setStyleSheet("background-color: rgba(5, 150, 105, 0.2); color: #34d399; border: 1px solid rgba(5, 150, 105, 0.4); border-radius: 6px; font-weight: 700; padding: 5px 8px; font-size: 11px;")
         btn_add.setCursor(Qt.PointingHandCursor)
         btn_add.clicked.connect(self.add_tab_to_current_project)
-        self.proj_tabs_layout.addWidget(btn_add)
-        self.proj_tabs_layout.addStretch()
+        self.proj_tabs_layout.addWidget(btn_add, add_row, add_col)
+
+        if active_btn_ref and hasattr(self, 'proj_tabs_scroll'):
+            QTimer.singleShot(50, lambda: self.proj_tabs_scroll.ensureWidgetVisible(active_btn_ref))
 
     def switch_project_tab(self, new_index):
         self.save_current_project_tab_state()
@@ -5001,7 +5661,10 @@ class FBAutoBotMainWindow(QMainWindow):
         idx_ltype = self.proj_listing_type_select.findText(ltype)
         if idx_ltype >= 0:
             self.proj_listing_type_select.setCurrentIndex(idx_ltype)
+            if hasattr(self, 'proj_listing_fields_stack'):
+                self.proj_listing_fields_stack.setCurrentIndex(idx_ltype)
 
+        # Page 0: Item for sale fields
         cat = tdata.get("category", "Household")
         idx = self.proj_category_select.findText(cat)
         if idx >= 0:
@@ -5015,8 +5678,77 @@ class FBAutoBotMainWindow(QMainWindow):
 
         self.proj_title_input.setText(tdata.get("title", ""))
         self.proj_price_input.setText(str(tdata.get("price", "0")))
+        if hasattr(self, 'proj_id_loc_input'):
+            self.proj_id_loc_input.setText(tdata.get("id_location", ""))
         self.proj_location_input.setPlainText(tdata.get("location", ""))
         self.proj_desc_input.setPlainText(tdata.get("description", ""))
+
+        # Page 1: Vehicle for sale fields
+        if hasattr(self, 'proj_veh_type_select'):
+            idx_vt = self.proj_veh_type_select.findText(tdata.get("vehicle_type", "Car/Truck"))
+            if idx_vt >= 0:
+                self.proj_veh_type_select.setCurrentIndex(idx_vt)
+        if hasattr(self, 'proj_veh_year_select'):
+            idx_vy = self.proj_veh_year_select.findText(str(tdata.get("vehicle_year", "2022")))
+            if idx_vy >= 0:
+                self.proj_veh_year_select.setCurrentIndex(idx_vy)
+        if hasattr(self, 'proj_veh_make_input'):
+            self.proj_veh_make_input.setText(tdata.get("vehicle_make", ""))
+        if hasattr(self, 'proj_veh_model_input'):
+            self.proj_veh_model_input.setText(tdata.get("vehicle_model", ""))
+        if hasattr(self, 'proj_veh_price_input'):
+            self.proj_veh_price_input.setText(str(tdata.get("vehicle_price", tdata.get("price", "15000"))))
+        if hasattr(self, 'proj_veh_id_loc_input'):
+            self.proj_veh_id_loc_input.setText(tdata.get("vehicle_id_location", tdata.get("id_location", "")))
+        if hasattr(self, 'proj_veh_location_input'):
+            self.proj_veh_location_input.setPlainText(tdata.get("vehicle_location", tdata.get("location", "")))
+        if hasattr(self, 'proj_veh_desc_input'):
+            self.proj_veh_desc_input.setPlainText(tdata.get("vehicle_description", tdata.get("description", "")))
+
+        # Page 2: Property for sale or rent fields
+        if hasattr(self, 'proj_prop_rental_type_select'):
+            idx_pr = self.proj_prop_rental_type_select.findText(tdata.get("rental_type", "Rent"))
+            if idx_pr >= 0:
+                self.proj_prop_rental_type_select.setCurrentIndex(idx_pr)
+        if hasattr(self, 'proj_prop_type_select'):
+            idx_pt = self.proj_prop_type_select.findText(tdata.get("property_type", "House"))
+            if idx_pt >= 0:
+                self.proj_prop_type_select.setCurrentIndex(idx_pt)
+        if hasattr(self, 'proj_prop_bedrooms_select'):
+            idx_pb = self.proj_prop_bedrooms_select.findText(str(tdata.get("bedrooms", "1")))
+            if idx_pb >= 0:
+                self.proj_prop_bedrooms_select.setCurrentIndex(idx_pb)
+        if hasattr(self, 'proj_prop_bathrooms_select'):
+            idx_pba = self.proj_prop_bathrooms_select.findText(str(tdata.get("bathrooms", "1")))
+            if idx_pba >= 0:
+                self.proj_prop_bathrooms_select.setCurrentIndex(idx_pba)
+        if hasattr(self, 'proj_prop_price_input'):
+            self.proj_prop_price_input.setText(str(tdata.get("property_price", tdata.get("price", "1800"))))
+        if hasattr(self, 'proj_prop_id_loc_input'):
+            self.proj_prop_id_loc_input.setText(tdata.get("property_id_location", tdata.get("id_location", "")))
+        if hasattr(self, 'proj_prop_location_input'):
+            self.proj_prop_location_input.setPlainText(tdata.get("property_location", tdata.get("location", "")))
+        if hasattr(self, 'proj_prop_desc_input'):
+            self.proj_prop_desc_input.setPlainText(tdata.get("property_description", tdata.get("description", "")))
+        # Advanced details
+        if hasattr(self, 'proj_prop_sqft_input'):
+            self.proj_prop_sqft_input.setText(tdata.get("property_sqft", ""))
+        if hasattr(self, 'proj_prop_laundry_select'):
+            idx_l = self.proj_prop_laundry_select.findText(tdata.get("laundry_type", "None"))
+            if idx_l >= 0:
+                self.proj_prop_laundry_select.setCurrentIndex(idx_l)
+        if hasattr(self, 'proj_prop_parking_select'):
+            idx_pk = self.proj_prop_parking_select.findText(tdata.get("parking_type", "None"))
+            if idx_pk >= 0:
+                self.proj_prop_parking_select.setCurrentIndex(idx_pk)
+        if hasattr(self, 'proj_prop_ac_select'):
+            idx_ac = self.proj_prop_ac_select.findText(tdata.get("ac_type", "None"))
+            if idx_ac >= 0:
+                self.proj_prop_ac_select.setCurrentIndex(idx_ac)
+        if hasattr(self, 'proj_prop_heating_select'):
+            idx_ht = self.proj_prop_heating_select.findText(tdata.get("heating_type", "None"))
+            if idx_ht >= 0:
+                self.proj_prop_heating_select.setCurrentIndex(idx_ht)
 
         imgs = tdata.get("images", [])
         self.project_tab_images = imgs
@@ -5038,15 +5770,67 @@ class FBAutoBotMainWindow(QMainWindow):
         if hasattr(self, 'proj_main_loc_input'):
             proj["main_location"] = self.proj_main_loc_input.text().strip()
 
+        ltype = self.proj_listing_type_select.currentText()
+        if ltype == "Vehicle for sale":
+            v_year = self.proj_veh_year_select.currentText() if hasattr(self, 'proj_veh_year_select') else "2022"
+            v_make = self.proj_veh_make_input.text().strip() if hasattr(self, 'proj_veh_make_input') else ""
+            v_model = self.proj_veh_model_input.text().strip() if hasattr(self, 'proj_veh_model_input') else ""
+            title = f"{v_year} {v_make} {v_model}".strip() if (v_make or v_model) else self.proj_title_input.text().strip()
+            price = self.proj_veh_price_input.text().strip() if hasattr(self, 'proj_veh_price_input') else (self.proj_price_input.text().strip() or "0")
+            id_loc = self.proj_veh_id_loc_input.text().strip() if hasattr(self, 'proj_veh_id_loc_input') else ""
+            loc = self.proj_veh_location_input.toPlainText().strip() if hasattr(self, 'proj_veh_location_input') else ""
+            desc = self.proj_veh_desc_input.toPlainText().strip() if hasattr(self, 'proj_veh_desc_input') else ""
+        elif ltype == "Property for sale or rent":
+            p_rent = self.proj_prop_rental_type_select.currentText() if hasattr(self, 'proj_prop_rental_type_select') else "Rent"
+            p_type = self.proj_prop_type_select.currentText() if hasattr(self, 'proj_prop_type_select') else "Apartment/Condo"
+            p_beds = self.proj_prop_bedrooms_select.currentText() if hasattr(self, 'proj_prop_bedrooms_select') else "1"
+            title = f"{p_beds} Bed {p_type} for {p_rent}".strip()
+            price = self.proj_prop_price_input.text().strip() if hasattr(self, 'proj_prop_price_input') else (self.proj_price_input.text().strip() or "0")
+            id_loc = self.proj_prop_id_loc_input.text().strip() if hasattr(self, 'proj_prop_id_loc_input') else ""
+            loc = self.proj_prop_location_input.toPlainText().strip() if hasattr(self, 'proj_prop_location_input') else ""
+            desc = self.proj_prop_desc_input.toPlainText().strip() if hasattr(self, 'proj_prop_desc_input') else ""
+        else:
+            title = self.proj_title_input.text().strip()
+            price = self.proj_price_input.text().strip() or "0"
+            id_loc = self.proj_id_loc_input.text().strip() if hasattr(self, 'proj_id_loc_input') else ""
+            loc = self.proj_location_input.toPlainText().strip() or "Local Radius"
+            desc = self.proj_desc_input.toPlainText().strip()
+
         tdata = {
             "tab_name": self.proj_tab_name_input.text().strip() or f"Tab {self.current_editing_tab_index+1}",
-            "listing_type": self.proj_listing_type_select.currentText(),
+            "listing_type": ltype,
             "category": self.proj_category_select.currentText(),
             "condition": self.proj_condition_select.currentText() if hasattr(self, 'proj_condition_select') else "New",
-            "title": self.proj_title_input.text().strip(),
-            "price": self.proj_price_input.text().strip() or "0",
-            "location": self.proj_location_input.toPlainText().strip() or "Local Radius",
-            "description": self.proj_desc_input.toPlainText().strip(),
+            "title": title,
+            "price": price or "0",
+            "id_location": id_loc,
+            "location": loc or "Local Radius",
+            "description": desc,
+            # Specialized Vehicle Fields
+            "vehicle_type": self.proj_veh_type_select.currentText() if hasattr(self, 'proj_veh_type_select') else "Car/Truck",
+            "vehicle_year": self.proj_veh_year_select.currentText() if hasattr(self, 'proj_veh_year_select') else "2022",
+            "vehicle_make": self.proj_veh_make_input.text().strip() if hasattr(self, 'proj_veh_make_input') else "",
+            "vehicle_model": self.proj_veh_model_input.text().strip() if hasattr(self, 'proj_veh_model_input') else "",
+            "vehicle_price": self.proj_veh_price_input.text().strip() if hasattr(self, 'proj_veh_price_input') else "",
+            "vehicle_id_location": self.proj_veh_id_loc_input.text().strip() if hasattr(self, 'proj_veh_id_loc_input') else "",
+            "vehicle_location": self.proj_veh_location_input.toPlainText().strip() if hasattr(self, 'proj_veh_location_input') else "",
+            "vehicle_description": self.proj_veh_desc_input.toPlainText().strip() if hasattr(self, 'proj_veh_desc_input') else "",
+            # Specialized Property Fields
+            "rental_type": self.proj_prop_rental_type_select.currentText() if hasattr(self, 'proj_prop_rental_type_select') else "Rent",
+            "property_type": self.proj_prop_type_select.currentText() if hasattr(self, 'proj_prop_type_select') else "Apartment/Condo",
+            "bedrooms": self.proj_prop_bedrooms_select.currentText() if hasattr(self, 'proj_prop_bedrooms_select') else "1",
+            "bathrooms": self.proj_prop_bathrooms_select.currentText() if hasattr(self, 'proj_prop_bathrooms_select') else "1",
+            "property_price": self.proj_prop_price_input.text().strip() if hasattr(self, 'proj_prop_price_input') else "",
+            "property_id_location": self.proj_prop_id_loc_input.text().strip() if hasattr(self, 'proj_prop_id_loc_input') else "",
+            "property_location": self.proj_prop_location_input.toPlainText().strip() if hasattr(self, 'proj_prop_location_input') else "",
+            "property_description": self.proj_prop_desc_input.toPlainText().strip() if hasattr(self, 'proj_prop_desc_input') else "",
+            # Advanced Property Specs
+            "property_sqft": self.proj_prop_sqft_input.text().strip() if hasattr(self, 'proj_prop_sqft_input') else "",
+            "laundry_type": self.proj_prop_laundry_select.currentText() if hasattr(self, 'proj_prop_laundry_select') else "None",
+            "parking_type": self.proj_prop_parking_select.currentText() if hasattr(self, 'proj_prop_parking_select') else "None",
+            "ac_type": self.proj_prop_ac_select.currentText() if hasattr(self, 'proj_prop_ac_select') else "None",
+            "heating_type": self.proj_prop_heating_select.currentText() if hasattr(self, 'proj_prop_heating_select') else "None",
+            # Image protection & attachments
             "images": getattr(self, 'project_tab_images', []),
             "anti_dup_shield": self.proj_chk_shield.isChecked(),
             "anti_dup_rotate": self.proj_chk_rotate.isChecked(),
@@ -5065,6 +5849,7 @@ class FBAutoBotMainWindow(QMainWindow):
         new_tab_idx = len(tabs) + 1
         new_tdata = {
             "tab_name": f"Tab {new_tab_idx}",
+            "listing_type": "Item for sale",
             "category": "Household",
             "condition": "New",
             "title": "",
@@ -5114,76 +5899,143 @@ class FBAutoBotMainWindow(QMainWindow):
         self.render_project_tabs_bar()
         self.load_project_tab_into_form(self.current_editing_tab_index)
 
-    def refresh_project_images_tags(self):
-        if not hasattr(self, 'proj_img_tags_layout'):
+    def toggle_project_images_dropdown(self):
+        if hasattr(self, 'proj_img_dropdown_panel'):
+            is_vis = self.proj_img_dropdown_panel.isVisible()
+            self.proj_img_dropdown_panel.setVisible(not is_vis)
+            self._update_project_images_btn_text(not is_vis)
+
+    def _update_project_images_btn_text(self, is_open=None):
+        if not hasattr(self, 'proj_img_dropdown_btn'):
             return
+        if is_open is None:
+            is_open = self.proj_img_dropdown_panel.isVisible() if hasattr(self, 'proj_img_dropdown_panel') else False
+        arrow = "▲" if is_open else "▼"
+        imgs = getattr(self, 'project_tab_images', [])
+        if not imgs:
+            self.proj_img_dropdown_btn.setText(f"📷 No images selected  {arrow}")
+            self.proj_img_dropdown_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(15, 23, 42, 0.9);
+                    border: 1px solid rgba(148, 163, 184, 0.3);
+                    border-radius: 8px;
+                    color: #94a3b8;
+                    font-size: 12px;
+                    font-weight: 600;
+                    padding: 7px 12px;
+                    text-align: left;
+                }
+                QPushButton:hover {
+                    border-color: #38bdf8;
+                    background-color: rgba(30, 41, 59, 0.95);
+                    color: #f1f5f9;
+                }
+            """)
+        else:
+            last_fname = os.path.basename(imgs[-1])
+            disp_last = last_fname if len(last_fname) <= 30 else last_fname[:16] + "..." + last_fname[-11:]
+            self.proj_img_dropdown_btn.setText(f"🖼️ {len(imgs)} image(s) | Last: {disp_last}  {arrow}")
+            self.proj_img_dropdown_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(30, 41, 59, 0.95);
+                    border: 1px solid rgba(56, 189, 248, 0.8);
+                    border-radius: 8px;
+                    color: #ffffff;
+                    font-size: 12px;
+                    font-weight: 700;
+                    padding: 7px 12px;
+                    text-align: left;
+                }
+                QPushButton:hover {
+                    border-color: #60a5fa;
+                    background-color: rgba(49, 46, 129, 0.9);
+                }
+            """)
 
-        while self.proj_img_tags_layout.count():
-            item = self.proj_img_tags_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
+    def refresh_project_images_tags(self):
         imgs = getattr(self, 'project_tab_images', [])
         if hasattr(self, 'proj_img_count_lbl'):
             self.proj_img_count_lbl.setText(f"{len(imgs)} image(s) selected")
 
-        if not imgs:
-            lbl = QLabel("📷 No image files attached. Click 'Browse Product Images' to select.")
-            lbl.setStyleSheet("color: #64748b; font-size: 11px; font-style: italic;")
-            self.proj_img_tags_layout.addWidget(lbl)
-            self.proj_img_tags_layout.addStretch()
+        self._update_project_images_btn_text()
+
+        if not hasattr(self, 'proj_img_dropdown_items_layout'):
             return
 
-        for filepath in imgs:
-            fname = os.path.basename(filepath)
-            display_name = fname if len(fname) <= 22 else fname[:10] + "..." + fname[-9:]
+        while self.proj_img_dropdown_items_layout.count():
+            item = self.proj_img_dropdown_items_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
-            chip = QFrame()
-            chip.setStyleSheet("""
+        if not imgs:
+            lbl = QLabel("📷 No images attached yet. Click 'Browse Product Images' or '➕ Add More' above.")
+            lbl.setStyleSheet("color: #64748b; font-size: 11px; font-style: italic; padding: 10px;")
+            self.proj_img_dropdown_items_layout.addWidget(lbl)
+            self.proj_img_dropdown_items_layout.addStretch()
+            return
+
+        for idx, filepath in enumerate(imgs):
+            fname = os.path.basename(filepath)
+            try:
+                fsize = f"({os.path.getsize(filepath) // 1024} KB)" if os.path.exists(filepath) else ""
+            except Exception:
+                fsize = ""
+
+            row_frame = QFrame()
+            row_frame.setStyleSheet("""
                 QFrame {
-                    background-color: rgba(30, 41, 59, 0.9);
-                    border: 1px solid rgba(99, 102, 241, 0.4);
-                    border-radius: 10px;
+                    background-color: rgba(30, 41, 59, 0.8);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 6px;
                 }
                 QFrame:hover {
-                    border: 1px solid rgba(99, 102, 241, 0.8);
-                    background-color: rgba(49, 46, 129, 0.9);
+                    background-color: rgba(51, 65, 85, 0.95);
+                    border: 1px solid rgba(56, 189, 248, 0.5);
                 }
             """)
-            chip_layout = QHBoxLayout(chip)
-            chip_layout.setContentsMargins(6, 2, 6, 2)
-            chip_layout.setSpacing(4)
+            r_layout = QHBoxLayout(row_frame)
+            r_layout.setContentsMargins(8, 4, 8, 4)
+            r_layout.setSpacing(6)
 
-            name_lbl = QLabel(f"📄 {display_name}")
+            idx_lbl = QLabel(f"#{idx+1}")
+            idx_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 800; min-width: 22px;")
+            r_layout.addWidget(idx_lbl)
+
+            ico_lbl = QLabel("🖼️")
+            ico_lbl.setStyleSheet("font-size: 13px;")
+            r_layout.addWidget(ico_lbl)
+
+            display_name = fname if len(fname) <= 35 else fname[:18] + "..." + fname[-14:]
+            name_lbl = QLabel(f"{display_name} {fsize}")
             name_lbl.setToolTip(filepath)
-            name_lbl.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: 600;")
-            chip_layout.addWidget(name_lbl)
+            name_lbl.setStyleSheet("color: #f1f5f9; font-size: 11px; font-weight: 600;")
+            r_layout.addWidget(name_lbl, stretch=1)
 
-            btn_remove = QPushButton("✕")
-            btn_remove.setFixedSize(16, 16)
-            btn_remove.setCursor(Qt.PointingHandCursor)
-            btn_remove.setToolTip(f"Remove {fname}")
-            btn_remove.setStyleSheet("""
+            btn_rem = QPushButton("✕ Remove")
+            btn_rem.setCursor(Qt.PointingHandCursor)
+            btn_rem.setToolTip(f"Remove {fname}")
+            btn_rem.setStyleSheet("""
                 QPushButton {
-                    background-color: rgba(239, 68, 68, 0.3);
+                    background-color: rgba(239, 68, 68, 0.25);
                     color: #fca5a5;
-                    border: none;
-                    border-radius: 8px;
+                    border: 1px solid rgba(239, 68, 68, 0.4);
+                    border-radius: 4px;
                     font-size: 10px;
-                    font-weight: 800;
-                    padding: 0px;
+                    font-weight: 700;
+                    padding: 3px 8px;
                 }
                 QPushButton:hover {
-                    background-color: rgba(239, 68, 68, 0.9);
+                    background-color: #ef4444;
                     color: #ffffff;
+                    border: 1px solid #dc2626;
                 }
             """)
-            btn_remove.clicked.connect(lambda checked, fp=filepath: self.remove_single_project_image(fp))
-            chip_layout.addWidget(btn_remove)
+            btn_rem.clicked.connect(lambda checked, fp=filepath: self.remove_single_project_image(fp))
+            r_layout.addWidget(btn_rem)
 
-            self.proj_img_tags_layout.addWidget(chip)
+            self.proj_img_dropdown_items_layout.addWidget(row_frame)
 
-        self.proj_img_tags_layout.addStretch()
+        self.proj_img_dropdown_items_layout.addStretch()
 
     def remove_single_project_image(self, filepath):
         if hasattr(self, 'project_tab_images'):
@@ -5196,8 +6048,15 @@ class FBAutoBotMainWindow(QMainWindow):
             self, "Select Product Images for Tab", "", "Image Files (*.png *.jpg *.jpeg *.webp)"
         )
         if files:
-            self.project_tab_images = files
+            existing = getattr(self, 'project_tab_images', [])
+            for f in files:
+                if f not in existing:
+                    existing.append(f)
+            self.project_tab_images = existing
             self.refresh_project_images_tags()
+            if hasattr(self, 'proj_img_dropdown_panel'):
+                self.proj_img_dropdown_panel.setVisible(True)
+                self._update_project_images_btn_text(True)
             self.save_current_project_tab_state()
 
     def clear_project_tab_images(self):
@@ -5210,6 +6069,9 @@ class FBAutoBotMainWindow(QMainWindow):
                 tabs[idx]["images"] = []
                 self.save_projects_to_disk()
         self.refresh_project_images_tags()
+        if hasattr(self, 'proj_img_dropdown_panel'):
+            self.proj_img_dropdown_panel.setVisible(False)
+            self._update_project_images_btn_text(False)
         self.log_message("INFO", "Project tab images cleared.")
 
     def quick_spin_project_tab_title(self):
@@ -5312,9 +6174,12 @@ class FBAutoBotMainWindow(QMainWindow):
             QMessageBox.warning(self, "No Tabs Configured", "This project has no tab configurations to post.")
             return
 
-        valid_tabs = [t for t in project_tabs if t.get("title", "").strip()]
+        valid_tabs = [
+            t for t in project_tabs
+            if t.get("title", "").strip() or t.get("vehicle_make", "").strip() or t.get("property_type", "").strip()
+        ]
         if not valid_tabs:
-            QMessageBox.warning(self, "Missing Listing Title", "Please provide at least a Title for Tab 1 in this project.")
+            QMessageBox.warning(self, "Missing Listing Details", "Please provide listing details (Title, Vehicle, or Property) for Tab 1 in this project.")
             return
 
         is_batch = len(selected_accounts) > 1
@@ -5328,14 +6193,30 @@ class FBAutoBotMainWindow(QMainWindow):
         if hasattr(self, 'proj_main_loc_input') and self.proj_main_loc_input.text().strip():
             main_loc = self.proj_main_loc_input.text().strip()
 
+        t0 = project_tabs[0]
         payload = {
-            "title": project_tabs[0].get("title", "Project Campaign"),
-            "price": project_tabs[0].get("price", "0"),
-            "category": project_tabs[0].get("category", "Household"),
-            "condition": project_tabs[0].get("condition", "New"),
-            "location": project_tabs[0].get("location", "Local Radius"),
+            "title": t0.get("title", "Project Campaign"),
+            "price": t0.get("price", "0"),
+            "listing_type": t0.get("listing_type", "Item for sale"),
+            "category": t0.get("category", "Household"),
+            "condition": t0.get("condition", "New"),
+            "vehicle_type": t0.get("vehicle_type", "Car/Truck"),
+            "vehicle_year": t0.get("vehicle_year", "2022"),
+            "vehicle_make": t0.get("vehicle_make", ""),
+            "vehicle_model": t0.get("vehicle_model", ""),
+            "rental_type": t0.get("rental_type", "Rent"),
+            "property_type": t0.get("property_type", "House"),
+            "bedrooms": t0.get("bedrooms", "1"),
+            "bathrooms": t0.get("bathrooms", "1"),
+            "property_sqft": t0.get("property_sqft", ""),
+            "laundry_type": t0.get("laundry_type", "None"),
+            "parking_type": t0.get("parking_type", "None"),
+            "ac_type": t0.get("ac_type", "None"),
+            "heating_type": t0.get("heating_type", "None"),
+            "location": t0.get("location", "Local Radius"),
+            "id_location": t0.get("id_location", ""),
             "project_main_location": main_loc,
-            "description": project_tabs[0].get("description", ""),
+            "description": t0.get("description", ""),
             "tabs_count": len(project_tabs),
             "posts_per_id": len(project_tabs),
             "method": "Project Campaign Mode",
@@ -5401,76 +6282,143 @@ class FBAutoBotMainWindow(QMainWindow):
         self.engine_status_lbl.setText("● IDLE")
         self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
 
-    def refresh_standard_images_tags(self):
-        if not hasattr(self, 'img_tags_layout'):
+    def toggle_standard_images_dropdown(self):
+        if hasattr(self, 'img_dropdown_panel'):
+            is_vis = self.img_dropdown_panel.isVisible()
+            self.img_dropdown_panel.setVisible(not is_vis)
+            self._update_standard_images_btn_text(not is_vis)
+
+    def _update_standard_images_btn_text(self, is_open=None):
+        if not hasattr(self, 'img_dropdown_btn'):
             return
+        if is_open is None:
+            is_open = self.img_dropdown_panel.isVisible() if hasattr(self, 'img_dropdown_panel') else False
+        arrow = "▲" if is_open else "▼"
+        imgs = getattr(self, 'selected_images', [])
+        if not imgs:
+            self.img_dropdown_btn.setText(f"📷 No images selected  {arrow}")
+            self.img_dropdown_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(15, 23, 42, 0.9);
+                    border: 1px solid rgba(148, 163, 184, 0.3);
+                    border-radius: 8px;
+                    color: #94a3b8;
+                    font-size: 12px;
+                    font-weight: 600;
+                    padding: 7px 12px;
+                    text-align: left;
+                }
+                QPushButton:hover {
+                    border-color: #38bdf8;
+                    background-color: rgba(30, 41, 59, 0.95);
+                    color: #f1f5f9;
+                }
+            """)
+        else:
+            last_fname = os.path.basename(imgs[-1])
+            disp_last = last_fname if len(last_fname) <= 30 else last_fname[:16] + "..." + last_fname[-11:]
+            self.img_dropdown_btn.setText(f"🖼️ {len(imgs)} image(s) | Last: {disp_last}  {arrow}")
+            self.img_dropdown_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(30, 41, 59, 0.95);
+                    border: 1px solid rgba(56, 189, 248, 0.8);
+                    border-radius: 8px;
+                    color: #ffffff;
+                    font-size: 12px;
+                    font-weight: 700;
+                    padding: 7px 12px;
+                    text-align: left;
+                }
+                QPushButton:hover {
+                    border-color: #60a5fa;
+                    background-color: rgba(49, 46, 129, 0.9);
+                }
+            """)
 
-        while self.img_tags_layout.count():
-            item = self.img_tags_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
+    def refresh_standard_images_tags(self):
         imgs = getattr(self, 'selected_images', [])
         if hasattr(self, 'img_count_lbl'):
             self.img_count_lbl.setText(f"{len(imgs)} image(s) selected")
 
-        if not imgs:
-            lbl = QLabel("📷 No image files attached. Click 'Browse Product Images' to select.")
-            lbl.setStyleSheet("color: #64748b; font-size: 11px; font-style: italic;")
-            self.img_tags_layout.addWidget(lbl)
-            self.img_tags_layout.addStretch()
+        self._update_standard_images_btn_text()
+
+        if not hasattr(self, 'img_dropdown_items_layout'):
             return
 
-        for filepath in imgs:
-            fname = os.path.basename(filepath)
-            display_name = fname if len(fname) <= 22 else fname[:10] + "..." + fname[-9:]
+        while self.img_dropdown_items_layout.count():
+            item = self.img_dropdown_items_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
-            chip = QFrame()
-            chip.setStyleSheet("""
+        if not imgs:
+            lbl = QLabel("📷 No images attached yet. Click 'Browse Product Images' or '➕ Add More' above.")
+            lbl.setStyleSheet("color: #64748b; font-size: 11px; font-style: italic; padding: 10px;")
+            self.img_dropdown_items_layout.addWidget(lbl)
+            self.img_dropdown_items_layout.addStretch()
+            return
+
+        for idx, filepath in enumerate(imgs):
+            fname = os.path.basename(filepath)
+            try:
+                fsize = f"({os.path.getsize(filepath) // 1024} KB)" if os.path.exists(filepath) else ""
+            except Exception:
+                fsize = ""
+
+            row_frame = QFrame()
+            row_frame.setStyleSheet("""
                 QFrame {
-                    background-color: rgba(30, 41, 59, 0.9);
-                    border: 1px solid rgba(99, 102, 241, 0.4);
-                    border-radius: 10px;
+                    background-color: rgba(30, 41, 59, 0.8);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 6px;
                 }
                 QFrame:hover {
-                    border: 1px solid rgba(99, 102, 241, 0.8);
-                    background-color: rgba(49, 46, 129, 0.9);
+                    background-color: rgba(51, 65, 85, 0.95);
+                    border: 1px solid rgba(56, 189, 248, 0.5);
                 }
             """)
-            chip_layout = QHBoxLayout(chip)
-            chip_layout.setContentsMargins(6, 2, 6, 2)
-            chip_layout.setSpacing(4)
+            r_layout = QHBoxLayout(row_frame)
+            r_layout.setContentsMargins(8, 4, 8, 4)
+            r_layout.setSpacing(6)
 
-            name_lbl = QLabel(f"📄 {display_name}")
+            idx_lbl = QLabel(f"#{idx+1}")
+            idx_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 800; min-width: 22px;")
+            r_layout.addWidget(idx_lbl)
+
+            ico_lbl = QLabel("🖼️")
+            ico_lbl.setStyleSheet("font-size: 13px;")
+            r_layout.addWidget(ico_lbl)
+
+            display_name = fname if len(fname) <= 35 else fname[:18] + "..." + fname[-14:]
+            name_lbl = QLabel(f"{display_name} {fsize}")
             name_lbl.setToolTip(filepath)
-            name_lbl.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: 600;")
-            chip_layout.addWidget(name_lbl)
+            name_lbl.setStyleSheet("color: #f1f5f9; font-size: 11px; font-weight: 600;")
+            r_layout.addWidget(name_lbl, stretch=1)
 
-            btn_remove = QPushButton("✕")
-            btn_remove.setFixedSize(16, 16)
-            btn_remove.setCursor(Qt.PointingHandCursor)
-            btn_remove.setToolTip(f"Remove {fname}")
-            btn_remove.setStyleSheet("""
+            btn_rem = QPushButton("✕ Remove")
+            btn_rem.setCursor(Qt.PointingHandCursor)
+            btn_rem.setToolTip(f"Remove {fname}")
+            btn_rem.setStyleSheet("""
                 QPushButton {
-                    background-color: rgba(239, 68, 68, 0.3);
+                    background-color: rgba(239, 68, 68, 0.25);
                     color: #fca5a5;
-                    border: none;
-                    border-radius: 8px;
+                    border: 1px solid rgba(239, 68, 68, 0.4);
+                    border-radius: 4px;
                     font-size: 10px;
-                    font-weight: 800;
-                    padding: 0px;
+                    font-weight: 700;
+                    padding: 3px 8px;
                 }
                 QPushButton:hover {
-                    background-color: rgba(239, 68, 68, 0.9);
+                    background-color: #ef4444;
                     color: #ffffff;
+                    border: 1px solid #dc2626;
                 }
             """)
-            btn_remove.clicked.connect(lambda checked, fp=filepath: self.remove_single_standard_image(fp))
-            chip_layout.addWidget(btn_remove)
+            btn_rem.clicked.connect(lambda checked, fp=filepath: self.remove_single_standard_image(fp))
+            r_layout.addWidget(btn_rem)
 
-            self.img_tags_layout.addWidget(chip)
+            self.img_dropdown_items_layout.addWidget(row_frame)
 
-        self.img_tags_layout.addStretch()
+        self.img_dropdown_items_layout.addStretch()
 
     def remove_single_standard_image(self, filepath):
         if hasattr(self, 'selected_images'):
@@ -5482,19 +6430,26 @@ class FBAutoBotMainWindow(QMainWindow):
             self, "Select Product Images", "", "Image Files (*.png *.jpg *.jpeg *.webp)"
         )
         if files:
-            self.selected_images = files
+            existing = getattr(self, 'selected_images', [])
+            for f in files:
+                if f not in existing:
+                    existing.append(f)
+            self.selected_images = existing
             self.refresh_standard_images_tags()
+            if hasattr(self, 'img_dropdown_panel'):
+                self.img_dropdown_panel.setVisible(True)
+                self._update_standard_images_btn_text(True)
             self.log_message("INFO", f"Selected {len(files)} product image(s) for posting.")
 
     def clear_selected_images(self):
         self.selected_images = []
         self.refresh_standard_images_tags()
+        if hasattr(self, 'img_dropdown_panel'):
+            self.img_dropdown_panel.setVisible(False)
+            self._update_standard_images_btn_text(False)
         self.log_message("INFO", "Selected product images cleared.")
 
     def start_automation(self):
-        title = self.title_input.text().strip()
-        price = self.price_input.text().strip()
-
         if not self.accounts_list:
             QMessageBox.warning(
                 self,
@@ -5504,9 +6459,39 @@ class FBAutoBotMainWindow(QMainWindow):
             )
             return
 
-        if not title:
-            QMessageBox.warning(self, "Missing Fields", "Please provide at least a Product Title.")
-            return
+        ltype = self.listing_type_select.currentText() if hasattr(self, 'listing_type_select') else "Item for sale"
+        if ltype == "Vehicle for sale":
+            v_type = self.veh_type_select.currentText() if hasattr(self, 'veh_type_select') else "Car/Truck"
+            v_year = self.veh_year_select.currentText() if hasattr(self, 'veh_year_select') else "2022"
+            v_make = self.veh_make_input.text().strip() if hasattr(self, 'veh_make_input') else ""
+            v_model = self.veh_model_input.text().strip() if hasattr(self, 'veh_model_input') else ""
+            if not v_make or not v_model:
+                QMessageBox.warning(self, "Missing Fields", "Please provide at least Vehicle Make and Model.")
+                return
+            title = f"{v_year} {v_make} {v_model}".strip()
+            price = self.veh_price_input.text().strip() if hasattr(self, 'veh_price_input') else "0"
+            id_location = self.veh_id_loc_input.text().strip() if hasattr(self, 'veh_id_loc_input') else ""
+            location = self.veh_location_input.toPlainText().strip() if hasattr(self, 'veh_location_input') else "Local Radius"
+            description = self.veh_desc_input.toPlainText().strip() if hasattr(self, 'veh_desc_input') else ""
+        elif ltype == "Property for sale or rent":
+            p_rent = self.prop_rental_type_select.currentText() if hasattr(self, 'prop_rental_type_select') else "Rent"
+            p_type = self.prop_type_select.currentText() if hasattr(self, 'prop_type_select') else "Apartment/Condo"
+            p_beds = self.prop_bedrooms_select.currentText() if hasattr(self, 'prop_bedrooms_select') else "1"
+            p_baths = self.prop_bathrooms_select.currentText() if hasattr(self, 'prop_bathrooms_select') else "1"
+            title = f"{p_beds} Bed {p_type} for {p_rent}".strip()
+            price = self.prop_price_input.text().strip() if hasattr(self, 'prop_price_input') else "0"
+            id_location = self.prop_id_loc_input.text().strip() if hasattr(self, 'prop_id_loc_input') else ""
+            location = self.prop_location_input.toPlainText().strip() if hasattr(self, 'prop_location_input') else "Local Radius"
+            description = self.prop_desc_input.toPlainText().strip() if hasattr(self, 'prop_desc_input') else ""
+        else:
+            title = self.title_input.text().strip()
+            price = self.price_input.text().strip()
+            if not title:
+                QMessageBox.warning(self, "Missing Fields", "Please provide at least a Product Title.")
+                return
+            id_location = self.id_location_input.text().strip() if hasattr(self, 'id_location_input') else ""
+            location = self.location_input.toPlainText().strip() if hasattr(self, 'location_input') else "Local Radius"
+            description = self.desc_input.toPlainText().strip() if hasattr(self, 'desc_input') else ""
 
         # Retrieve all checked accounts from the checklist
         selected_accounts = self.get_selected_accounts_from_checklist()
@@ -5545,12 +6530,25 @@ class FBAutoBotMainWindow(QMainWindow):
         payload = {
             "title": title,
             "price": price or "0",
-            "listing_type": self.listing_type_select.currentText(),
-            "category": self.category_select.currentText(),
+            "listing_type": ltype,
+            "category": self.category_select.currentText() if hasattr(self, 'category_select') else "Household",
             "condition": self.condition_select.currentText() if hasattr(self, 'condition_select') else "New",
-            "id_location": self.id_location_input.text().strip() if hasattr(self, 'id_location_input') else "",
-            "location": self.location_input.toPlainText().strip() or "Local Radius",
-            "description": self.desc_input.toPlainText().strip(),
+            "vehicle_type": self.veh_type_select.currentText() if hasattr(self, 'veh_type_select') else "Car/Truck",
+            "vehicle_year": self.veh_year_select.currentText() if hasattr(self, 'veh_year_select') else "2022",
+            "vehicle_make": self.veh_make_input.text().strip() if hasattr(self, 'veh_make_input') else "",
+            "vehicle_model": self.veh_model_input.text().strip() if hasattr(self, 'veh_model_input') else "",
+            "rental_type": self.prop_rental_type_select.currentText() if hasattr(self, 'prop_rental_type_select') else "Rent",
+            "property_type": self.prop_type_select.currentText() if hasattr(self, 'prop_type_select') else "Apartment/Condo",
+            "bedrooms": self.prop_bedrooms_select.currentText() if hasattr(self, 'prop_bedrooms_select') else "1",
+            "bathrooms": self.prop_bathrooms_select.currentText() if hasattr(self, 'prop_bathrooms_select') else "1",
+            "property_sqft": self.prop_sqft_input.text().strip() if hasattr(self, 'prop_sqft_input') else "",
+            "laundry_type": self.prop_laundry_select.currentText() if hasattr(self, 'prop_laundry_select') else "None",
+            "parking_type": self.prop_parking_select.currentText() if hasattr(self, 'prop_parking_select') else "None",
+            "ac_type": self.prop_ac_select.currentText() if hasattr(self, 'prop_ac_select') else "None",
+            "heating_type": self.prop_heating_select.currentText() if hasattr(self, 'prop_heating_select') else "None",
+            "id_location": id_location,
+            "location": location or "Local Radius",
+            "description": description,
             "tabs_count": tabs_count,
             "posts_per_id": tabs_count,
             "images_per_post": images_per_post,

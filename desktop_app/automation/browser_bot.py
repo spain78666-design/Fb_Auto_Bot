@@ -923,9 +923,19 @@ class FacebookMarketplaceBot:
                 tp = dict(payload)
                 tp["tab_index"] = i + 1
                 tp["total_tabs"] = tabs_count
+                tp["listing_type"] = pt.get("listing_type", payload.get("listing_type", "Item for sale"))
                 tp["title"] = pt.get("title", "")
                 tp["price"] = pt.get("price", "0")
                 tp["category"] = pt.get("category", "Household")
+                tp["condition"] = pt.get("condition", "New")
+                tp["vehicle_type"] = pt.get("vehicle_type", "Car/Truck")
+                tp["vehicle_year"] = pt.get("vehicle_year", "2022")
+                tp["vehicle_make"] = pt.get("vehicle_make", "")
+                tp["vehicle_model"] = pt.get("vehicle_model", "")
+                tp["rental_type"] = pt.get("rental_type", "Rent")
+                tp["property_type"] = pt.get("property_type", "Apartment/Condo")
+                tp["bedrooms"] = pt.get("bedrooms", "1")
+                tp["bathrooms"] = pt.get("bathrooms", "1")
 
                 # Pick a random location from tab location pool if user provided multiple
                 raw_loc = pt.get("location", "")
@@ -1011,23 +1021,22 @@ class FacebookMarketplaceBot:
             await asyncio.gather(*[reload_tab(i + 1, tabs[i]) for i in range(len(tabs))])
             self.log("SUCCESS", "🎉 All tabs refreshed successfully!")
 
-        # 5. Simultaneously navigate all tabs to the Marketplace listing creation form
-        ad_type = payload.get("listing_type", payload.get("ad_type", "item")).lower()
-        if "vehicle" in ad_type or "car" in ad_type or "auto" in ad_type:
-            create_url = "https://www.facebook.com/marketplace/create/vehicle"
-        elif "rent" in ad_type or "home" in ad_type or "property" in ad_type or "house" in ad_type:
-            create_url = "https://www.facebook.com/marketplace/create/rental"
-        else:
-            create_url = "https://www.facebook.com/marketplace/create/item"
-
-        self.log("INFO", f"🌐 Opening Marketplace Listing Creation page on all tabs: {create_url}...")
-        async def navigate_to_create_form(tab_num: int, page_obj: Page):
+        # 5. Simultaneously navigate all tabs to their respective Marketplace listing creation forms
+        async def navigate_to_create_form(tab_num: int, page_obj: Page, tab_load: dict):
+            t_ad_type = tab_load.get("listing_type", tab_load.get("ad_type", "item")).lower()
+            if "vehicle" in t_ad_type or "car" in t_ad_type or "auto" in t_ad_type:
+                target_url = "https://www.facebook.com/marketplace/create/vehicle"
+            elif "rent" in t_ad_type or "home" in t_ad_type or "property" in t_ad_type or "house" in t_ad_type:
+                target_url = "https://www.facebook.com/marketplace/create/rental"
+            else:
+                target_url = "https://www.facebook.com/marketplace/create/item"
+            self.log("INFO", f"🌐 Opening Marketplace Listing Creation page on Tab [{tab_num}/{tabs_count}]: {target_url}...")
             try:
-                await page_obj.goto(create_url, wait_until="domcontentloaded", timeout=45000)
+                await page_obj.goto(target_url, wait_until="domcontentloaded", timeout=45000)
             except Exception as e:
                 self.log("WARNING", f"Tab [{tab_num}/{tabs_count}] creation load notice: {str(e)[:45]}")
 
-        await asyncio.gather(*[navigate_to_create_form(i + 1, tabs[i]) for i in range(len(tabs))])
+        await asyncio.gather(*[navigate_to_create_form(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))])
         self.log("SUCCESS", "🎉 All tabs loaded at Marketplace listing creation form!")
 
         # 6. Method Manager Verification & Live UI Fallback determination
@@ -1089,59 +1098,85 @@ class FacebookMarketplaceBot:
         await asyncio.gather(*[_upload_photos_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
         await self.sleep(1.5)
 
-        # Step 5b: Product Title
-        self.log("INFO", f"✍️ Typing Titles simultaneously across all {tabs_count} tabs...")
-        async def _set_title_task(i, p, payload):
+        # Step 5b: Fill Type-Specific Primary Fields (Item Title/Cat/Cond, Vehicle Type/Year/Make/Model, Property Rent/Type/Beds/Baths)
+        self.log("INFO", f"✍️ Filling listing type fields simultaneously across all {tabs_count} tabs...")
+        async def _set_type_fields_task(i, p, payload):
             try:
-                title = payload.get("title", "")
-                if title:
-                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Typing title '{title[:25]}...'")
-                    await self._set_title_field(p, title)
-            except Exception as e:
-                self.log("WARNING", f"Tab [{i+1}] Title notice: {str(e)}")
+                ad_t = payload.get("listing_type", "Item for sale").lower()
+                if "vehicle" in ad_t or "car" in ad_t or "auto" in ad_t:
+                    v_type = payload.get("vehicle_type", "Car/Truck")
+                    v_year = str(payload.get("vehicle_year", "2022"))
+                    v_make = payload.get("vehicle_make", "")
+                    v_model = payload.get("vehicle_model", "")
+                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Vehicle ({v_year} {v_make} {v_model})")
+                    if v_type:
+                        await self._set_vehicle_type_field(p, v_type)
+                    if v_year:
+                        await self._set_vehicle_year_field(p, v_year)
+                    if v_make:
+                        await self._set_vehicle_make_field(p, v_make)
+                    if v_model:
+                        await self._set_vehicle_model_field(p, v_model)
+                elif "rent" in ad_t or "home" in ad_t or "property" in ad_t or "house" in ad_t:
+                    r_type = payload.get("rental_type", "Rent")
+                    p_type = payload.get("property_type", "Apartment/Condo")
+                    beds = str(payload.get("bedrooms", "1"))
+                    baths = str(payload.get("bathrooms", "1"))
+                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Property ({beds} Bed {p_type} for {r_type})")
+                    if r_type:
+                        await self._set_rental_sale_type_field(p, r_type)
+                    if p_type:
+                        await self._set_property_type_field(p, p_type)
+                    if beds:
+                        await self._set_bedrooms_field(p, beds)
+                    if baths:
+                        await self._set_bathrooms_field(p, baths)
 
-        await asyncio.gather(*[_set_title_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
+                    # Advanced property specifications
+                    sqft = payload.get("property_sqft", "")
+                    if sqft:
+                        await self._set_property_sqft_field(p, sqft)
+                    laundry = payload.get("laundry_type", "None")
+                    if laundry and laundry != "None":
+                        await self._set_property_generic_dropdown(p, "laundry", laundry)
+                    parking = payload.get("parking_type", "None")
+                    if parking and parking != "None":
+                        await self._set_property_generic_dropdown(p, "parking", parking)
+                    ac = payload.get("ac_type", "None")
+                    if ac and ac != "None":
+                        await self._set_property_generic_dropdown(p, "air conditioning", ac)
+                    heating = payload.get("heating_type", "None")
+                    if heating and heating != "None":
+                        await self._set_property_generic_dropdown(p, "heating", heating)
+                else:
+                    title = payload.get("title", "")
+                    cat = payload.get("category", "Household")
+                    c_text = payload.get("condition", "New")
+                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Item '{title[:25]}...'")
+                    if title:
+                        await self._set_title_field(p, title)
+                    if cat:
+                        await self._set_category_field(p, cat)
+                    if c_text:
+                        await self._set_condition_field(p, c_text)
+            except Exception as e:
+                self.log("WARNING", f"Tab [{i+1}] fields notice: {str(e)}")
+
+        await asyncio.gather(*[_set_type_fields_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
         await self.sleep(0.8)
 
-        # Step 5c: Product Price
-        self.log("INFO", f"💲 Setting Prices simultaneously across all {tabs_count} tabs...")
+        # Step 5c: Price Field across ALL Listing Types and ALL Tabs
+        self.log("INFO", f"💵 Filling Price simultaneously across all {tabs_count} tabs...")
         async def _set_price_task(i, p, payload):
             try:
                 price = payload.get("price", "0")
-                clean_price = re.sub(r'[^0-9.]', '', str(price)) or "0"
-                self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Setting price ${clean_price}")
-                await self._set_price_field(p, clean_price)
+                if price is not None and str(price).strip():
+                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Setting Price to '${price}'")
+                    await self._set_price_field(p, str(price))
             except Exception as e:
                 self.log("WARNING", f"Tab [{i+1}] Price notice: {str(e)}")
 
         await asyncio.gather(*[_set_price_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
-        await self.sleep(0.8)
-
-        # Step 5d: Category Selection
-        self.log("INFO", f"🏷️ Selecting Categories simultaneously across all {tabs_count} tabs...")
-        async def _set_cat_task(i, p, payload):
-            try:
-                cat = payload.get("category", "Household")
-                if cat:
-                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Selecting category '{cat}'")
-                    await self._set_category_field(p, cat)
-            except Exception as e:
-                self.log("WARNING", f"Tab [{i+1}] Category notice: {str(e)}")
-
-        await asyncio.gather(*[_set_cat_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
-        await self.sleep(0.8)
-
-        # Step 5e: Condition Selection
-        cond_val = payload.get("condition", "New")
-        self.log("INFO", f"⚙️ Setting Item Condition to '{cond_val}' simultaneously across all {tabs_count} tabs...")
-        async def _set_cond_task(i, p, payload):
-            try:
-                c_text = payload.get("condition", "New")
-                await self._set_condition_field(p, c_text)
-            except Exception as cond_err:
-                self.log("WARNING", f"Tab [{i+1}] Condition notice: {str(cond_err)[:40]}")
-
-        await asyncio.gather(*[_set_cond_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
         await self.sleep(0.8)
 
         # Step 5f: Description
@@ -1172,7 +1207,7 @@ class FacebookMarketplaceBot:
         await asyncio.gather(*[_set_loc_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
         await self.sleep(1.0)
 
-        # Step 5h: Advance through "Next" Step
+        # Step 5h: Advance through "Next" Step across all tabs
         self.log("INFO", f"➡️ Clicking 'Next' simultaneously across all {tabs_count} tabs...")
         async def _next_task(i, p):
             try:
@@ -1181,16 +1216,48 @@ class FacebookMarketplaceBot:
                 self.log("WARNING", f"Tab [{i+1}] Next notice: {str(e)}")
 
         await asyncio.gather(*[_next_task(i, tabs[i]) for i in range(len(tabs))], return_exceptions=True)
-        await self.sleep(2.0)
+        await self.sleep(1.5)
 
-        # Step 5i: 1 second pause on publish screen before instant parallel publish across all tabs!
+        # Step 5i: Synchronization Barrier & 1-Click Mass Publish
         if not self._cancel_requested:
             self.log("INFO", f"==================================================")
-            self.log("INFO", f"🔥 ALL {len(tabs)} TABS ARE FULLY PREPARED ON THE PUBLISH SCREEN!")
-            self.log("INFO", f"⏸️ Pausing exactly 1 second on Publish screen for organic synchronization...")
-            await asyncio.sleep(1.0)
+            self.log("INFO", f"⏳ SYNCHRONIZATION BARRIER: Verifying all {len(tabs)} tabs are 100% ready on Publish screen...")
 
-            self.log("INFO", f"🚀 CLICKING 'PUBLISH' BUTTON SIMULTANEOUSLY ACROSS ALL {len(tabs)} TABS AT THE EXACT SAME INSTANT...")
+            async def wait_until_tab_ready_for_publish(t_idx: int, page_obj: Page) -> bool:
+                """Ensures page is on final Publish screen before allowing simultaneous release."""
+                for _ in range(8):
+                    if page_obj.is_closed():
+                        return False
+                    try:
+                        # Check for Publish / Post / Done button presence
+                        btn_ready = await page_obj.evaluate("""
+                            () => {
+                                const elements = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"]'));
+                                const targets = ['publish', 'post', 'done', 'save', 'شائع', 'پبلش'];
+                                for (const el of elements) {
+                                    const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+                                    const text = (el.innerText || el.textContent || '').toLowerCase();
+                                    for (const t of targets) {
+                                        if (aria.includes(t) || (text.length < 25 && text.includes(t))) {
+                                            return true;
+                                        }
+                                    }
+                                }
+                                return false;
+                            }
+                        """)
+                        if btn_ready:
+                            return True
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.5)
+                return True
+
+            # Barrier: wait for all tabs to be confirmed ready
+            await asyncio.gather(*[wait_until_tab_ready_for_publish(i + 1, tabs[i]) for i in range(len(tabs))])
+            self.log("SUCCESS", f"✅ ALL {len(tabs)} TABS ARE FULLY SYNCHRONIZED & READY ON PUBLISH SCREEN!")
+
+            self.log("INFO", f"🚀 1-CLICK INSTANT MASS PUBLISH: Triggering Publish across ALL {len(tabs)} tabs at the EXACT SAME MILLISECOND...")
             async def publish_tab_instantly(t_idx, page_obj, p_load):
                 try:
                     return await self.publish_marketplace_listing_on_page(page_obj, p_load)
@@ -1203,7 +1270,7 @@ class FacebookMarketplaceBot:
             ], return_exceptions=True)
             success_count = sum(1 for r in pub_results if isinstance(r, bool) and r is True)
             self.set_progress(100)
-            self.log("SUCCESS", f"🎉 PARALLEL BATCH COMPLETE: {success_count}/{tabs_count} tabs published simultaneously in parallel!")
+            self.log("SUCCESS", f"🎉 1-CLICK MASS PUBLISH COMPLETE: {success_count}/{tabs_count} tabs published simultaneously in parallel!")
             return success_count
 
     async def create_marketplace_listing(self, payload: Dict[str, Any]):
@@ -1314,49 +1381,122 @@ class FacebookMarketplaceBot:
                 self.log("WARNING", f"Photo upload notice: {str(e)}")
 
         # ----------------------------------------------------------------------
-        # 2. Product Title
+        # 2. Fill Listing Type Specific Primary Fields
         # ----------------------------------------------------------------------
-        if title:
+        if "vehicle" in ad_type or "car" in ad_type or "auto" in ad_type:
+            v_type = payload.get("vehicle_type", "Car/Truck")
+            v_year = str(payload.get("vehicle_year", "2022"))
+            v_make = payload.get("vehicle_make", "")
+            v_model = payload.get("vehicle_model", "")
+            
+            if v_type:
+                self.log("INFO", f"🚗 Setting Vehicle Type: '{v_type}'...")
+                await self._set_vehicle_type_field(page, v_type)
+                await self.sleep(random.uniform(0.4, 0.8))
+            if v_year:
+                self.log("INFO", f"📅 Setting Vehicle Year: '{v_year}'...")
+                await self._set_vehicle_year_field(page, v_year)
+                await self.sleep(random.uniform(0.4, 0.8))
+            if v_make:
+                self.log("INFO", f"🚘 Setting Vehicle Make: '{v_make}'...")
+                await self._set_vehicle_make_field(page, v_make)
+                await self.sleep(random.uniform(0.4, 0.8))
+            if v_model:
+                self.log("INFO", f"🏎️ Setting Vehicle Model: '{v_model}'...")
+                await self._set_vehicle_model_field(page, v_model)
+                await self.sleep(random.uniform(0.4, 0.8))
+
+        elif "rent" in ad_type or "home" in ad_type or "property" in ad_type or "house" in ad_type:
+            r_type = payload.get("rental_type", "Rent")
+            p_type = payload.get("property_type", "Apartment/Condo")
+            beds = str(payload.get("bedrooms", "1"))
+            baths = str(payload.get("bathrooms", "1"))
+
+            if r_type:
+                self.log("INFO", f"🏠 Setting Rental/Sale: '{r_type}'...")
+                await self._set_rental_sale_type_field(page, r_type)
+                await self.sleep(random.uniform(0.4, 0.8))
+            if p_type:
+                self.log("INFO", f"🏢 Setting Property Type: '{p_type}'...")
+                await self._set_property_type_field(page, p_type)
+                await self.sleep(random.uniform(0.4, 0.8))
+            if beds:
+                self.log("INFO", f"🛏️ Setting Bedrooms: '{beds}'...")
+                await self._set_bedrooms_field(page, beds)
+                await self.sleep(random.uniform(0.3, 0.6))
+            if baths:
+                self.log("INFO", f"🚿 Setting Bathrooms: '{baths}'...")
+                await self._set_bathrooms_field(page, baths)
+                await self.sleep(random.uniform(0.3, 0.6))
+
+            # Advanced Optional Specifications
+            sqft = payload.get("property_sqft", "")
+            if sqft:
+                self.log("INFO", f"📐 Setting Property Square Feet: '{sqft}'...")
+                await self._set_property_sqft_field(page, sqft)
+                await self.sleep(random.uniform(0.3, 0.6))
+
+            laundry = payload.get("laundry_type", "None")
+            if laundry and laundry != "None":
+                self.log("INFO", f"🧺 Setting Laundry: '{laundry}'...")
+                await self._set_property_generic_dropdown(page, "laundry", laundry)
+                await self.sleep(random.uniform(0.3, 0.6))
+
+            parking = payload.get("parking_type", "None")
+            if parking and parking != "None":
+                self.log("INFO", f"🅿️ Setting Parking: '{parking}'...")
+                await self._set_property_generic_dropdown(page, "parking", parking)
+                await self.sleep(random.uniform(0.3, 0.6))
+
+            ac = payload.get("ac_type", "None")
+            if ac and ac != "None":
+                self.log("INFO", f"❄️ Setting Air Conditioning: '{ac}'...")
+                await self._set_property_generic_dropdown(page, "air conditioning", ac)
+                await self.sleep(random.uniform(0.3, 0.6))
+
+            heating = payload.get("heating_type", "None")
+            if heating and heating != "None":
+                self.log("INFO", f"🔥 Setting Heating: '{heating}'...")
+                await self._set_property_generic_dropdown(page, "heating", heating)
+                await self.sleep(random.uniform(0.3, 0.6))
+
+        else:
+            # Standard Item for sale
+            if title:
+                try:
+                    self.log("INFO", f"✍️ Typing Title: '{title[:45]}...'")
+                    await self._set_title_field(page, title)
+                    await self.sleep(random.uniform(0.5, 1.0))
+                except Exception as e:
+                    self.log("WARNING", f"Title entry notice: {str(e)}")
+
+            if category:
+                try:
+                    self.log("INFO", f"🏷️ Selecting Category: '{category}'...")
+                    await self._set_category_field(page, category)
+                    await self.sleep(random.uniform(0.6, 1.2))
+                except Exception as e:
+                    self.log("WARNING", f"Category selection notice: {str(e)}")
+
+            cond_text = payload.get("condition", "New")
             try:
-                self.log("INFO", f"✍️ Typing Title: '{title[:45]}...'")
-                await self._set_title_field(page, title)
-                await self.sleep(random.uniform(0.5, 1.0))
-            except Exception as e:
-                self.log("WARNING", f"Title entry notice: {str(e)}")
+                self.log("INFO", f"⚙️ Setting Item Condition to '{cond_text}'...")
+                await self._set_condition_field(page, cond_text)
+                await self.sleep(random.uniform(0.4, 0.8))
+            except Exception as cond_err:
+                self.log("WARNING", f"Condition selection notice: {str(cond_err)}")
 
         # ----------------------------------------------------------------------
-        # 3. Product Price
+        # 3. Product / Vehicle / Property Price
         # ----------------------------------------------------------------------
-        if price is not None:
+        price_val = payload.get("price", "")
+        if price_val is not None and str(price_val).strip():
             try:
-                clean_price = re.sub(r'[^0-9.]', '', str(price)) or "0"
-                self.log("INFO", f"💲 Setting Price: ${clean_price}")
-                await self._set_price_field(page, clean_price)
-                await self.sleep(random.uniform(0.5, 1.0))
-            except Exception as e:
-                self.log("WARNING", f"Price entry notice: {str(e)}")
-
-        # ----------------------------------------------------------------------
-        # 4. Category Selection
-        # ----------------------------------------------------------------------
-        if category:
-            try:
-                self.log("INFO", f"🏷️ Selecting Category: '{category}'...")
-                await self._set_category_field(page, category)
-                await self.sleep(random.uniform(0.6, 1.2))
-            except Exception as e:
-                self.log("WARNING", f"Category selection notice: {str(e)}")
-
-        # ----------------------------------------------------------------------
-        # 5. Condition Selection
-        # ----------------------------------------------------------------------
-        cond_text = payload.get("condition", "New")
-        try:
-            self.log("INFO", f"⚙️ Setting Item Condition to '{cond_text}'...")
-            await self._set_condition_field(page, cond_text)
-            await self.sleep(random.uniform(0.4, 0.8))
-        except Exception as cond_err:
-            self.log("WARNING", f"Condition selection notice: {str(cond_err)}")
+                self.log("INFO", f"💵 Setting Price: '${price_val}'...")
+                await self._set_price_field(page, str(price_val))
+                await self.sleep(random.uniform(0.4, 0.8))
+            except Exception as pe:
+                self.log("WARNING", f"Price entry notice: {str(pe)}")
 
         # ----------------------------------------------------------------------
         # 6. Description
@@ -1592,10 +1732,20 @@ class FacebookMarketplaceBot:
         try:
             await input_el.scroll_into_view_if_needed()
             await input_el.click()
-            await self.sleep(random.uniform(0.2, 0.4))
+            await self.sleep(random.uniform(0.15, 0.3))
             await page.keyboard.press("Control+A")
             await page.keyboard.press("Backspace")
-            await self._human_type(page, price_str, min_delay=35, max_delay=75)
+            await self._human_type(page, str(price_str), min_delay=30, max_delay=65)
+
+            # Verification: check if price value registered
+            val = await page.evaluate("(el) => el.value", input_el)
+            if not val or str(val).strip() != str(price_str).strip():
+                await input_el.fill(str(price_str))
+                await page.evaluate("""(el, val) => {
+                    el.value = val;
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }""", input_el, str(price_str))
         except Exception as ex:
             self.log("WARNING", f"Notice while typing price: {str(ex)}")
 
@@ -1821,6 +1971,381 @@ class FacebookMarketplaceBot:
                 await self.sleep(0.5)
             except Exception as ex:
                 self.log("WARNING", f"Notice while selecting condition: {str(ex)}")
+
+    async def _set_vehicle_type_field(self, page: Page, vehicle_type: str = "Car/Truck"):
+        """Selects Vehicle Type (Car/Truck, Motorcycle, Powersport, RV/Camper, Boat, Commercial/Industrial, Other)."""
+        if not vehicle_type:
+            vehicle_type = "Car/Truck"
+        selectors = [
+            'label[aria-label="Vehicle type"]',
+            'label[aria-label*="Vehicle type" i]',
+            'div[aria-label="Vehicle type"][role="combobox"]',
+            'div[aria-label*="Vehicle type" i][role="combobox"]',
+            'div[aria-label*="Vehicle type" i][role="button"]',
+            'label:has-text("Vehicle type")',
+            'span:has-text("Vehicle type")'
+        ]
+        el = None
+        for sel in selectors:
+            try:
+                found = await page.query_selector(sel)
+                if found and await found.is_visible():
+                    el = found
+                    break
+            except Exception:
+                continue
+        if el:
+            try:
+                await el.scroll_into_view_if_needed()
+                await el.click()
+                await self.sleep(0.8)
+                opt = await page.query_selector(f'div[role="option"]:has-text("{vehicle_type}"), span:has-text("{vehicle_type}"), div[role="button"]:has-text("{vehicle_type}")')
+                if opt and await opt.is_visible():
+                    await opt.click()
+                    self.log("INFO", f"Vehicle type '{vehicle_type}' selected.")
+                else:
+                    first_opt = await page.query_selector('div[role="listbox"] div[role="option"], div[role="option"]')
+                    if first_opt and await first_opt.is_visible():
+                        await first_opt.click()
+                await self.sleep(0.5)
+            except Exception as ex:
+                self.log("WARNING", f"Notice while selecting vehicle type: {str(ex)}")
+
+    async def _set_vehicle_year_field(self, page: Page, year_str: str):
+        """Sets Year for Vehicle listing."""
+        if not year_str:
+            return
+        selectors = [
+            'label[aria-label="Year"]',
+            'label[aria-label*="Year" i]',
+            'div[aria-label="Year"][role="combobox"]',
+            'div[aria-label*="Year" i][role="combobox"]',
+            'div[aria-label*="Year" i][role="button"]',
+            'label:has-text("Year")',
+            'input[aria-label="Year"]',
+            'input[aria-label*="Year" i]'
+        ]
+        el = None
+        for sel in selectors:
+            try:
+                found = await page.query_selector(sel)
+                if found and await found.is_visible():
+                    el = found
+                    break
+            except Exception:
+                continue
+        if el:
+            try:
+                tag = await el.evaluate("el => el.tagName.toLowerCase()")
+                if tag == "input":
+                    await el.click()
+                    await page.keyboard.press("Control+A")
+                    await page.keyboard.press("Backspace")
+                    await self._human_type(page, str(year_str), min_delay=30, max_delay=60)
+                else:
+                    await el.scroll_into_view_if_needed()
+                    await el.click()
+                    await self.sleep(0.8)
+                    opt = await page.query_selector(f'div[role="option"]:has-text("{year_str}"), span:has-text("{year_str}")')
+                    if opt and await opt.is_visible():
+                        await opt.click()
+                        self.log("INFO", f"Vehicle year '{year_str}' selected.")
+                    else:
+                        first_opt = await page.query_selector('div[role="listbox"] div[role="option"], div[role="option"]')
+                        if first_opt and await first_opt.is_visible():
+                            await first_opt.click()
+                await self.sleep(0.5)
+            except Exception as ex:
+                self.log("WARNING", f"Notice while setting vehicle year: {str(ex)}")
+
+    async def _set_vehicle_make_field(self, page: Page, make_str: str):
+        """Types Make for Vehicle listing (e.g., Toyota, Honda, Ford)."""
+        if not make_str:
+            return
+        selectors = [
+            'label[aria-label="Make"] input',
+            'label[aria-label*="Make" i] input',
+            'input[aria-label="Make"]',
+            'input[aria-label*="Make" i]',
+            'label:has-text("Make") input'
+        ]
+        input_el = None
+        for sel in selectors:
+            try:
+                found = await page.query_selector(sel)
+                if found and await found.is_visible():
+                    input_el = found
+                    break
+            except Exception:
+                continue
+        if input_el:
+            try:
+                await input_el.scroll_into_view_if_needed()
+                await input_el.click()
+                await self.sleep(0.2)
+                await page.keyboard.press("Control+A")
+                await page.keyboard.press("Backspace")
+                await self._human_type(page, make_str, min_delay=30, max_delay=65)
+                self.log("INFO", f"Vehicle Make '{make_str}' entered.")
+                await self.sleep(0.4)
+            except Exception as ex:
+                self.log("WARNING", f"Notice while typing vehicle make: {str(ex)}")
+
+    async def _set_vehicle_model_field(self, page: Page, model_str: str):
+        """Types Model for Vehicle listing (e.g., Camry, Civic, F-150)."""
+        if not model_str:
+            return
+        selectors = [
+            'label[aria-label="Model"] input',
+            'label[aria-label*="Model" i] input',
+            'input[aria-label="Model"]',
+            'input[aria-label*="Model" i]',
+            'label:has-text("Model") input'
+        ]
+        input_el = None
+        for sel in selectors:
+            try:
+                found = await page.query_selector(sel)
+                if found and await found.is_visible():
+                    input_el = found
+                    break
+            except Exception:
+                continue
+        if input_el:
+            try:
+                await input_el.scroll_into_view_if_needed()
+                await input_el.click()
+                await self.sleep(0.2)
+                await page.keyboard.press("Control+A")
+                await page.keyboard.press("Backspace")
+                await self._human_type(page, model_str, min_delay=30, max_delay=65)
+                self.log("INFO", f"Vehicle Model '{model_str}' entered.")
+                await self.sleep(0.4)
+            except Exception as ex:
+                self.log("WARNING", f"Notice while typing vehicle model: {str(ex)}")
+
+    async def _set_rental_sale_type_field(self, page: Page, rental_type: str = "Rent"):
+        """Sets Property for sale or rent/to let dropdown ('Rent' or 'Sale')."""
+        if not rental_type:
+            rental_type = "Rent"
+        selectors = [
+            'label[aria-label*="sale or" i]',
+            'label[aria-label*="Property for" i]',
+            'div[aria-label*="sale or" i][role="combobox"]',
+            'div[aria-label*="sale or" i][role="button"]',
+            'label:has-text("sale or to let")',
+            'label:has-text("sale or rent")'
+        ]
+        el = None
+        for sel in selectors:
+            try:
+                found = await page.query_selector(sel)
+                if found and await found.is_visible():
+                    el = found
+                    break
+            except Exception:
+                continue
+        if el:
+            try:
+                await el.scroll_into_view_if_needed()
+                await el.click()
+                await self.sleep(0.8)
+                opt = await page.query_selector(f'div[role="option"]:has-text("{rental_type}"), span:has-text("{rental_type}")')
+                if opt and await opt.is_visible():
+                    await opt.click()
+                    self.log("INFO", f"Property transaction type '{rental_type}' selected.")
+                else:
+                    first_opt = await page.query_selector('div[role="listbox"] div[role="option"], div[role="option"]')
+                    if first_opt and await first_opt.is_visible():
+                        await first_opt.click()
+                await self.sleep(0.5)
+            except Exception as ex:
+                self.log("WARNING", f"Notice while selecting rental/sale type: {str(ex)}")
+
+    async def _set_property_type_field(self, page: Page, prop_type: str = "Apartment/Condo"):
+        """Selects Property Type (Apartment/Condo, House, Townhouse, Room only)."""
+        if not prop_type:
+            prop_type = "Apartment/Condo"
+        selectors = [
+            'label[aria-label="Property type"]',
+            'label[aria-label*="Property type" i]',
+            'div[aria-label="Property type"][role="combobox"]',
+            'div[aria-label*="Property type" i][role="button"]',
+            'label:has-text("Property type")',
+            'span:has-text("Property type")'
+        ]
+        el = None
+        for sel in selectors:
+            try:
+                found = await page.query_selector(sel)
+                if found and await found.is_visible():
+                    el = found
+                    break
+            except Exception:
+                continue
+        if el:
+            try:
+                await el.scroll_into_view_if_needed()
+                await el.click()
+                await self.sleep(0.8)
+                opt = await page.query_selector(f'div[role="option"]:has-text("{prop_type}"), span:has-text("{prop_type}")')
+                if opt and await opt.is_visible():
+                    await opt.click()
+                    self.log("INFO", f"Property type '{prop_type}' selected.")
+                else:
+                    first_opt = await page.query_selector('div[role="listbox"] div[role="option"], div[role="option"]')
+                    if first_opt and await first_opt.is_visible():
+                        await first_opt.click()
+                await self.sleep(0.5)
+            except Exception as ex:
+                self.log("WARNING", f"Notice while selecting property type: {str(ex)}")
+
+    async def _set_bedrooms_field(self, page: Page, bedrooms: str):
+        """Sets Number of bedrooms for property."""
+        if not bedrooms:
+            return
+        selectors = [
+            'label[aria-label*="bedroom" i] input',
+            'label[aria-label*="bedroom" i]',
+            'input[aria-label*="bedroom" i]',
+            'label:has-text("bedrooms") input',
+            'label:has-text("Number of bedrooms")'
+        ]
+        el = None
+        for sel in selectors:
+            try:
+                found = await page.query_selector(sel)
+                if found and await found.is_visible():
+                    el = found
+                    break
+            except Exception:
+                continue
+        if el:
+            try:
+                tag = await el.evaluate("el => el.tagName.toLowerCase()")
+                if tag == "input":
+                    await el.click()
+                    await page.keyboard.press("Control+A")
+                    await page.keyboard.press("Backspace")
+                    await self._human_type(page, str(bedrooms), min_delay=30, max_delay=60)
+                else:
+                    await el.click()
+                    await self.sleep(0.7)
+                    opt = await page.query_selector(f'div[role="option"]:has-text("{bedrooms}"), span:has-text("{bedrooms}")')
+                    if opt and await opt.is_visible():
+                        await opt.click()
+                self.log("INFO", f"Bedrooms count '{bedrooms}' set.")
+                await self.sleep(0.4)
+            except Exception as ex:
+                self.log("WARNING", f"Notice while setting bedrooms: {str(ex)}")
+
+    async def _set_bathrooms_field(self, page: Page, bathrooms: str):
+        """Sets Number of bathrooms for property."""
+        if not bathrooms:
+            return
+        selectors = [
+            'label[aria-label*="bathroom" i] input',
+            'label[aria-label*="bathroom" i]',
+            'input[aria-label*="bathroom" i]',
+            'label:has-text("bathrooms") input',
+            'label:has-text("Number of bathrooms")'
+        ]
+        el = None
+        for sel in selectors:
+            try:
+                found = await page.query_selector(sel)
+                if found and await found.is_visible():
+                    el = found
+                    break
+            except Exception:
+                continue
+        if el:
+            try:
+                tag = await el.evaluate("el => el.tagName.toLowerCase()")
+                if tag == "input":
+                    await el.click()
+                    await page.keyboard.press("Control+A")
+                    await page.keyboard.press("Backspace")
+                    await self._human_type(page, str(bathrooms), min_delay=30, max_delay=60)
+                else:
+                    await el.click()
+                    await self.sleep(0.7)
+                    opt = await page.query_selector(f'div[role="option"]:has-text("{bathrooms}"), span:has-text("{bathrooms}")')
+                    if opt and await opt.is_visible():
+                        await opt.click()
+                self.log("INFO", f"Bathrooms count '{bathrooms}' set.")
+                await self.sleep(0.4)
+            except Exception as ex:
+                self.log("WARNING", f"Notice while setting bathrooms: {str(ex)}")
+
+    async def _set_property_sqft_field(self, page: Page, sqft_val: str):
+        """Types Property square feet into input."""
+        if not sqft_val:
+            return
+        selectors = [
+            'label[aria-label*="square feet" i] input',
+            'label[aria-label*="sqft" i] input',
+            'input[aria-label*="square feet" i]',
+            'input[aria-label*="sqft" i]',
+            'label:has-text("square feet") input',
+            'label:has-text("Square feet") input'
+        ]
+        input_el = None
+        for sel in selectors:
+            try:
+                found = await page.query_selector(sel)
+                if found and await found.is_visible():
+                    input_el = found
+                    break
+            except Exception:
+                continue
+        if input_el:
+            try:
+                await input_el.scroll_into_view_if_needed()
+                await input_el.click()
+                await page.keyboard.press("Control+A")
+                await page.keyboard.press("Backspace")
+                await self._human_type(page, str(sqft_val), min_delay=30, max_delay=60)
+                self.log("INFO", f"Property sqft '{sqft_val}' set.")
+                await self.sleep(0.4)
+            except Exception as ex:
+                self.log("WARNING", f"Notice while setting property sqft: {str(ex)}")
+
+    async def _set_property_generic_dropdown(self, page: Page, label_hint: str, value: str):
+        """Sets generic property dropdowns such as Laundry, Parking, Air Conditioning, Heating."""
+        if not value or value == "None":
+            return
+        selectors = [
+            f'label[aria-label*="{label_hint}" i]',
+            f'div[aria-label*="{label_hint}" i][role="combobox"]',
+            f'div[aria-label*="{label_hint}" i][role="button"]',
+            f'label:has-text("{label_hint}")'
+        ]
+        el = None
+        for sel in selectors:
+            try:
+                found = await page.query_selector(sel)
+                if found and await found.is_visible():
+                    el = found
+                    break
+            except Exception:
+                continue
+        if el:
+            try:
+                await el.scroll_into_view_if_needed()
+                await el.click()
+                await self.sleep(0.8)
+                opt = await page.query_selector(f'div[role="option"]:has-text("{value}"), span:has-text("{value}")')
+                if opt and await opt.is_visible():
+                    await opt.click()
+                    self.log("INFO", f"Property {label_hint} '{value}' selected.")
+                else:
+                    first_opt = await page.query_selector('div[role="listbox"] div[role="option"], div[role="option"]')
+                    if first_opt and await first_opt.is_visible():
+                        await first_opt.click()
+                await self.sleep(0.5)
+            except Exception as ex:
+                self.log("WARNING", f"Notice while selecting {label_hint}: {str(ex)}")
 
     async def _upload_photos_to_page(self, page: Page, files: List[str]):
         """Injects files into input[type=file]."""

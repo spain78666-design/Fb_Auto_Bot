@@ -28,22 +28,18 @@ import {
   Key,
   Smartphone,
   Monitor,
-  RotateCw
+  RotateCw,
+  ChevronDown,
+  ChevronUp,
+  Trash2,
+  Plus
 } from 'lucide-react';
 import { browserBotCodeSnippet, appPyCodeSnippet, imageProcessorSnippet, sessionManagerSnippet, aiSpinnerSnippet, requirementsSnippet, landingPageSnippet, installerSetupSnippet, buildInstallerSnippet } from './data/codeSnippets';
 import AdminPanel from './components/AdminPanel';
+import listingFormsPreview from './assets/images/listing_forms_preview_1789717279793.jpg';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'desktop-sim' | 'landing-page' | 'code-viewer' | 'roadmap' | 'admin-panel'>(() => {
-    if (typeof window !== 'undefined') {
-      const path = window.location.pathname.toLowerCase();
-      const hash = window.location.hash.toLowerCase();
-      if (path.includes('admin') || hash.includes('admin')) {
-        return 'admin-panel';
-      }
-    }
-    return 'landing-page';
-  });
+  const [activeTab, setActiveTab] = useState<'desktop-sim' | 'landing-page' | 'code-viewer' | 'roadmap' | 'admin-panel' | 'columns-preview'>('columns-preview');
 
   const [landingPreviewMode, setLandingPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
   const [iframeKey, setIframeKey] = useState(0);
@@ -81,6 +77,14 @@ export default function App() {
   const [wipeExif, setWipeExif] = useState(true);
   const [isSimulating, setIsSimulating] = useState(false);
   const [simProgress, setSimProgress] = useState(0);
+
+  // Interactive Demo State for Image Dropdown in Preview
+  const [demoImages, setDemoImages] = useState<string[]>([
+    'living_room_luxury_view.jpg',
+    'bedroom_master_suite.jpg',
+    'kitchen_island_interior.jpg'
+  ]);
+  const [isDemoDropdownOpen, setIsDemoDropdownOpen] = useState(true);
 
   // Phase 5: Simulated AI Spinner State
   const [aiSeed, setAiSeed] = useState('Apple iPhone 15 Pro Max 256GB Titanium');
@@ -211,6 +215,19 @@ export default function App() {
 
         {/* View Switcher Tabs */}
         <div className="flex items-center bg-slate-950/80 p-1 rounded-lg border border-slate-800">
+          <button
+            id="tab-columns-preview"
+            onClick={() => setActiveTab('columns-preview')}
+            className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-md text-xs font-medium transition-all ${
+              activeTab === 'columns-preview'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <ImageIcon className="h-3.5 w-3.5 text-cyan-400" />
+            <span>Listing Columns Preview</span>
+            <span className="px-1.5 py-0.2 text-[9px] bg-cyan-500/20 text-cyan-300 rounded font-mono font-bold">New</span>
+          </button>
           <button
             id="tab-landing-page"
             onClick={() => setActiveTab('landing-page')}
@@ -1605,6 +1622,350 @@ export default function App() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'columns-preview' && (
+          <div className="space-y-6">
+            {/* Header Box */}
+            <div className="bg-slate-900/90 border border-slate-800/80 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+              <div className="absolute -top-12 -right-12 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center space-x-2.5 mb-2">
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                      LIVE UI DESIGN & LAYOUT
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      Standard & Project Tabs
+                    </span>
+                  </div>
+                  <h2 className="text-xl font-black text-white tracking-tight">
+                    Vehicle and Property Listing Column Specifications
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-1 max-w-3xl leading-relaxed">
+                    According to Facebook Marketplace guidelines, selecting <strong>"Vehicle for sale"</strong> dynamically loads all vehicle parameters, while selecting <strong>"Property for sale or rent"</strong> dynamically loads all property, rental, and structural parameters.
+                  </p>
+                </div>
+                <div className="flex items-center space-x-3 shrink-0">
+                  <a
+                    href={listingFormsPreview}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-lg shadow-indigo-500/25"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    <span>View Full Size Image</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Visual Image Card */}
+            <div className="rounded-2xl border border-slate-700/80 bg-slate-900/95 p-3.5 shadow-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800/80 mb-3 text-xs text-slate-400">
+                <span className="font-semibold text-slate-200 flex items-center gap-2">
+                  <ImageIcon className="h-4 w-4 text-cyan-400" />
+                  UI Mockup: Vehicle for Sale vs Property for Sale/Rent Columns
+                </span>
+                <span className="text-[11px] text-slate-500">16:9 High Resolution Preview</span>
+              </div>
+              <div className="relative group rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex items-center justify-center">
+                <img
+                  src={listingFormsPreview}
+                  alt="Facebook Marketplace Vehicle and Property Listing Forms Columns"
+                  className="w-full h-auto max-h-[640px] object-contain transition-transform duration-300 group-hover:scale-[1.01]"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+            </div>
+
+            {/* Detailed Field-by-Field Breakdown Columns */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Card 1: Vehicle for Sale */}
+              <div className="bg-slate-900/90 border border-slate-800/80 rounded-2xl p-5 shadow-xl space-y-4">
+                <div className="flex items-center space-x-3 pb-3 border-b border-slate-800">
+                  <div className="h-9 w-9 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold text-base">
+                    🚗
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-white">Vehicle for Sale Fields</h3>
+                    <p className="text-[11px] text-slate-400">Facebook Marketplace vehicle specific parameters</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2.5 text-xs">
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex items-center justify-between">
+                    <span className="text-slate-300 font-semibold">1. Vehicle Type:</span>
+                    <span className="text-cyan-400 font-mono text-[11px] bg-cyan-950/50 px-2 py-0.5 rounded border border-cyan-800/50">
+                      Car/Truck, Motorcycle, RV/Camper, Boat, etc.
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex items-center justify-between">
+                    <span className="text-slate-300 font-semibold">2. Vehicle Year:</span>
+                    <span className="text-cyan-400 font-mono text-[11px] bg-cyan-950/50 px-2 py-0.5 rounded border border-cyan-800/50">
+                      2026 to 1980 Dropdown
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex items-center justify-between">
+                    <span className="text-slate-300 font-semibold">3. Vehicle Make:</span>
+                    <span className="text-slate-400 font-mono text-[11px]">
+                      e.g., Toyota, Honda, Ford, BMW, Hyundai
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex items-center justify-between">
+                    <span className="text-slate-300 font-semibold">4. Vehicle Model:</span>
+                    <span className="text-slate-400 font-mono text-[11px]">
+                      e.g., Camry, Civic, F-150, Corolla
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex items-center justify-between">
+                    <span className="text-slate-300 font-semibold">5. Price ($ USD):</span>
+                    <span className="text-emerald-400 font-mono text-[11px]">
+                      Vehicle price (e.g., $15,000)
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex items-center justify-between">
+                    <span className="text-slate-300 font-semibold">6. ID Location (Account Radius):</span>
+                    <span className="text-slate-400 font-mono text-[11px]">
+                      Facebook homepage account location switcher
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex flex-col gap-1">
+                    <span className="text-slate-300 font-semibold">7. Target Locations / Cities Pool:</span>
+                    <span className="text-slate-400 text-[11px] leading-relaxed">
+                      Multi-location pool (each tab automatically receives a distinct location)
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex flex-col gap-1">
+                    <span className="text-slate-300 font-semibold">8. Vehicle Description:</span>
+                    <span className="text-slate-400 text-[11px] leading-relaxed">
+                      Vehicle features, mileage, clean title, and condition details
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 2: Property for Sale or Rent */}
+              <div className="bg-slate-900/90 border border-slate-800/80 rounded-2xl p-5 shadow-xl space-y-4">
+                <div className="flex items-center space-x-3 pb-3 border-b border-slate-800">
+                  <div className="h-9 w-9 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-base">
+                    🏠
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-white">Property for Sale or Rent Fields</h3>
+                    <p className="text-[11px] text-slate-400">Facebook property and rental specific parameters & specs</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2.5 text-xs">
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex items-center justify-between">
+                    <span className="text-slate-300 font-semibold">1. Rental / Sale Classification:</span>
+                    <span className="text-purple-400 font-mono text-[11px] bg-purple-950/50 px-2 py-0.5 rounded border border-purple-800/50">
+                      Rent or Sale
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex items-center justify-between">
+                    <span className="text-slate-300 font-semibold">2. Property Type:</span>
+                    <span className="text-purple-400 font-mono text-[11px] bg-purple-950/50 px-2 py-0.5 rounded border border-purple-800/50">
+                      Apartment & Condo, House, Townhouse, Room only
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex items-center justify-between">
+                    <span className="text-slate-300 font-semibold">3. Number of Bedrooms:</span>
+                    <span className="text-purple-400 font-mono text-[11px] bg-purple-950/50 px-2 py-0.5 rounded border border-purple-800/50">
+                      1, 2, 3, 4, 5+
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex items-center justify-between">
+                    <span className="text-slate-300 font-semibold">4. Number of Bathrooms:</span>
+                    <span className="text-purple-400 font-mono text-[11px] bg-purple-950/50 px-2 py-0.5 rounded border border-purple-800/50">
+                      1, 1.5, 2, 2.5, 3, 3+
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex items-center justify-between">
+                    <span className="text-slate-300 font-semibold">5. Price ($ USD / Monthly Rent or Sale Price):</span>
+                    <span className="text-emerald-400 font-mono text-[11px]">
+                      e.g., $1,800 / month
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex items-center justify-between">
+                    <span className="text-slate-300 font-semibold">6. ID Location (Account Radius):</span>
+                    <span className="text-slate-400 font-mono text-[11px]">
+                      Facebook homepage account location switcher
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex flex-col gap-1">
+                    <span className="text-slate-300 font-semibold">7. Target Locations / Cities Pool:</span>
+                    <span className="text-slate-400 text-[11px] leading-relaxed">
+                      Target area list (e.g., Brooklyn, NY / Queens, NY)
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/60 flex flex-col gap-1">
+                    <span className="text-slate-300 font-semibold">8. Property Description:</span>
+                    <span className="text-slate-400 text-[11px] leading-relaxed">
+                      Utilities, deposit terms, furnished/unfurnished status, and amenities
+                    </span>
+                  </div>
+
+                  {/* Advanced Property Fields */}
+                  <div className="pt-2 border-t border-slate-800/80">
+                    <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider block mb-2">
+                      ⭐ Advanced Property Specifications
+                    </span>
+                    <div className="space-y-2">
+                      <div className="p-2 rounded-lg bg-slate-950/80 border border-amber-500/20 flex items-center justify-between">
+                        <span className="text-slate-300 font-semibold text-[11px]">9. Square Feet:</span>
+                        <span className="text-amber-300 font-mono text-[11px]">e.g., 1250 sqft</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-950/80 border border-amber-500/20 flex items-center justify-between">
+                        <span className="text-slate-300 font-semibold text-[11px]">10. Laundry:</span>
+                        <span className="text-amber-300 font-mono text-[10px] text-right">In-unit, In building, Available, None</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-950/80 border border-amber-500/20 flex items-center justify-between">
+                        <span className="text-slate-300 font-semibold text-[11px]">11. Parking Type:</span>
+                        <span className="text-amber-300 font-mono text-[10px] text-right">Garage, Street, Off-street, Spot, None</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-950/80 border border-amber-500/20 flex items-center justify-between">
+                        <span className="text-slate-300 font-semibold text-[11px]">12. Air Conditioning:</span>
+                        <span className="text-amber-300 font-mono text-[10px] text-right">Central AC, AC available, None</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-950/80 border border-amber-500/20 flex items-center justify-between">
+                        <span className="text-slate-300 font-semibold text-[11px]">13. Heating Type:</span>
+                        <span className="text-amber-300 font-mono text-[10px] text-right">Central, Electric, Gas, Radiator, None</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Interactive Image Dropdown Showcase */}
+            <div className="bg-slate-900/90 border border-cyan-500/30 rounded-2xl p-6 shadow-2xl space-y-4 relative overflow-hidden">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                <div className="flex items-center space-x-3">
+                  <div className="h-10 w-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 flex items-center justify-center font-bold text-lg">
+                    📸
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white flex items-center gap-2">
+                      <span>Interactive Collapsible Image Dropdown System</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                        Live Interactive Demo
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      Standard Bulk Listing and Project Listing display attached photos in a clean collapsible dropdown menu
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => {
+                      const newSamples = [
+                        'exterior_balcony_view.jpg',
+                        'luxury_master_bath.jpg',
+                        'car_front_bumper_angle.jpg',
+                        'engine_bay_overview.jpg',
+                        'garage_double_parking.jpg'
+                      ];
+                      const pick = newSamples[Math.floor(Math.random() * newSamples.length)];
+                      const numbered = `${Math.floor(Math.random() * 900 + 100)}_${pick}`;
+                      setDemoImages(prev => [...prev, numbered]);
+                      setIsDemoDropdownOpen(true);
+                    }}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-xs font-semibold transition-colors"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>Add Sample Image</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setDemoImages([]);
+                    }}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/40 text-xs font-semibold transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Clear All</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* The Actual Dropdown UI Demonstration */}
+              <div className="max-w-2xl mx-auto bg-slate-950/90 border border-slate-800 rounded-xl p-4 shadow-inner">
+                <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
+                  <span className="font-semibold text-slate-300">Selected Product / Property Images:</span>
+                  <span className="text-[11px] text-slate-500">Click button below to expand/collapse</span>
+                </div>
+
+                {/* Collapsible Dropdown Toggle Button */}
+                <button
+                  onClick={() => setIsDemoDropdownOpen(!isDemoDropdownOpen)}
+                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-xs font-bold transition-all shadow-md ${
+                    isDemoDropdownOpen
+                      ? 'bg-slate-800 border-cyan-500/60 text-cyan-300 shadow-cyan-500/10'
+                      : 'bg-slate-900 hover:bg-slate-800/80 border-slate-700/80 text-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2 truncate">
+                    <span className="text-base">📁</span>
+                    <span className="truncate">
+                      {demoImages.length === 0
+                        ? 'No images selected (0 files) - Click browse to add'
+                        : `Uploaded Images (${demoImages.length} file${demoImages.length > 1 ? 's' : ''}) - Last: ${demoImages[demoImages.length - 1]}`}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-1.5 shrink-0 ml-2">
+                    <span className="text-[11px] font-mono text-cyan-400">
+                      {isDemoDropdownOpen ? 'Collapse' : 'Expand'}
+                    </span>
+                    {isDemoDropdownOpen ? (
+                      <ChevronUp className="h-4 w-4 text-cyan-400" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-slate-400" />
+                    )}
+                  </div>
+                </button>
+
+                {/* Expandable Image List Panel */}
+                {isDemoDropdownOpen && (
+                  <div className="mt-2.5 p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2 max-h-64 overflow-y-auto">
+                    {demoImages.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-slate-500">
+                        No images selected yet. Click &quot;Add Sample Image&quot; above.
+                      </div>
+                    ) : (
+                      demoImages.map((img, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-800/80 hover:bg-slate-800 border border-slate-700/70 text-xs transition-colors"
+                        >
+                          <div className="flex items-center space-x-2.5 truncate">
+                            <span className="text-cyan-400 font-extrabold text-[11px] min-w-[24px]">#{idx + 1}</span>
+                            <span className="text-base">🖼️</span>
+                            <span className="text-slate-200 font-medium truncate">{img}</span>
+                            <span className="text-[10px] text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700/50">
+                              {(2.1 + (idx * 0.4)).toFixed(1)} MB
+                            </span>
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              setDemoImages(demoImages.filter((_, i) => i !== idx));
+                            }}
+                            className="flex items-center space-x-1 px-2.5 py-1 rounded bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white border border-red-500/30 text-[11px] font-bold transition-all shrink-0 ml-2"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            <span>Remove</span>
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

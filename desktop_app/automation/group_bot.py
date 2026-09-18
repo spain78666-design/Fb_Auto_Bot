@@ -560,8 +560,8 @@ class FacebookGroupBot:
                     self.log("WARNING", f"Cookie injection notice: {str(ce)[:80]}")
 
     async def authenticate_session(self):
-        """Verifies session is active by navigating to facebook.com."""
-        self.log("INFO", "Validating Facebook session...")
+        """Verifies session is active by navigating to facebook.com in Tab 1."""
+        self.log("INFO", "Validating Facebook session in primary tab...")
         try:
             await self.page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=35000)
             await asyncio.sleep(2.0)
@@ -573,15 +573,22 @@ class FacebookGroupBot:
             if "checkpoint" in url:
                 raise RuntimeError("Facebook Checkpoint encountered. Manual verification or 2FA required.")
             raise RuntimeError("Facebook session not logged in or expired. Please click 'Launch Manual Login' in Accounts Tab to log into this Facebook profile.")
-        self.log("SUCCESS", "Facebook authentication confirmed.")
+        self.log("SUCCESS", "Facebook authentication confirmed in Tab 1 (tab will remain OPEN in background).")
+        self.fb_page = self.page
 
     # --------------------------------------------------------------------------
     # --------------------------------------------------------------------------
     # FewFeed Web Extension Dashboard Navigation & Tool Automation
     # --------------------------------------------------------------------------
     async def open_fewfeed_tool_page(self, target_url: str):
-        """Directly navigates to the specific FewFeed tool URL and ensures FewFeed + FB attachment."""
-        self.log("INFO", f"🌐 Navigating directly to FewFeed Tool: {target_url}...")
+        """Directly navigates to the specific FewFeed tool URL on a NEW TAB, keeping Facebook tab open."""
+        # Check if we need to open FewFeed in a dedicated second tab
+        if not hasattr(self, 'fewfeed_page') or self.fewfeed_page is None or self.fewfeed_page.is_closed():
+            self.log("INFO", "📑 Opening FewFeed on a NEW TAB (keeping Facebook ID tab active in Tab 1)...")
+            self.fewfeed_page = await self.context.new_page()
+        
+        self.page = self.fewfeed_page
+        self.log("INFO", f"🌐 Navigating to FewFeed Tool: {target_url}...")
         try:
             await self.page.goto(target_url, wait_until="domcontentloaded", timeout=40000)
             await asyncio.sleep(3.0)
@@ -1009,17 +1016,83 @@ class FacebookGroupBot:
 
         self.set_progress(95)
 
-        # Monitor posting progress
-        post_cycles = min(max(30, (len(group_codes or [1]) * delay_seconds)), 90)
-        self.log("INFO", f"⏳ FewFeed Auto Post active in background. Monitoring progress ({post_cycles}s window)...")
+        # Monitor posting progress: Blue -> Active Red -> Finished Blue
+        self.log("INFO", "👀 Monitoring FewFeed Start Post button color transitions (Blue -> Active Red -> Finished Blue)...")
         
-        for w in range(0, max(5, int(post_cycles / 5))):
+        # Step A: Detect transition to RED (indicating active posting)
+        turned_red = False
+        for _ in range(15):
             if self._cancel_requested:
                 break
-            await asyncio.sleep(5.0)
+            try:
+                is_red = await self.page.evaluate("""() => {
+                    const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
+                    for (const b of btns) {
+                        const txt = (b.textContent || '').trim().toLowerCase();
+                        const style = window.getComputedStyle(b);
+                        const bg = style.backgroundColor;
+                        // Check if text says Stop or style is reddish
+                        if (txt.includes('stop') || txt.includes('pause') || bg.includes('239') || bg.includes('220') || bg.includes('red') || (b.className && (b.className.toLowerCase().includes('danger') || b.className.toLowerCase().includes('stop')))) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }""")
+                if is_red:
+                    turned_red = True
+                    self.log("INFO", "🔴 Button turned RED: FewFeed group posting is actively running...")
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(1.0)
+
+        # Step B: Wait for 2 posting cycles / until button turns back to BLUE
+        self.log("INFO", "⏳ Waiting for FewFeed posting cycles to finish and button to return to BLUE...")
+        max_wait_seconds = max(180, (len(group_codes or [1]) * delay_seconds * 3))
+        start_time = time.time()
+
+        while time.time() - start_time < max_wait_seconds:
+            if self._cancel_requested:
+                break
+            await asyncio.sleep(3.0)
+
+            try:
+                state = await self.page.evaluate("""() => {
+                    const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
+                    let hasStop = false;
+                    let hasStart = false;
+                    let isBlue = false;
+                    for (const b of btns) {
+                        const txt = (b.textContent || '').trim().toLowerCase();
+                        const style = window.getComputedStyle(b);
+                        const bg = style.backgroundColor;
+                        if (txt.includes('stop') || bg.includes('239') || bg.includes('220')) {
+                            hasStop = true;
+                        }
+                        if (txt.includes('start') || txt.includes('post') || bg.includes('59') || bg.includes('37') || bg.includes('blue') || (b.className && b.className.toLowerCase().includes('primary'))) {
+                            hasStart = true;
+                            isBlue = true;
+                        }
+                    }
+                    return { hasStop, hasStart, isBlue };
+                }""")
+
+                # If it was running in Red and now Stop is gone or button turned back to Blue
+                if turned_red and not state.get("hasStop") and state.get("isBlue"):
+                    self.log("SUCCESS", "🔵 FewFeed posting completed! Button has returned to BLUE.")
+                    break
+                
+                # Check for completion notification or text
+                page_text = (await self.page.content()).lower()
+                if "posting finished" in page_text or "all posts completed" in page_text or "success: 100%" in page_text:
+                    self.log("SUCCESS", "✅ FewFeed reported all posts finished!")
+                    break
+            except Exception:
+                pass
 
         self.set_progress(100)
-        self.log("SUCCESS", "🎉 FewFeed automated group posting sequence completed successfully!")
+        self.log("SUCCESS", "🎉 FewFeed automated group posting cycle completed! Closing browser for account...")
+        await asyncio.sleep(3.0)
         return 1
 
     # --------------------------------------------------------------------------
