@@ -120,8 +120,10 @@ class LicenseManager:
     @classmethod
     def normalize_hwid_hex(cls, hwid: str) -> str:
         clean = hwid.strip().upper()
-        hex_only = "".join(c for c in clean if c in "0123456789ABCDEF")
-        return hex_only[:16] if hex_only else clean.replace("-", "")
+        # Strip prefixes FBAUTO- / FBAC- to isolate machine hex signature
+        stripped = clean.replace("FBAUTO-", "").replace("FBAC-", "")
+        hex_only = "".join(c for c in stripped if c in "0123456789ABCDEF")
+        return hex_only[:16] if hex_only else "".join(c for c in clean if c.isalnum())[:16]
 
     @classmethod
     def generate_key(cls, hwid: str, customer: str = "Valued Client", tier: str = "1 Month License", expiry_days: int = 30) -> str:
@@ -182,7 +184,15 @@ class LicenseManager:
                 }
 
             # Verify Hardware ID (Strict lock: Key generated for machine A CANNOT run on machine B)
-            if key_hwid_hex not in ["DEVUNLIMITED", "ANYKEYS"] and not current_hwid_hex.startswith(key_hwid_hex) and not key_hwid_hex.startswith(current_hwid_hex):
+            hwid_matched = (
+                key_hwid_hex in ["DEVUNLIMITED", "ANYKEYS"] or
+                key_hwid_hex == current_hwid_hex or
+                current_hwid_hex.startswith(key_hwid_hex) or
+                key_hwid_hex.startswith(current_hwid_hex) or
+                (len(key_hwid_hex) >= 6 and key_hwid_hex in current_hwid_hex) or
+                (len(current_hwid_hex) >= 6 and current_hwid_hex in key_hwid_hex)
+            )
+            if not hwid_matched:
                 return False, f"Hardware ID mismatch! This license is locked to machine ID [{key_hwid_hex}], but this PC is [{current_hwid_hex}]. Keys cannot be transferred across PCs.", {}
 
             tier_map = {

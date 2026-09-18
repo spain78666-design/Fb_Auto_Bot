@@ -35,7 +35,10 @@ import {
   verifyLicenseKey,
   formatWhatsAppDeliveryText,
   loadSavedLicenses,
-  saveLicensesToStorage
+  saveLicensesToStorage,
+  clearAllLicensesFromStorage,
+  isValidHwid,
+  normalizeHwid
 } from '../utils/licensingCrypto';
 
 interface AdminPanelProps {
@@ -61,6 +64,8 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
   const [customDays, setCustomDays] = useState<number>(90);
   const [orderNotes, setOrderNotes] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [autoNotice, setAutoNotice] = useState<string>('');
+  const [hwidError, setHwidError] = useState<string>('');
 
   // Last Generated Result State
   const [lastGeneratedKey, setLastGeneratedKey] = useState<string>('');
@@ -273,7 +278,72 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
     }
   };
 
-  // Generate Key
+  // Check matching existing record for Renewal / License Extension Mode
+  const cleanInputHwid = customerHwid.trim().toUpperCase();
+  const matchingExistingRecord = records.find(r => 
+    cleanInputHwid.length >= 6 && (
+      r.hwid.trim().toUpperCase() === cleanInputHwid ||
+      normalizeHwid(r.hwid).hex === normalizeHwid(cleanInputHwid).hex
+    )
+  );
+
+  // Smart Customer Name change handler with auto-detection for pasted HWIDs
+  const handleCustomerNameInput = (val: string) => {
+    const cleanVal = val.trim();
+    // Detect if pasted value looks like a Hardware ID
+    if (cleanVal.toUpperCase().startsWith('FBAUTO-') || cleanVal.toUpperCase().startsWith('FBAC-') || (cleanVal.length >= 12 && cleanVal.includes('-'))) {
+      const detectedHwid = cleanVal.toUpperCase();
+      setCustomerHwid(detectedHwid);
+      const match = records.find(r => r.hwid.trim().toUpperCase() === detectedHwid || normalizeHwid(r.hwid).hex === normalizeHwid(detectedHwid).hex);
+      setCustomerName(match ? match.customer : "Valued Customer");
+      setAutoNotice(`⚡ Detected Hardware ID in Customer Name field! Automatically moved "${cleanVal}" to Customer Hardware ID.`);
+      setHwidError('');
+      setTimeout(() => setAutoNotice(''), 6000);
+      return;
+    }
+    setCustomerName(val);
+  };
+
+  // Smart HWID change handler with validation & auto customer name lookup
+  const handleCustomerHwidInput = (val: string) => {
+    const upper = val.toUpperCase().trim();
+    setCustomerHwid(upper);
+
+    if (upper.length > 0 && !isValidHwid(upper)) {
+      setHwidError(`⚠️ "${upper}" is too short or invalid to be a Hardware ID. Please enter/paste the full HWID copied from the customer's desktop app (e.g. FBAUTO-C032-9975-7BDE-4551).`);
+    } else {
+      setHwidError('');
+    }
+
+    if (upper.length >= 6) {
+      const match = records.find(r => r.hwid.trim().toUpperCase() === upper || normalizeHwid(r.hwid).hex === normalizeHwid(upper).hex);
+      if (match && (!customerName || customerName === 'Valued Customer')) {
+        setCustomerName(match.customer);
+      }
+    }
+  };
+
+  // Clear all vault records & reset state
+  const handleClearAllVaultRecords = () => {
+    if (confirm('⚠️ Are you sure you want to delete ALL existing accounts and keys from the database to start completely fresh? This action cannot be undone.')) {
+      clearAllLicensesFromStorage();
+      setRecords([]);
+      setLastGeneratedKey('');
+      setLastWhatsAppText('');
+      alert('Vault database cleared! All old keys have been deleted and the system is reset to fresh state.');
+    }
+  };
+
+  // Quick Load Client for Renewal from Vault List
+  const handleQuickRenewClient = (record: LicenseRecord) => {
+    setCustomerName(record.customer);
+    setCustomerHwid(record.hwid);
+    setActiveAdminTab('generator');
+    setAutoNotice(`🔄 Loaded client "${record.customer}" (${record.hwid}) for License Renewal & Extension. Choose a new duration plan and click Generate.`);
+    setTimeout(() => setAutoNotice(''), 7000);
+  };
+
+  // Generate or Renew Key
   const handleGenerateKey = async (e?: React.FormEvent, forceOverwrite: boolean = false) => {
     if (e) e.preventDefault();
     const cleanHwid = customerHwid.trim().toUpperCase();
@@ -282,30 +352,9 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
       return;
     }
 
-    // Duplicate check if not forceOverwrite
-    if (!forceOverwrite) {
-      const existingHwidMatch = records.find(r => r.hwid.trim().toUpperCase() === cleanHwid);
-      if (existingHwidMatch) {
-        setDuplicateWarning({
-          show: true,
-          reason: 'HWID',
-          record: existingHwidMatch
-        });
-        return;
-      }
-
-      const cleanName = customerName.trim().toLowerCase();
-      if (cleanName.length > 2 && cleanName !== "valued customer") {
-        const existingNameMatch = records.find(r => r.customer.trim().toLowerCase() === cleanName);
-        if (existingNameMatch) {
-          setDuplicateWarning({
-            show: true,
-            reason: 'Name',
-            record: existingNameMatch
-          });
-          return;
-        }
-      }
+    if (!isValidHwid(cleanHwid)) {
+      alert(`Invalid Hardware ID "${cleanHwid}". Please paste the full machine Hardware ID copied from the customer's FBAutoBot desktop activation screen.`);
+      return;
     }
 
     setIsGenerating(true);
@@ -317,7 +366,7 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
       tier = "1 Year License";
     } else if (selectedPlan === '30') {
       validityDays = 30;
-      tier = "30-Day Monthly";
+      tier = "Monthly (30 Days)";
     } else if (selectedPlan === '0') {
       validityDays = 0;
       tier = "Lifetime Access";
@@ -326,12 +375,13 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
       tier = "7-Day Free Trial";
     } else if (selectedPlan === 'custom') {
       validityDays = customDays > 0 ? customDays : 365;
-      tier = `${validityDays}-Day Custom`;
+      tier = `${validityDays}-Day Custom Pass`;
     }
 
     try {
+      const finalCustomerName = customerName.trim() || (matchingExistingRecord ? matchingExistingRecord.customer : "Valued Customer");
       const { licenseKey, payload, record } = await generateLicenseKey(
-        customerName.trim() || "Valued Customer",
+        finalCustomerName,
         cleanHwid,
         validityDays,
         tier,
@@ -342,7 +392,9 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
         ? new Date(payload.expiry * 1000).toISOString().substring(0, 10)
         : "LIFETIME";
 
-      const waMsg = formatWhatsAppDeliveryText(
+      // Tailor WhatsApp text if this is a Renewal
+      const isRenewal = !!matchingExistingRecord;
+      let waMsg = formatWhatsAppDeliveryText(
         payload.customer,
         cleanHwid,
         licenseKey,
@@ -350,12 +402,32 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
         expStr
       );
 
+      if (isRenewal) {
+        waMsg = (
+          `🎉 *FB Auto Bot License Extended & Renewed!*\n\n` +
+          `Hi *${payload.customer}*, your FB Auto Bot license has been successfully renewed!\n\n` +
+          `📋 *Updated License Details:*\n` +
+          `• *Plan:* ${tier}\n` +
+          `• *Hardware ID:* \`${cleanHwid}\`\n` +
+          `• *New Expiry:* ${expStr}\n\n` +
+          `🔑 *Your New License Key:*\n` +
+          `\`\`\`${licenseKey}\`\`\`\n\n` +
+          `🚀 *How to Apply:*
+1. Launch \`FBAutoBot.exe\` on your PC.
+2. Enter the new key above to reactivate full automation!`
+        );
+      }
+
       setLastGeneratedKey(licenseKey);
       setLastPayload(payload);
       setLastWhatsAppText(waMsg);
 
-      // Save to records (replace if matching HWID to prevent duplicates)
-      const updated = [record, ...records.filter(r => r.hwid.toUpperCase() !== cleanHwid && r.key !== licenseKey)];
+      // Save to records (replace matching HWID to renew/extend existing record)
+      const updated = [record, ...records.filter(r => 
+        r.hwid.trim().toUpperCase() !== cleanHwid && 
+        normalizeHwid(r.hwid).hex !== normalizeHwid(cleanHwid).hex &&
+        r.key !== licenseKey
+      )];
       setRecords(updated);
       saveLicensesToStorage(updated);
       setDuplicateWarning(null);
@@ -757,6 +829,39 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
                     </span>
                   </div>
 
+                  {/* Auto Notice Alert */}
+                  {autoNotice && (
+                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 font-medium flex items-center gap-2 animate-fadeIn">
+                      <Zap className="h-4 w-4 text-emerald-400 shrink-0" />
+                      <span>{autoNotice}</span>
+                    </div>
+                  )}
+
+                  {/* Existing Client / Renewal Notice */}
+                  {matchingExistingRecord && (
+                    <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1.5 animate-fadeIn">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-amber-300 flex items-center gap-1.5">
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin text-amber-400" />
+                          <span>🔄 Renewal / License Extension Mode</span>
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                          matchingExistingRecord.status === 'ACTIVE' 
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
+                            : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                        }`}>
+                          {matchingExistingRecord.status} (Expiry: {matchingExistingRecord.expiry_date})
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-200">
+                        Client Account: <strong className="text-white font-semibold">{matchingExistingRecord.customer}</strong> | Previous Plan: <span className="text-amber-200 font-medium">{matchingExistingRecord.tier}</span>
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        This HWID is already registered in the system. Generating a key will automatically extend this client's license with the new validity duration.
+                      </p>
+                    </div>
+                  )}
+
                   {/* Customer Name */}
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-1.5">
@@ -766,7 +871,7 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
                       <input
                         type="text"
                         value={customerName}
-                        onChange={e => setCustomerName(e.target.value)}
+                        onChange={e => handleCustomerNameInput(e.target.value)}
                         placeholder="e.g. John Doe / Marketplace Pro"
                         className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition"
                       />
@@ -779,20 +884,35 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
                       <label className="block text-xs font-semibold text-slate-300">
                         Customer Hardware ID (HWID): <span className="text-rose-400">*</span>
                       </label>
+                      {customerHwid && isValidHwid(customerHwid) && (
+                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                          ✓ Valid HWID
+                        </span>
+                      )}
                     </div>
                     <div className="relative">
                       <input
                         type="text"
                         required
                         value={customerHwid}
-                        onChange={e => setCustomerHwid(e.target.value.toUpperCase())}
-                        placeholder="e.g. FBAUTO-A1B2-C3D4-E5F6"
-                        className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-amber-300 font-mono placeholder-slate-500 focus:outline-none focus:border-indigo-500 uppercase transition tracking-wider"
+                        onChange={e => handleCustomerHwidInput(e.target.value)}
+                        placeholder="e.g. FBAUTO-C032-9975-7BDE-4551"
+                        className={`w-full bg-slate-950 border rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-mono placeholder-slate-500 focus:outline-none transition tracking-wider uppercase ${
+                          hwidError 
+                            ? 'border-rose-500/80 text-rose-300 focus:border-rose-500' 
+                            : 'border-slate-700/80 text-amber-300 focus:border-indigo-500'
+                        }`}
                       />
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-1">
-                      The customer copies this from the FBAutoBot activation window on their PC.
-                    </p>
+                    {hwidError ? (
+                      <p className="text-[11px] text-rose-400 font-medium mt-1.5 bg-rose-500/10 p-2 rounded-lg border border-rose-500/20">
+                        {hwidError}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        The customer copies this HWID directly from the FBAutoBot activation window on their PC.
+                      </p>
+                    )}
                   </div>
 
                   {/* Plan / Duration */}
@@ -847,11 +967,20 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
                   {/* Submit Button */}
                   <button
                     type="submit"
-                    disabled={isGenerating}
-                    className="w-full mt-2 py-3.5 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-indigo-600 via-indigo-500 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
+                    disabled={isGenerating || !customerHwid.trim() || !isValidHwid(customerHwid)}
+                    className="w-full mt-2 py-3.5 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-indigo-600 via-indigo-500 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Zap className="h-4 w-4 text-amber-300" />
-                    <span>⚡ Generate Cryptographic License Key</span>
+                    {matchingExistingRecord ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 text-amber-300 animate-spin" />
+                        <span>🔄 Extend & Renew License Key</span>
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="h-4 w-4 text-amber-300" />
+                        <span>⚡ Generate Cryptographic License Key</span>
+                      </>
+                    )}
                   </button>
                 </form>
               </div>
@@ -966,11 +1095,20 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
 
                 <div className="flex items-center space-x-2">
                   <button
+                    onClick={handleClearAllVaultRecords}
+                    className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-semibold rounded-lg transition flex items-center space-x-1 cursor-pointer"
+                    title="Delete all accounts and keys to start completely fresh"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-rose-400" />
+                    <span>Clear Vault</span>
+                  </button>
+
+                  <button
                     onClick={handleExportJson}
                     className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition flex items-center space-x-1 cursor-pointer"
                   >
                     <Download className="h-3.5 w-3.5 text-emerald-400" />
-                    <span>Export JSON</span>
+                    <span>Export</span>
                   </button>
 
                   <label className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition flex items-center space-x-1 cursor-pointer">
@@ -1072,6 +1210,15 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
                           {item.key}
                         </div>
                         <div className="flex items-center space-x-1.5 shrink-0">
+                          <button
+                            onClick={() => handleQuickRenewClient(item)}
+                            className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded text-xs font-medium transition cursor-pointer flex items-center space-x-1"
+                            title="Load client into key generator to renew license"
+                          >
+                            <RefreshCw className="h-3 w-3 text-amber-400" />
+                            <span>Renew</span>
+                          </button>
+
                           {item.status === 'ACTIVE' ? (
                             <button
                               onClick={() => handleToggleKeyStatus(item.key, 'DISABLED')}

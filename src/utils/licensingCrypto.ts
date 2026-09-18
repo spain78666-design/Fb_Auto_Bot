@@ -85,11 +85,34 @@ export function sanitizeCustomerSlug(name: string): string {
  */
 export function normalizeHwid(hwid: string): { full: string; hex: string } {
   const clean = hwid.trim().toUpperCase();
-  const hexOnly = clean.replace(/[^A-F0-9]/g, '');
+  // Strip known prefixes to isolate machine hex signature
+  const strippedPrefix = clean.replace(/^(FBAUTO|FBAC)-?/i, '');
+  const hexOnly = strippedPrefix.replace(/[^A-F0-9]/g, '');
+
+  let fullHwid = clean;
+  if (!clean.startsWith('FBAUTO-')) {
+    if (hexOnly.length >= 12) {
+      fullHwid = `FBAUTO-${hexOnly.slice(0, 4)}-${hexOnly.slice(4, 8)}-${hexOnly.slice(8, 12)}-${hexOnly.slice(12, 16)}`;
+    } else if (clean.length > 0) {
+      fullHwid = `FBAUTO-${clean}`;
+    }
+  }
+
   return {
-    full: clean.startsWith('FBAUTO-') ? clean : (hexOnly.length >= 12 ? `FBAUTO-${hexOnly.slice(0, 4)}-${hexOnly.slice(4, 8)}-${hexOnly.slice(8, 12)}` : clean),
-    hex: hexOnly
+    full: fullHwid,
+    hex: hexOnly || clean.replace(/[^A-Z0-9]/g, '')
   };
+}
+
+/**
+  * Validates if a string is a valid machine Hardware ID
+  */
+export function isValidHwid(hwid: string): boolean {
+  if (!hwid || typeof hwid !== 'string') return false;
+  const clean = hwid.trim().toUpperCase();
+  if (clean.length < 6) return false;
+  const norm = normalizeHwid(clean);
+  return norm.hex.length >= 6 || clean.startsWith('FBAUTO-') || clean.startsWith('FBAC-');
 }
 
 /**
@@ -327,5 +350,13 @@ export function saveLicensesToStorage(records: LicenseRecord[]): void {
     localStorage.setItem(STORAGE_KEY_LICENSES, JSON.stringify(records));
   } catch (e) {
     console.error("Error writing licenses to localStorage:", e);
+  }
+}
+
+export function clearAllLicensesFromStorage(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY_LICENSES);
+  } catch (e) {
+    console.error("Error clearing licenses from localStorage:", e);
   }
 }
