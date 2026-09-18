@@ -134,6 +134,9 @@ def copy_fewfeed_session_data(src_profile_dir: str, dst_profile_dir: str):
         ("Storage", "dir"),
         ("Local Extension Settings", "dir"),
         ("Sync Extension Settings", "dir"),
+        ("Extension State", "dir"),
+        ("Extension Rules", "dir"),
+        ("Extensions", "dir"),
         ("Network", "dir"),
         ("Cookies", "file"),
         ("Preferences", "file"),
@@ -405,7 +408,7 @@ class FacebookGroupBot:
         else:
             self.log("WARNING", f"FEWFEED extension folder not detected at {ext_path}. Proceeding without extension.")
 
-        ignore_default_args = ["--enable-automation"]
+        ignore_default_args = ["--enable-automation", "--disable-extensions"]
 
         proxy_cfg = None
         raw_proxy = self.account_data.get("proxy", "").strip()

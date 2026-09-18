@@ -528,7 +528,7 @@ class MacroRecorderSession:
                             "user_data_dir": profile_dir,
                             "headless": False,
                             "args": launch_args,
-                            "ignore_default_args": ["--enable-automation"],
+                            "ignore_default_args": ["--enable-automation", "--disable-extensions"],
                             "proxy": proxy_config,
                             "no_viewport": True,
                             "locale": "en-US",
@@ -548,7 +548,7 @@ class MacroRecorderSession:
                         browser = await p.chromium.launch(
                             headless=False,
                             args=launch_args,
-                            ignore_default_args=["--enable-automation"],
+                            ignore_default_args=["--enable-automation", "--disable-extensions"],
                             proxy=proxy_config,
                             channel=ch
                         )
@@ -881,7 +881,7 @@ class GroupMacroRecorderSession:
                             "user_data_dir": profile_dir,
                             "headless": False,
                             "args": launch_args,
-                            "ignore_default_args": ["--enable-automation"],
+                            "ignore_default_args": ["--enable-automation", "--disable-extensions"],
                             "proxy": proxy_config,
                             "no_viewport": True,
                             "locale": "en-US",
@@ -901,7 +901,7 @@ class GroupMacroRecorderSession:
                         browser = await p.chromium.launch(
                             headless=False,
                             args=launch_args,
-                            ignore_default_args=["--enable-automation"],
+                            ignore_default_args=["--enable-automation", "--disable-extensions"],
                             proxy=proxy_config,
                             channel=ch
                         )

@@ -2691,48 +2691,151 @@ class FBAutoBotMainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(2)
 
         # Title
         title = QLabel("Accounts & Session Manager")
         title.setProperty("class", "pageTitle")
-        title.setStyleSheet("margin-top: 0px; margin-bottom: 0px; padding: 0px;")
+        title.setStyleSheet("margin: 0px; padding: 0px; font-size: 18px; line-height: 1.1;")
         sub = QLabel("Manage multi-account profiles with isolated browser storage, session health audits, and residential proxies.")
         sub.setProperty("class", "pageSubtitle")
-        sub.setStyleSheet("margin-top: 0px; margin-bottom: 2px; padding: 0px;")
+        sub.setStyleSheet("margin-top: 1px; margin-bottom: 6px; padding: 0px;")
         layout.addWidget(title)
         layout.addWidget(sub)
 
         # Splitter: Left = Import Form, Right = Accounts Table
         splitter = QSplitter(Qt.Horizontal)
 
-        # Left Card: Import / Add Profile with Stacked View (Single vs Bulk) & ScrollArea
+        # Left Card: Cookies-Only Import Form
         left_card = QFrame()
         left_card.setProperty("class", "glassCard")
-        left_card.setMinimumWidth(390)
+        left_card.setMinimumWidth(380)
         left_card_layout = QVBoxLayout(left_card)
-        left_card_layout.setContentsMargins(0, 0, 0, 0)
-        left_card_layout.setSpacing(0)
+        left_card_layout.setContentsMargins(12, 12, 12, 12)
+        left_card_layout.setSpacing(8)
 
-        left_scroll = QScrollArea()
-        left_scroll.setWidgetResizable(True)
-        left_scroll.setFrameShape(QFrame.NoFrame)
-        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        left_scroll.setStyleSheet(
-            "QScrollArea { background: transparent; border: none; }"
-            "QScrollBar:vertical { width: 8px; background: rgba(15, 23, 42, 0.6); border-radius: 4px; }"
-            "QScrollBar::handle:vertical { background: #334155; border-radius: 4px; min-height: 25px; }"
-            "QScrollBar::handle:vertical:hover { background: #38bdf8; }"
+        # Card Title Header
+        title_row = QHBoxLayout()
+        form_title = QLabel("Add / Import Cookie Account(s)")
+        form_title.setProperty("class", "cardTitle")
+        title_row.addWidget(form_title)
+        title_row.addStretch()
+
+        btn_clear_top = QPushButton("🧹 Clear")
+        btn_clear_top.setStyleSheet("background-color: #334155; color: #cbd5e1; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 6px; border: 1px solid #475569;")
+        btn_clear_top.setCursor(Qt.PointingHandCursor)
+        btn_clear_top.setToolTip("Clear text input field")
+        btn_clear_top.clicked.connect(self.clear_account_form)
+        title_row.addWidget(btn_clear_top)
+        left_card_layout.addLayout(title_row)
+
+        # File upload bar
+        file_bar = QHBoxLayout()
+        self.btn_bulk_file_upload = QPushButton("📂 Upload .TXT / .JSON File")
+        self.btn_bulk_file_upload.setStyleSheet("background-color: #334155; color: #38bdf8; font-size: 11px; font-weight: 700; padding: 5px 10px; border-radius: 6px; border: 1px solid #0284c7;")
+        self.btn_bulk_file_upload.setCursor(Qt.PointingHandCursor)
+        self.btn_bulk_file_upload.setToolTip("Upload a text or JSON file containing Facebook cookies")
+        self.btn_bulk_file_upload.clicked.connect(self.upload_bulk_accounts_file)
+        file_bar.addWidget(self.btn_bulk_file_upload)
+
+        self.bulk_file_status_lbl = QLabel("No file loaded")
+        self.bulk_file_status_lbl.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        file_bar.addWidget(self.bulk_file_status_lbl)
+        file_bar.addStretch()
+        left_card_layout.addLayout(file_bar)
+
+        # Main Cookie Input Textarea
+        lbl_cookies = QLabel("Paste Facebook Cookies (Single or Bulk - 1, 10, 50, 100+ Accounts):")
+        lbl_cookies.setStyleSheet("font-weight: 700; color: #f8fafc; font-size: 12px;")
+        left_card_layout.addWidget(lbl_cookies)
+
+        self.acc_cookies_input = QTextEdit()
+        self.acc_cookies_input.setPlaceholderText(
+            "Paste Facebook cookies here...\n\n"
+            "Supported formats:\n"
+            "• Raw Cookie Strings (c_user=...; xs=...)\n"
+            "• EditThisCookie JSON Array\n"
+            "• Multiple cookie strings (1 per line or JSON objects)\n\n"
+            "Paste 1, 10, 20, or 100+ accounts at once!"
         )
+        self.acc_cookies_input.setMinimumHeight(150)
+        left_card_layout.addWidget(self.acc_cookies_input)
 
-        scroll_content = QWidget()
-        scroll_content.setStyleSheet("background: transparent;")
-        form_outer_layout = QVBoxLayout(scroll_content)
-        form_outer_layout.setContentsMargins(12, 12, 12, 12)
-        form_outer_layout.setSpacing(10)
+        # Profile Alias (Optional)
+        lbl_alias = QLabel("Profile Alias / Name (Optional - Auto-detected from c_user):")
+        lbl_alias.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        left_card_layout.addWidget(lbl_alias)
+        self.acc_name_input = QLineEdit()
+        self.acc_name_input.setFixedHeight(34)
+        self.acc_name_input.setPlaceholderText("Optional (Leave blank to auto-detect from cookies)")
+        left_card_layout.addWidget(self.acc_name_input)
 
-        self.acc_mode_stack = QStackedWidget()
+        # Proxy section with Hide / Show toggle
+        proxy_header_layout = QHBoxLayout()
+        proxy_header_layout.addWidget(QLabel("Proxy Configuration (Optional):"))
+        self.btn_toggle_proxy = QPushButton("👁️ Hide Proxy")
+        self.btn_toggle_proxy.setStyleSheet("background: transparent; color: #38bdf8; font-size: 11px; border: none; font-weight: 600;")
+        self.btn_toggle_proxy.setCursor(Qt.PointingHandCursor)
+        self.btn_toggle_proxy.clicked.connect(self.toggle_proxy_visibility)
+        proxy_header_layout.addStretch()
+        proxy_header_layout.addWidget(self.btn_toggle_proxy)
+        left_card_layout.addLayout(proxy_header_layout)
+
+        self.proxy_container_widget = QWidget()
+        proxy_container_layout = QVBoxLayout(self.proxy_container_widget)
+        proxy_container_layout.setContentsMargins(0, 0, 0, 0)
+        proxy_container_layout.setSpacing(6)
+
+        proxy_row1 = QHBoxLayout()
+        self.proxy_type = QComboBox()
+        self.proxy_type.addItems(["HTTP", "SOCKS5"])
+        self.proxy_type.setFixedWidth(90)
+        self.proxy_type.setFixedHeight(34)
+        self.proxy_host = QLineEdit()
+        self.proxy_host.setFixedHeight(34)
+        self.proxy_host.setPlaceholderText("192.168.1.100:8080 or Direct")
+        proxy_row1.addWidget(self.proxy_type)
+        proxy_row1.addWidget(self.proxy_host)
+        proxy_container_layout.addLayout(proxy_row1)
+
+        proxy_row2 = QHBoxLayout()
+        self.proxy_user = QLineEdit()
+        self.proxy_user.setFixedHeight(34)
+        self.proxy_user.setPlaceholderText("Proxy User (Optional)")
+        self.proxy_pass = QLineEdit()
+        self.proxy_pass.setFixedHeight(34)
+        self.proxy_pass.setPlaceholderText("Proxy Pass (Optional)")
+        self.proxy_pass.setEchoMode(QLineEdit.Password)
+        proxy_row2.addWidget(self.proxy_user)
+        proxy_row2.addWidget(self.proxy_pass)
+        proxy_container_layout.addLayout(proxy_row2)
+
+        left_card_layout.addWidget(self.proxy_container_widget)
+
+        # Action Buttons
+        btn_action_row = QHBoxLayout()
+        btn_add_cookies = QPushButton("➕ Import / Add Cookie Account(s)")
+        btn_add_cookies.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: 800; font-size: 12px; padding: 10px 14px; border-radius: 6px;")
+        btn_add_cookies.setCursor(Qt.PointingHandCursor)
+        btn_add_cookies.setToolTip("Parses single or bulk cookies and adds all accounts directly to vault.")
+        btn_add_cookies.clicked.connect(self.parse_and_save_bulk_cookies)
+
+        btn_capture = QPushButton("🌐 Capture via Browser")
+        btn_capture.setProperty("class", "secondaryBtn")
+        btn_capture.setStyleSheet("font-size: 11px; padding: 8px 12px;")
+        btn_capture.setCursor(Qt.PointingHandCursor)
+        btn_capture.setToolTip("Open browser window to log in manually and capture cookies")
+        btn_capture.clicked.connect(self.extract_cookies_for_form)
+
+        btn_action_row.addWidget(btn_add_cookies)
+        btn_action_row.addWidget(btn_capture)
+        left_card_layout.addLayout(btn_action_row)
+        left_card_layout.addStretch()
+
+        splitter.addWidget(left_card)
+        return page
+
+    def _unused_old_accounts_form(self):
 
         # ----------------------------------------------------
         # Mode 0: Single Account Form (UID/Password & Cookies)
@@ -3803,6 +3906,89 @@ class FBAutoBotMainWindow(QMainWindow):
         if hasattr(self, 'acc_mode_stack'):
             self.acc_mode_stack.setCurrentIndex(0)
 
+    def parse_and_save_bulk_cookies(self):
+        """Parses single or bulk cookies (raw string or JSON) pasted into acc_cookies_input and saves all accounts."""
+        raw_text = self.acc_cookies_input.toPlainText().strip() if hasattr(self, 'acc_cookies_input') else ""
+        if not raw_text:
+            QMessageBox.warning(self, "No Input", "Please paste Facebook cookies into the text box.")
+            return
+
+        proxy = self.proxy_host.text().strip() if hasattr(self, 'proxy_host') else "Direct (No Proxy)"
+        ptype = self.proxy_type.currentText() if hasattr(self, 'proxy_type') else "HTTP"
+        puser = self.proxy_user.text().strip() if hasattr(self, 'proxy_user') else ""
+        ppass = self.proxy_pass.text().strip() if hasattr(self, 'proxy_pass') else ""
+
+        entries = []
+        if raw_text.startswith("[") and raw_text.endswith("]"):
+            try:
+                data = json.loads(raw_text)
+                if isinstance(data, list) and len(data) > 0 and isinstance(data[0], list):
+                    for item in data:
+                        entries.append(json.dumps(item))
+                elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+                    if "cookies" in data[0] or any(x.get("name") == "c_user" for x in data if isinstance(x, dict)):
+                        entries.append(raw_text)
+                    else:
+                        for item in data:
+                            entries.append(json.dumps(item))
+                else:
+                    entries.append(raw_text)
+            except Exception:
+                entries.append(raw_text)
+        else:
+            # Check if multiple lines each containing cookies
+            lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
+            if len(lines) > 1 and any("c_user=" in l or l.startswith("[") for l in lines):
+                entries = lines
+            else:
+                entries = [raw_text]
+
+        added_count = 0
+        for idx, entry_str in enumerate(entries):
+            if not entry_str.strip():
+                continue
+
+            c_match = re.search(r'c_user[":=\s]+(\d+)', entry_str)
+            uid = c_match.group(1) if c_match else ""
+
+            user_alias = self.acc_name_input.text().strip() if hasattr(self, 'acc_name_input') else ""
+            if user_alias and len(entries) == 1:
+                acc_name = user_alias
+            elif uid:
+                acc_name = f"FB_{uid}"
+            else:
+                acc_name = f"FB_Account_{datetime.now().strftime('%M%S')}_{idx+1}"
+
+            clean_slug = re.sub(r'[^a-zA-Z0-9_-]', '_', acc_name).lower()
+            acc_id = f"acc_{clean_slug}_{uuid.uuid4().hex[:4]}"
+
+            if self.session_manager:
+                self.session_manager.save_account(
+                    account_id=acc_id,
+                    name=acc_name,
+                    uid=uid,
+                    email="",
+                    password="",
+                    two_factor_secret="",
+                    cookies=entry_str,
+                    proxy=proxy or "Direct (No Proxy)",
+                    proxy_type=ptype,
+                    proxy_user=puser,
+                    proxy_pass=ppass,
+                    notes="",
+                    status="Healthy"
+                )
+                added_count += 1
+
+        self.log_message("SUCCESS", f"🎉 Successfully imported {added_count} Cookie Account(s) into vault!")
+        if hasattr(self, 'acc_cookies_input'):
+            self.acc_cookies_input.clear()
+        if hasattr(self, 'acc_name_input'):
+            self.acc_name_input.clear()
+        self.refresh_accounts_table()
+        self.update_account_dropdown()
+        self.refresh_dashboard_metrics()
+
     def upload_bulk_accounts_file(self):
         """Loads a .txt or .json file containing multiple credentials or cookie lines."""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -3818,11 +4004,16 @@ class FBAutoBotMainWindow(QMainWindow):
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 
-            self.bulk_cookies_input.setPlainText(content)
+            if hasattr(self, 'acc_cookies_input'):
+                self.acc_cookies_input.setPlainText(content)
+            elif hasattr(self, 'bulk_cookies_input'):
+                self.bulk_cookies_input.setPlainText(content)
+
             lines_count = len([l for l in content.splitlines() if l.strip() and not l.strip().startswith("#")])
             filename = os.path.basename(file_path)
-            self.bulk_file_status_lbl.setText(f"✅ Loaded '{filename}' (~{lines_count} entries)")
-            self.log_message("SUCCESS", f"Loaded accounts file '{filename}' with ~{lines_count} lines into bulk editor.")
+            if hasattr(self, 'bulk_file_status_lbl'):
+                self.bulk_file_status_lbl.setText(f"✅ Loaded '{filename}' (~{lines_count} entries)")
+            self.log_message("SUCCESS", f"Loaded accounts file '{filename}' with ~{lines_count} lines into editor.")
         except Exception as e:
             self.log_message("ERROR", f"Failed reading accounts file: {str(e)}")
             QMessageBox.critical(self, "File Error", f"Could not read file: {str(e)}")
@@ -4603,43 +4794,41 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Property Row 4: Advanced Details (Optional - Facebook Marketplace Standard)
         prop_adv_box = QFrame()
-        prop_adv_box.setStyleSheet("background-color: #0b0f19; border: 1.5px solid #8b5cf6; border-radius: 10px; padding: 10px;")
+        prop_adv_box.setStyleSheet("background-color: #090d16; border: 1.5px solid #1e2d4a; border-radius: 9px; padding: 10px;")
         padv_layout = QVBoxLayout(prop_adv_box)
         padv_layout.setContentsMargins(8, 8, 8, 8)
         padv_layout.setSpacing(8)
 
         padv_lbl = QLabel("⚙️ Advanced Details (Optional - Facebook Marketplace Specifications)  ▼")
-        padv_lbl.setStyleSheet("color: #c4b5fd; font-size: 11px; font-weight: 800; padding-bottom: 2px;")
+        padv_lbl.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700; padding-bottom: 2px;")
         padv_layout.addWidget(padv_lbl)
 
         adv_column_style = """
             QComboBox, QLineEdit {
-                background-color: #0f172a;
+                background-color: #090d16;
                 color: #f8fafc;
-                border: 1.5px solid #38bdf8;
-                border-radius: 6px;
-                padding: 4px 8px;
-                font-size: 11px;
-                font-weight: 600;
-                min-height: 24px;
+                border: 1.5px solid #1e2d4a;
+                border-radius: 9px;
+                padding: 6px 10px;
+                font-size: 12px;
+                font-weight: 500;
+            }
+            QComboBox:focus, QLineEdit:focus {
+                border: 1.5px solid #2563eb;
+                background-color: #090d16;
             }
             QComboBox::drop-down {
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-                width: 20px;
-                border-left: 1px solid #38bdf8;
-                border-top-right-radius: 6px;
-                border-bottom-right-radius: 6px;
-                background-color: #1e293b;
+                border: none;
+                padding-right: 8px;
             }
-            QComboBox::down-arrow {
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 5px solid #38bdf8;
-                margin-right: 2px;
-            }
-            QComboBox:hover, QLineEdit:hover {
-                border-color: #a78bfa;
+            QComboBox QAbstractItemView {
+                background-color: #0e1626;
+                border: 1.5px solid #2563eb;
+                selection-background-color: #2563eb;
+                selection-color: #ffffff;
+                color: #f8fafc;
+                border-radius: 8px;
+                padding: 4px;
             }
         """
 
@@ -5831,14 +6020,43 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Property Row 4: Advanced Details (Optional - Facebook Marketplace Standard)
         p_prop_adv_box = QFrame()
-        p_prop_adv_box.setStyleSheet("background-color: #0b0f19; border: 1.5px solid #8b5cf6; border-radius: 10px; padding: 10px;")
+        p_prop_adv_box.setStyleSheet("background-color: #090d16; border: 1.5px solid #1e2d4a; border-radius: 9px; padding: 10px;")
         ppadv_layout = QVBoxLayout(p_prop_adv_box)
         ppadv_layout.setContentsMargins(8, 8, 8, 8)
         ppadv_layout.setSpacing(8)
 
         ppadv_lbl = QLabel("⚙️ Advanced Details (Optional - Facebook Marketplace Specifications)  ▼")
-        ppadv_lbl.setStyleSheet("color: #c4b5fd; font-size: 11px; font-weight: 800; padding-bottom: 2px;")
+        ppadv_lbl.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700; padding-bottom: 2px;")
         ppadv_layout.addWidget(ppadv_lbl)
+
+        adv_column_style = """
+            QComboBox, QLineEdit {
+                background-color: #090d16;
+                color: #f8fafc;
+                border: 1.5px solid #1e2d4a;
+                border-radius: 9px;
+                padding: 6px 10px;
+                font-size: 12px;
+                font-weight: 500;
+            }
+            QComboBox:focus, QLineEdit:focus {
+                border: 1.5px solid #2563eb;
+                background-color: #090d16;
+            }
+            QComboBox::drop-down {
+                border: none;
+                padding-right: 8px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #0e1626;
+                border: 1.5px solid #2563eb;
+                selection-background-color: #2563eb;
+                selection-color: #ffffff;
+                color: #f8fafc;
+                border-radius: 8px;
+                padding: 4px;
+            }
+        """
 
         ppadv_r1 = QHBoxLayout()
 

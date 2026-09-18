@@ -357,7 +357,7 @@ class SessionManager:
                         "headless": False,
                         "viewport": {"width": 1280, "height": 800},
                         "args": launch_flags,
-                        "ignore_default_args": ["--enable-automation"]
+                        "ignore_default_args": ["--enable-automation", "--disable-extensions"]
                     }
                     if ch:
                         kws["channel"] = ch
@@ -816,7 +816,7 @@ class SessionManager:
                             "proxy": px,
                             "viewport": {"width": 1280, "height": 800},
                             "args": launch_flags,
-                            "ignore_default_args": ["--enable-automation"]
+                            "ignore_default_args": ["--enable-automation", "--disable-extensions"]
                         }
                         if ch:
                             kws["channel"] = ch
@@ -943,8 +943,8 @@ class SessionManager:
         password = account.get("password") or ""
         two_factor_secret = account.get("two_factor_secret") or ""
 
-        if not uid_or_email or not password:
-            return False, "Missing UID / Email or Password for this account.", {}
+        if not uid_or_email and not password and not account.get("cookies"):
+            return False, "Missing credentials or cookies for this account.", {}
 
         log("INFO", f"Credential Engine: Initiating Facebook login for '{acc_name}' ({uid_or_email})...")
 
@@ -1012,7 +1012,7 @@ class SessionManager:
                             "proxy": px,
                             "viewport": {"width": 1280, "height": 800},
                             "args": launch_flags,
-                            "ignore_default_args": ["--enable-automation"]
+                            "ignore_default_args": ["--enable-automation", "--disable-extensions"]
                         }
                         if ch:
                             kws["channel"] = ch
@@ -1052,9 +1052,18 @@ class SessionManager:
                     except Exception:
                         pass
 
-                log("INFO", "Navigating to Facebook login portal (https://www.facebook.com/login)...")
+                # Inject stored cookies if available
+                stored_cookies = SessionCookieParser.normalize_cookies(account.get("cookies", ""))
+                if stored_cookies:
+                    log("INFO", f"Injecting {len(stored_cookies)} stored cookies into browser context...")
+                    try:
+                        await context.add_cookies(stored_cookies)
+                    except Exception as ce:
+                        log("WARNING", f"Cookie injection note: {ce}")
+
+                log("INFO", "Navigating to Facebook portal (https://www.facebook.com)...")
                 try:
-                    await page.goto("https://www.facebook.com/login", wait_until="domcontentloaded", timeout=45000)
+                    await page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=45000)
                 except Exception as ge:
                     log("WARNING", f"Page load note: {str(ge)[:60]}")
                 await asyncio.sleep(2.0)

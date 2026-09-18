@@ -548,8 +548,8 @@ class FacebookMarketplaceBot:
             launch_args.append(f"--disable-extensions-except={ext_path}")
             self.log("SUCCESS", f"🧩 Automatically loaded Chrome Extension from: {ext_path}")
 
-        # Ignore automation banner
-        ignore_default_args = ["--enable-automation"]
+        # Ignore automation banner and enable extensions
+        ignore_default_args = ["--enable-automation", "--disable-extensions"]
 
         async def launch_context_smart():
             clean_profile_locks(user_data_dir)
