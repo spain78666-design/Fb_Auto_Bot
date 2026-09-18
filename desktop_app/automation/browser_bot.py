@@ -1547,7 +1547,7 @@ class FacebookMarketplaceBot:
 
         js_code = """
         () => {
-            const candidates = ['publish', 'post', 'done', 'save', 'شائع', 'پبلش', 'اگلا'];
+            const candidates = ['publish', 'post', 'done', 'save', 'شائع', 'پبلش'];
             const elements = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"], div[aria-label*="Publish"], div[aria-label*="Post"], div[aria-label*="شائع"]'));
             
             for (const el of elements) {

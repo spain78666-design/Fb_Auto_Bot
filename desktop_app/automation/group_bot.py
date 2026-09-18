@@ -1282,6 +1282,7 @@ class FacebookGroupBot:
         group_codes: Optional[List[str]] = None,
         join_group_codes: Optional[List[str]] = None,
         post_group_codes: Optional[List[str]] = None,
+        already_joined: bool = False,
         links: Optional[List[str]] = None,
         descriptions: Optional[List[str]] = None,
         posting_mode: str = "Random",
@@ -1291,7 +1292,7 @@ class FacebookGroupBot:
         Master-level unified single-click execution flow:
         1. Initialize mobile browser emulation & load FEWFEED extension.
         2. Authenticate Facebook session with injected session cookies.
-        3. If unified or joining requested: Automate FewFeed Auto Join tool.
+        3. If unified or joining requested: Automate FewFeed Auto Join tool (skipped if already_joined=True).
         4. If unified or posting requested: Automate FewFeed Auto Post tool.
         """
         results: Dict[str, Any] = {
@@ -1316,8 +1317,10 @@ class FacebookGroupBot:
 
             # 3. Automated Target Processing
             if task_type.lower() in ("unified", "both", "all"):
-                # Phase 1: Auto Join Groups in FewFeed if join codes provided
-                if j_codes:
+                # Phase 1: Auto Join Groups in FewFeed if join codes provided and not already joined
+                if already_joined:
+                    self.log("INFO", "ℹ️ ['Already Group Joined' checked] Skipping Group Joining Phase. Opening FewFeed Auto Post directly...")
+                elif j_codes:
                     self.log("INFO", f"⚡ [Unified Phase 1/2] Launching FewFeed Auto Join for {len(j_codes)} groups...")
                     await self.run_fewfeed_group_joining(group_codes=j_codes, delay_seconds=delay_seconds)
                 else:
@@ -1333,7 +1336,7 @@ class FacebookGroupBot:
                     delay_seconds=delay_seconds
                 )
                 results["status"] = "completed"
-                results["items_processed"] = len(j_codes) + (len(p_codes) if p_codes else 1)
+                results["items_processed"] = (0 if already_joined else len(j_codes)) + (len(p_codes) if p_codes else 1)
 
             elif task_type.lower() in ("joining", "join"):
                 joined_count = await self.run_group_joining(

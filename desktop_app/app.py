@@ -1059,12 +1059,14 @@ class GroupAutomationWorker(QThread):
                 links = self.payload.get("links", [])
                 descriptions = self.payload.get("descriptions", [])
                 posting_mode = self.payload.get("mode", "Random")
+                already_joined = self.payload.get("already_joined", False)
 
                 await bot.run_workflow(
                     task_type=self.task_type,
                     group_codes=group_codes or [],
                     join_group_codes=join_group_codes or [],
                     post_group_codes=post_group_codes or [],
+                    already_joined=already_joined,
                     links=links,
                     descriptions=descriptions,
                     posting_mode=posting_mode,
@@ -4200,7 +4202,7 @@ class FBAutoBotMainWindow(QMainWindow):
         item_page = QWidget()
         item_layout = QVBoxLayout(item_page)
         item_layout.setContentsMargins(0, 0, 0, 0)
-        item_layout.setSpacing(10)
+        item_layout.setSpacing(5)
 
         # Item Row 1: Category & Condition
         i_r1 = QHBoxLayout()
@@ -4276,7 +4278,7 @@ class FBAutoBotMainWindow(QMainWindow):
         veh_page = QWidget()
         veh_layout = QVBoxLayout(veh_page)
         veh_layout.setContentsMargins(0, 0, 0, 0)
-        veh_layout.setSpacing(10)
+        veh_layout.setSpacing(5)
 
         # Vehicle Row 1: Vehicle Type & Year
         v_r1 = QHBoxLayout()
@@ -5010,10 +5012,41 @@ class FBAutoBotMainWindow(QMainWindow):
         self.proj_tabs_count_badge.setStyleSheet("font-size: 12px; font-weight: 800; color: #38bdf8; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 6px; padding: 4px 10px;")
         tb_top_row.addWidget(self.proj_tabs_count_badge)
 
-        tb_top_row.addWidget(QLabel("Quick Jump:"))
+        lbl_qjump = QLabel("⚡ Quick Jump:")
+        lbl_qjump.setStyleSheet("color: #38bdf8; font-size: 12px; font-weight: 800; margin-left: 6px;")
+        tb_top_row.addWidget(lbl_qjump)
+
         self.proj_tab_quick_combo = QComboBox()
-        self.proj_tab_quick_combo.setMinimumWidth(160)
-        self.proj_tab_quick_combo.setFixedHeight(28)
+        self.proj_tab_quick_combo.setMinimumWidth(220)
+        self.proj_tab_quick_combo.setFixedHeight(30)
+        self.proj_tab_quick_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #0f172a;
+                color: #f8fafc;
+                border: 1px solid #38bdf8;
+                border-radius: 6px;
+                padding: 3px 10px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QComboBox:hover {
+                border-color: #818cf8;
+                background-color: #1e293b;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 22px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #0f172a;
+                color: #f8fafc;
+                selection-background-color: #4f46e5;
+                selection-color: #ffffff;
+                border: 1px solid #38bdf8;
+                border-radius: 6px;
+                padding: 4px;
+            }
+        """)
         self.proj_tab_quick_combo.setToolTip("Quickly select and jump to any configured tab")
         self.proj_tab_quick_combo.currentIndexChanged.connect(self.on_quick_tab_combo_changed)
         tb_top_row.addWidget(self.proj_tab_quick_combo)
@@ -5272,7 +5305,7 @@ class FBAutoBotMainWindow(QMainWindow):
         p_item_page = QWidget()
         p_item_layout = QVBoxLayout(p_item_page)
         p_item_layout.setContentsMargins(0, 0, 0, 0)
-        p_item_layout.setSpacing(10)
+        p_item_layout.setSpacing(5)
 
         # Item Row 1: Category & Condition
         pi_r1 = QHBoxLayout()
@@ -5350,7 +5383,7 @@ class FBAutoBotMainWindow(QMainWindow):
         p_veh_page = QWidget()
         p_veh_layout = QVBoxLayout(p_veh_page)
         p_veh_layout.setContentsMargins(0, 0, 0, 0)
-        p_veh_layout.setSpacing(10)
+        p_veh_layout.setSpacing(5)
 
         # Vehicle Row 1: Vehicle Type & Year
         pv_r1 = QHBoxLayout()
@@ -5604,8 +5637,13 @@ class FBAutoBotMainWindow(QMainWindow):
             self.proj_tab_quick_combo.blockSignals(True)
             self.proj_tab_quick_combo.clear()
             for i, tdata in enumerate(tabs):
-                t_name = tdata.get("tab_name") or f"Tab {i+1}"
-                self.proj_tab_quick_combo.addItem(f"Tab {i+1}: {t_name}", i)
+                raw_name = tdata.get("tab_name") or f"Tab {i+1}"
+                # Avoid redundant "Tab 1: Tab 1"
+                if raw_name.lower().startswith(f"tab {i+1}"):
+                    disp_name = raw_name
+                else:
+                    disp_name = f"Tab {i+1}: {raw_name}"
+                self.proj_tab_quick_combo.addItem(f"📌 {disp_name}", i)
             if 0 <= self.current_editing_tab_index < total_tabs:
                 self.proj_tab_quick_combo.setCurrentIndex(self.current_editing_tab_index)
             self.proj_tab_quick_combo.blockSignals(False)
@@ -6762,12 +6800,15 @@ class FBAutoBotMainWindow(QMainWindow):
         p_header.setStyleSheet("font-size: 15px; font-weight: 700; color: #38bdf8; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;")
         p_layout.addWidget(p_header)
 
-        # Input: Group Codes
-        p_layout.addWidget(QLabel("📋 Target Group Codes / URLs (1 per line or comma-separated):"))
-        self.grp_post_codes_input = QTextEdit()
-        self.grp_post_codes_input.setPlaceholderText("e.g.\n123456789012345\nhttps://www.facebook.com/groups/pakistanbuyandsell/\n987654321098765")
-        self.grp_post_codes_input.setFixedHeight(80)
-        p_layout.addWidget(self.grp_post_codes_input)
+        # Checkpoint: Already Group Joined
+        self.grp_already_joined_chk = QCheckBox("☑️ Already Group Joined (Post Directly to All Joined Groups)")
+        self.grp_already_joined_chk.setChecked(True)
+        self.grp_already_joined_chk.setStyleSheet("font-size: 13px; font-weight: 700; color: #10b981; padding: 6px 0;")
+        self.grp_already_joined_chk.setToolTip("When checked, skips group joining and posts directly to all groups already joined in the Facebook account via FewFeed tool.")
+        p_layout.addWidget(self.grp_already_joined_chk)
+
+        # Compatibility reference for legacy code
+        self.grp_post_codes_input = None
 
         # Input: Multiple Links (to be shared randomly or sequentially)
         p_links_hdr = QHBoxLayout()
@@ -6798,7 +6839,7 @@ class FBAutoBotMainWindow(QMainWindow):
         p_thread_col = QVBoxLayout()
         p_thread_col.addWidget(QLabel("🧵 Threads (Concurrent Browsers):"))
         self.grp_post_thread_spin = QSpinBox()
-        self.grp_post_thread_spin.setRange(1, 50)
+        self.grp_post_thread_spin.setRange(1, 999999)
         self.grp_post_thread_spin.setValue(1)
         self.grp_post_thread_spin.setStyleSheet("font-weight: 700; color: #38bdf8;")
         p_thread_col.addWidget(self.grp_post_thread_spin)
@@ -6807,7 +6848,7 @@ class FBAutoBotMainWindow(QMainWindow):
         p_delay_col = QVBoxLayout()
         p_delay_col.addWidget(QLabel("⏳ Post Delay Interval (Seconds):"))
         self.grp_post_delay_spin = QSpinBox()
-        self.grp_post_delay_spin.setRange(1, 50)
+        self.grp_post_delay_spin.setRange(1, 999999)
         self.grp_post_delay_spin.setValue(15)
         self.grp_post_delay_spin.setSuffix(" sec")
         self.grp_post_delay_spin.setStyleSheet("font-weight: 700; color: #10b981;")
@@ -6848,7 +6889,7 @@ class FBAutoBotMainWindow(QMainWindow):
         j_thread_col = QVBoxLayout()
         j_thread_col.addWidget(QLabel("🧵 Threads (Concurrent Browsers):"))
         self.grp_join_thread_spin = QSpinBox()
-        self.grp_join_thread_spin.setRange(1, 50)
+        self.grp_join_thread_spin.setRange(1, 999999)
         self.grp_join_thread_spin.setValue(1)
         self.grp_join_thread_spin.setStyleSheet("font-weight: 700; color: #38bdf8;")
         j_thread_col.addWidget(self.grp_join_thread_spin)
@@ -6857,7 +6898,7 @@ class FBAutoBotMainWindow(QMainWindow):
         j_delay_col = QVBoxLayout()
         j_delay_col.addWidget(QLabel("⏳ Join Delay Interval (Seconds):"))
         self.grp_join_delay_spin = QSpinBox()
-        self.grp_join_delay_spin.setRange(1, 50)
+        self.grp_join_delay_spin.setRange(1, 999999)
         self.grp_join_delay_spin.setValue(15)
         self.grp_join_delay_spin.setSuffix(" sec")
         self.grp_join_delay_spin.setStyleSheet("font-weight: 700; color: #10b981;")
@@ -7011,17 +7052,19 @@ class FBAutoBotMainWindow(QMainWindow):
         self.group_worker.start()
 
     def start_unified_group_automation(self):
-        """Validates inputs and dispatches GroupAutomationWorker for the full FewFeed 2-in-1 workflow (Auto Join -> Auto Post)."""
+        """Validates inputs and dispatches GroupAutomationWorker for the full FewFeed workflow (Auto Join -> Auto Post)."""
         accounts = self.get_selected_group_accounts()
         if not accounts:
             QMessageBox.warning(self, "No Accounts Selected", "Please select at least one Facebook account profile above.")
             return
 
-        raw_join_codes = self.grp_join_codes_input.toPlainText().strip()
-        join_codes = parse_group_codes(raw_join_codes)
+        already_joined = self.grp_already_joined_chk.isChecked() if hasattr(self, 'grp_already_joined_chk') else False
 
-        raw_post_codes = self.grp_post_codes_input.toPlainText().strip()
-        post_codes = parse_group_codes(raw_post_codes)
+        raw_join_codes = self.grp_join_codes_input.toPlainText().strip() if hasattr(self, 'grp_join_codes_input') else ""
+        join_codes = parse_group_codes(raw_join_codes) if raw_join_codes else []
+
+        raw_post_codes = self.grp_post_codes_input.toPlainText().strip() if (hasattr(self, 'grp_post_codes_input') and self.grp_post_codes_input) else ""
+        post_codes = parse_group_codes(raw_post_codes) if raw_post_codes else []
 
         raw_links = self.grp_post_links_input.toPlainText().strip()
         links = parse_multiline_links(raw_links)
@@ -7029,13 +7072,17 @@ class FBAutoBotMainWindow(QMainWindow):
         raw_desc = self.grp_post_desc_input.toPlainText().strip()
         descriptions = [d.strip() for d in re.split(r'\n\s*\n', raw_desc) if d.strip()] if raw_desc else []
 
-        if not join_codes and not links and not descriptions and not post_codes:
+        if not already_joined and not join_codes and not links and not descriptions and not post_codes:
             QMessageBox.warning(self, "No Data Provided", "Please provide Target Groups to Join or Post Descriptions/Links to proceed.")
             return
 
+        if already_joined and not links and not descriptions:
+            QMessageBox.warning(self, "No Content Provided", "Please enter at least one Link or Post Description to publish.")
+            return
+
         mode = "Random" if "Random" in self.grp_post_mode_select.currentText() else "Sequential"
-        threads = self.grp_max_concurrent_browsers.value() if hasattr(self, 'grp_max_concurrent_browsers') else 3
-        delay = self.grp_post_delay_spin.value()
+        threads = self.grp_post_thread_spin.value() if hasattr(self, 'grp_post_thread_spin') else 1
+        delay = self.grp_post_delay_spin.value() if hasattr(self, 'grp_post_delay_spin') else 15
 
         cf_email = "codeabm71@gmail.com"
         cf_pass = "Fewfeew"
@@ -7059,8 +7106,9 @@ class FBAutoBotMainWindow(QMainWindow):
             "accounts": accounts,
             "cuefeed_email": cf_email,
             "cuefeed_pass": cf_pass,
+            "already_joined": already_joined,
             "group_codes": post_codes or join_codes,
-            "join_group_codes": join_codes,
+            "join_group_codes": [] if already_joined else join_codes,
             "post_group_codes": post_codes,
             "links": links,
             "descriptions": descriptions,
