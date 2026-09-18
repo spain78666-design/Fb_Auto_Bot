@@ -2833,6 +2833,111 @@ class FBAutoBotMainWindow(QMainWindow):
         left_card_layout.addStretch()
 
         splitter.addWidget(left_card)
+
+        # Right Card: Accounts Table & Multi-Account Action Suite
+        right_card = QFrame()
+        right_card.setProperty("class", "glassCard")
+        table_layout = QVBoxLayout(right_card)
+        table_layout.setSpacing(10)
+
+        table_header_layout = QHBoxLayout()
+        table_header = QLabel("Configured Profiles Vault")
+        table_header.setProperty("class", "cardTitle")
+        table_header_layout.addWidget(table_header)
+
+        btn_select_all = QPushButton("☑️ Select All")
+        btn_select_all.setStyleSheet("background-color: #334155; color: #38bdf8; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px; border: 1px solid #0284c7;")
+        btn_select_all.setCursor(Qt.PointingHandCursor)
+        btn_select_all.clicked.connect(self.select_all_accounts_in_table)
+
+        btn_unselect_all = QPushButton("☐ Clear All")
+        btn_unselect_all.setStyleSheet("background-color: #334155; color: #cbd5e1; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px;")
+        btn_unselect_all.setCursor(Qt.PointingHandCursor)
+        btn_unselect_all.clicked.connect(self.unselect_all_accounts_in_table)
+
+        table_header_layout.addWidget(btn_select_all)
+        table_header_layout.addWidget(btn_unselect_all)
+        table_header_layout.addStretch()
+
+        self.vault_stats_lbl = QLabel(f"{len(self.accounts_list)} Profile(s) Loaded")
+        self.vault_stats_lbl.setStyleSheet("color: #94a3b8; font-size: 12px;")
+        table_header_layout.addWidget(self.vault_stats_lbl)
+        table_layout.addLayout(table_header_layout)
+
+        # 7 Columns: Select, Profile/Alias, UID/Email, Auth Mode, Status, Assigned Proxy, Last Audit
+        self.accounts_table = QTableWidget(len(self.accounts_list), 7)
+        self.accounts_table.setHorizontalHeaderLabels([
+            "Select", "Profile / Alias", "UID / Email", "Auth Mode", "Status", "Assigned Proxy", "Last Audit"
+        ])
+        self.accounts_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.accounts_table.setSelectionMode(QTableWidget.ExtendedSelection)
+        self.accounts_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.accounts_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.accounts_table.setColumnWidth(0, 60)
+        self.accounts_table.verticalHeader().setVisible(False)
+        self.accounts_table.itemSelectionChanged.connect(self.populate_form_from_selected_account)
+        self.refresh_accounts_table()
+        table_layout.addWidget(self.accounts_table)
+
+        # Action Suite Buttons
+        actions_bar = QHBoxLayout()
+        actions_bar.setSpacing(6)
+
+        self.btn_auto_login_selected = QPushButton("🔑 Auto-Login Selected")
+        self.btn_auto_login_selected.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: 700; font-size: 11px; padding: 6px 10px; border-radius: 6px;")
+        self.btn_auto_login_selected.setCursor(Qt.PointingHandCursor)
+        self.btn_auto_login_selected.setToolTip("Logs into the selected account using its stored credentials to generate fresh cookies.")
+        self.btn_auto_login_selected.clicked.connect(self.auto_login_selected_account)
+
+        self.btn_open_browser = QPushButton("🌐 Open in Browser")
+        self.btn_open_browser.setProperty("class", "primaryBtn")
+        self.btn_open_browser.setStyleSheet("font-size: 11px; padding: 6px 10px;")
+        self.btn_open_browser.setToolTip("Opens Google Chrome/Edge with this account session so you can use Facebook live.")
+        self.btn_open_browser.clicked.connect(self.launch_manual_login_selected)
+
+        self.btn_test_health = QPushButton("⚡ Test Health")
+        self.btn_test_health.setProperty("class", "secondaryBtn")
+        self.btn_test_health.setStyleSheet("font-size: 11px; padding: 6px 10px;")
+        self.btn_test_health.setToolTip("Run background check to verify login status and cookie freshness.")
+        self.btn_test_health.clicked.connect(self.test_selected_session)
+
+        self.btn_audit_all = QPushButton("🔄 Audit / Login All")
+        self.btn_audit_all.setProperty("class", "secondaryBtn")
+        self.btn_audit_all.setStyleSheet("font-size: 11px; padding: 6px 10px;")
+        self.btn_audit_all.setToolTip("Sequentially verify and log into all configured accounts.")
+        self.btn_audit_all.clicked.connect(self.test_all_sessions)
+
+        self.btn_delete_profile = QPushButton("🗑️ Remove")
+        self.btn_delete_profile.setProperty("class", "dangerBtn")
+        self.btn_delete_profile.setStyleSheet("font-size: 11px; padding: 6px 10px;")
+        self.btn_delete_profile.setToolTip("Delete selected account profile.")
+        self.btn_delete_profile.clicked.connect(self.delete_selected_account)
+
+        self.btn_master_qfit = QPushButton("🔑 Master QFit Login")
+        self.btn_master_qfit.setStyleSheet("background-color: #7c3aed; color: #ffffff; font-weight: 800; font-size: 11px; padding: 6px 10px; border-radius: 6px;")
+        self.btn_master_qfit.setCursor(Qt.PointingHandCursor)
+        self.btn_master_qfit.setToolTip("Log in ONCE to QFit / FewFeed / Gmail. Session will be shared automatically across ALL Chrome browser profiles!")
+        self.btn_master_qfit.clicked.connect(self.setup_master_qfit_session)
+
+        self.btn_sync_qfit = QPushButton("⚡ Sync QFit Session")
+        self.btn_sync_qfit.setStyleSheet("background-color: #059669; color: #ffffff; font-weight: 700; font-size: 11px; padding: 6px 10px; border-radius: 6px;")
+        self.btn_sync_qfit.setCursor(Qt.PointingHandCursor)
+        self.btn_sync_qfit.setToolTip("Syncs the saved master QFit / FewFeed session to all active account profile directories.")
+        self.btn_sync_qfit.clicked.connect(self.sync_qfit_to_all_profiles)
+
+        actions_bar.addWidget(self.btn_auto_login_selected)
+        actions_bar.addWidget(self.btn_open_browser)
+        actions_bar.addWidget(self.btn_master_qfit)
+        actions_bar.addWidget(self.btn_sync_qfit)
+        actions_bar.addWidget(self.btn_test_health)
+        actions_bar.addWidget(self.btn_audit_all)
+        actions_bar.addWidget(self.btn_delete_profile)
+        table_layout.addLayout(actions_bar)
+
+        splitter.addWidget(right_card)
+        splitter.setSizes([390, 550])
+
+        layout.addWidget(splitter)
         return page
 
     def _unused_old_accounts_form(self):
