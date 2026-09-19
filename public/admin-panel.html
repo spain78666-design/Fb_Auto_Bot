@@ -762,9 +762,15 @@
       }
 
       function normalizeHwidHex(h) {
+        if (!h) return "";
         const clean = h.trim().toUpperCase();
-        const hex = clean.replace(/[^A-F0-9]/g, '');
-        return hex.length >= 12 ? hex.slice(0, 16) : clean.replace(/[^A-Z0-9]/g, '');
+        // Strip prefixes FBAUTO / FBAC / FBA / FB (with or without hyphens) to isolate raw machine hex
+        const stripped = clean.replace(/^(FBAUTO|FBAC|FBA|FB)[-\s]?/i, '');
+        const hexOnly = stripped.replace(/[^0-9A-F]/g, '');
+        if (!hexOnly) {
+          return clean.replace(/[^0-9A-F]/g, '').slice(0, 16);
+        }
+        return hexOnly.slice(0, 16);
       }
 
       const tierCode = getTierCode(tier);

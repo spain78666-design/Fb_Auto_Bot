@@ -122,9 +122,9 @@ class LicenseManager:
         if not hwid:
             return ""
         clean = hwid.strip().upper()
-        # Strip prefixes FBAUTO / FBAC (with or without hyphens) to isolate raw machine hex
+        # Strip prefixes FBAUTO / FBAC / FBA / FB (with or without hyphens) to isolate raw machine hex
         import re
-        stripped = re.sub(r'^(FBAUTO|FBAC)[-\s]?', '', clean)
+        stripped = re.sub(r'^(FBAUTO|FBAC|FBA|FB)[-\s]?', '', clean)
         hex_only = "".join(c for c in stripped if c in "0123456789ABCDEF")
         if not hex_only:
             hex_only = "".join(c for c in clean if c in "0123456789ABCDEF")
@@ -190,14 +190,22 @@ class LicenseManager:
                 }
 
             # Verify Hardware ID (Strict lock: Key generated for machine A CANNOT run on machine B)
+            # Support both clean stripped hex (1A2B...) and legacy raw hex (FBA1A2B...)
+            import re
+            key_hwid_stripped = re.sub(r'^(FBAUTO|FBAC|FBA|FB)[-\s]?', '', key_hwid_raw)
+            key_hwid_stripped_hex = "".join(c for c in key_hwid_stripped if c in "0123456789ABCDEF")[:16]
+
             hwid_matched = (
-                key_hwid_raw in ["DEVUNLIMITED", "ANYKEYS"] or
-                key_hwid_hex in ["DEVUNLIMITED", "ANYKEYS"] or
+                key_hwid_raw in ["DEVUNLIMITED", "ANYKEYS", "ADMIN"] or
+                key_hwid_hex in ["DEVUNLIMITED", "ANYKEYS", "ADMIN"] or
                 key_hwid_hex == current_hwid_hex or
+                (key_hwid_stripped_hex and key_hwid_stripped_hex == current_hwid_hex) or
                 current_hwid_hex.startswith(key_hwid_hex) or
                 key_hwid_hex.startswith(current_hwid_hex) or
+                (key_hwid_stripped_hex and (current_hwid_hex.startswith(key_hwid_stripped_hex) or key_hwid_stripped_hex.startswith(current_hwid_hex))) or
                 (len(key_hwid_hex) >= 6 and key_hwid_hex in current_hwid_hex) or
-                (len(current_hwid_hex) >= 6 and current_hwid_hex in key_hwid_hex)
+                (len(current_hwid_hex) >= 6 and current_hwid_hex in key_hwid_hex) or
+                (len(key_hwid_stripped_hex) >= 6 and (key_hwid_stripped_hex in current_hwid_hex or current_hwid_hex in key_hwid_stripped_hex))
             )
             if not hwid_matched:
                 return False, f"Hardware ID mismatch! This license is locked to machine ID [{key_hwid_raw}], but this PC is [{current_hwid_hex}]. Keys cannot be transferred across PCs.", {}

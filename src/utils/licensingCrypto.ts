@@ -86,8 +86,8 @@ export function sanitizeCustomerSlug(name: string): string {
 export function normalizeHwid(hwid: string): { full: string; hex: string } {
   if (!hwid) return { full: '', hex: '' };
   const clean = hwid.trim().toUpperCase();
-  // Strip known prefixes (FBAUTO, FBAC with or without hyphen/space)
-  const strippedPrefix = clean.replace(/^(FBAUTO|FBAC)[-\s]?/i, '');
+  // Strip known prefixes (FBAUTO, FBAC, FBA, FB with or without hyphen/space)
+  const strippedPrefix = clean.replace(/^(FBAUTO|FBAC|FBA|FB)[-\s]?/i, '');
   const hexOnly = strippedPrefix.replace(/[^A-F0-9]/g, '');
 
   let fullHwid = clean;
@@ -101,7 +101,7 @@ export function normalizeHwid(hwid: string): { full: string; hex: string } {
 
   return {
     full: fullHwid,
-    hex: hexOnly || clean.replace(/[^A-Z0-9]/g, '')
+    hex: (hexOnly || clean.replace(/[^0-9A-F]/g, '')).slice(0, 16)
   };
 }
 
@@ -144,7 +144,7 @@ export async function generateLicenseKey(
   const shortSig = sig.slice(0, 12).toUpperCase();
   
   // Compact formatted key
-  const hwidSegment = hwidNorm.hex.length >= 12 ? hwidNorm.hex.slice(0, 16) : cleanHwid.replace(/[^A-Z0-9]/g, '');
+  const hwidSegment = hwidNorm.hex ? hwidNorm.hex.slice(0, 16) : cleanHwid.replace(/[^A-Z0-9]/g, '').slice(0, 16);
   const licenseKey = `FB26-${tierCode}-${customerSlug}-${hwidSegment}-${expiryHex}-${shortSig}`;
 
   const payload: LicensePayload = {

@@ -26,21 +26,22 @@ except ImportError:
     class PlaywrightTimeoutError(Exception):
         pass
 
-# Mobile Smartphone Emulation Specifications for FB Group Automation
-MOBILE_SMARTPHONE_USER_AGENT = (
-    "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/128.0.6613.127 Mobile Safari/537.36"
+# Desktop Chrome Specifications for FB Group Automation & FEWFEED Integration
+DESKTOP_CHROME_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 )
 
+# Kept for backward compatibility
+MOBILE_SMARTPHONE_USER_AGENT = DESKTOP_CHROME_USER_AGENT
 MOBILE_DEVICE_METRICS = {
-    "width": 430,
-    "height": 900,
+    "width": 1280,
+    "height": 800,
     "pixelRatio": 1.0
 }
-
 MOBILE_EMULATION_EXPERIMENTAL_OPTIONS = {
     "deviceMetrics": MOBILE_DEVICE_METRICS,
-    "userAgent": MOBILE_SMARTPHONE_USER_AGENT
+    "userAgent": DESKTOP_CHROME_USER_AGENT
 }
 
 def get_base_dir() -> str:
@@ -414,24 +415,19 @@ class FacebookGroupBot:
         self.log("WARNING", "Cancellation requested for Group Bot.")
 
     async def initialize_browser(self):
-        """Launches Chrome with strict mobile device emulation & FEWFEED extension loaded automatically."""
+        """Launches Desktop Chrome with FEWFEED extension loaded automatically and full desktop session support."""
         if not PLAYWRIGHT_AVAILABLE:
             raise RuntimeError("Playwright is not available in Python environment.")
 
-        self.log("INFO", "Initializing Mobile Emulation Browser for FB Group Automation...")
-        self.log("INFO", f"📱 Mobile Emulation Active: deviceMetrics={{width: 393, height: 851, pixelRatio: 3.0}}, is_mobile=True")
-        self.log("INFO", f"📱 Mobile Smartphone User-Agent: {MOBILE_SMARTPHONE_USER_AGENT}")
+        self.log("INFO", "Initializing Desktop Chrome Browser Context for FB Group Automation...")
+        self.log("INFO", f"💻 Desktop Chrome User-Agent: {DESKTOP_CHROME_USER_AGENT}")
 
         self.playwright = await async_playwright().start()
 
         ext_path = get_fewfeed_extension_path()
         launch_args = [
             "--disable-blink-features=AutomationControlled",
-            "--window-size=440,920",
-            "--enable-viewport",
-            "--force-device-scale-factor=1.0",
-            "--touch-events=enabled",
-            f"--user-agent={MOBILE_SMARTPHONE_USER_AGENT}",
+            "--start-maximized",
             "--disable-infobars",
             "--disable-features=IsolateOrigins,site-per-process",
             "--no-default-browser-check",
@@ -443,13 +439,12 @@ class FacebookGroupBot:
             "--disable-notifications",
             "--password-store=basic",
             "--no-first-run",
-            "--no-service-autorun",
-            "--enable-extensions",
-            "--allow-legacy-extension-manifests"
+            "--no-service-autorun"
         ]
 
         if ext_path and os.path.exists(ext_path):
             launch_args.append(f"--load-extension={ext_path}")
+            launch_args.append(f"--disable-extensions-except={ext_path}")
             self.log("SUCCESS", f"🧩 Chrome Extension Loaded: {os.path.basename(ext_path)} -> {ext_path}")
         else:
             self.log("WARNING", f"FEWFEED extension folder not detected at {ext_path}. Proceeding.")
@@ -508,7 +503,7 @@ class FacebookGroupBot:
                     except Exception:
                         pass
 
-        # Launch browser with strict mobile metrics and mobile emulation
+        # Launch browser in desktop mode with FEWFEED loaded
         self.context = None
         for ch in ["chrome", "msedge", None]:
             try:
@@ -518,22 +513,18 @@ class FacebookGroupBot:
                     "args": launch_args,
                     "ignore_default_args": ignore_default_args,
                     "proxy": proxy_cfg,
-                    "user_agent": MOBILE_SMARTPHONE_USER_AGENT,
-                    "viewport": {"width": 430, "height": 900},
-                    "screen": {"width": 440, "height": 920},
-                    "device_scale_factor": 1.0,
-                    "is_mobile": True,
-                    "has_touch": True,
+                    "user_agent": DESKTOP_CHROME_USER_AGENT,
+                    "no_viewport": True,
                     "locale": "en-US",
                     "permissions": ["geolocation", "notifications"]
                 }
                 if ch:
                     kwargs["channel"] = ch
                 self.context = await self.playwright.chromium.launch_persistent_context(**kwargs)
-                self.log("INFO", f"Launched mobile Chrome browser using {ch.upper() if ch else 'Chromium'} with FEWFEED loaded.")
+                self.log("INFO", f"Launched Desktop Chrome browser using {ch.upper() if ch else 'Chromium'} with FEWFEED loaded.")
                 break
             except Exception as ex:
-                self.log("WARNING", f"Mobile launch attempt with channel={ch} notice: {str(ex)[:100]}")
+                self.log("WARNING", f"Browser launch attempt with channel={ch} notice: {str(ex)[:100]}")
                 if profile_dir and os.path.exists(profile_dir):
                     for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
                         fpath = os.path.join(profile_dir, fname)
@@ -554,15 +545,12 @@ class FacebookGroupBot:
                 }
                 self.browser = await self.playwright.chromium.launch(**launch_kw)
                 self.context = await self.browser.new_context(
-                    user_agent=MOBILE_SMARTPHONE_USER_AGENT,
-                    viewport={"width": 430, "height": 900},
-                    device_scale_factor=1.0,
-                    is_mobile=True,
-                    has_touch=True,
+                    user_agent=DESKTOP_CHROME_USER_AGENT,
+                    viewport={"width": 1280, "height": 800},
                     locale="en-US",
                     permissions=["geolocation", "notifications"]
                 )
-                self.log("INFO", "Launched standard mobile Chrome browser (non-persistent fallsafes).")
+                self.log("INFO", "Launched standard Desktop Chrome browser.")
             except Exception as final_ex:
                 raise RuntimeError(f"Failed to launch Chrome or Edge: {str(final_ex)}")
 
@@ -1048,18 +1036,72 @@ class FacebookGroupBot:
         else:
             self.log("WARNING", "⚠️ 'JOINs' button click notice. Please verify 'JOINs' button on FewFeed tab.")
 
-        self.set_progress(45)
+        self.set_progress(40)
 
-        # Wait cycles
-        wait_cycles = min(len(group_codes) * int(delay_str), 60)
-        self.log("INFO", f"⏳ Monitoring FewFeed automated group joining progress ({wait_cycles}s window)...")
-        for w in range(0, max(5, int(wait_cycles / 5))):
+        # Monitor joining progress & wait for button status
+        self.log("INFO", "👀 Monitoring FewFeed Auto Join execution status...")
+        turned_red = False
+        for _ in range(12):
             if self._cancel_requested:
                 break
-            await asyncio.sleep(5.0)
+            try:
+                is_red = await self.page.evaluate("""() => {
+                    const btns = Array.from(document.querySelectorAll('button, div[role="button"], input[type="submit"]'));
+                    for (const b of btns) {
+                        const txt = (b.textContent || b.value || '').trim().toLowerCase();
+                        const style = window.getComputedStyle(b);
+                        const bg = style.backgroundColor || '';
+                        if (txt.includes('stop') || txt.includes('pause') || bg.includes('239') || bg.includes('220') || bg.includes('red') || (b.className && (b.className.toLowerCase().includes('danger') || b.className.toLowerCase().includes('stop')))) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }""")
+                if is_red:
+                    turned_red = True
+                    self.log("INFO", "🔴 Button turned RED: FewFeed group joining is actively processing...")
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(1.0)
 
-        self.log("SUCCESS", f"🎉 FewFeed Auto Join execution completed for {len(group_codes)} groups.")
+        # Wait until all groups are joined and button returns to BLUE / idle
+        max_join_wait = max(30, min(len(group_codes) * int(delay_str) * 2, 300))
+        self.log("INFO", f"⏳ Waiting for all {len(group_codes)} groups to be joined (timeout {max_join_wait}s)...")
+        join_start = time.time()
+        
+        while (time.time() - join_start) < max_join_wait:
+            if self._cancel_requested:
+                break
+            await asyncio.sleep(2.0)
+            try:
+                state = await self.page.evaluate("""() => {
+                    const btns = Array.from(document.querySelectorAll('button, div[role="button"], input[type="submit"]'));
+                    let hasStop = false;
+                    let isBlue = false;
+                    for (const b of btns) {
+                        const txt = (b.textContent || b.value || '').trim().toLowerCase();
+                        const style = window.getComputedStyle(b);
+                        const bg = style.backgroundColor || '';
+                        if (txt.includes('stop') || bg.includes('239') || bg.includes('220') || bg.includes('red')) {
+                            hasStop = true;
+                        }
+                        if (txt.includes('join') || bg.includes('59') || bg.includes('37') || bg.includes('blue') || (b.className && b.className.toLowerCase().includes('primary'))) {
+                            isBlue = true;
+                        }
+                    }
+                    return { hasStop, isBlue };
+                }""")
+                if (turned_red and not state.get("hasStop") and state.get("isBlue")) or (not state.get("hasStop") and state.get("isBlue") and (time.time() - join_start > 10)):
+                    self.log("SUCCESS", "🔵 FewFeed Auto Join finished! Button has returned to BLUE.")
+                    break
+            except Exception:
+                pass
+
+        self.log("SUCCESS", f"🎉 FewFeed Auto Join successfully completed for all {len(group_codes)} groups!")
+        self.log("INFO", "➡️ Proceeding to Card #1 (Auto Post To Facebook Groups PRO 2023)...")
         self.set_progress(50)
+        await asyncio.sleep(2.0)
         return len(group_codes)
 
     async def run_fewfeed_group_posting(

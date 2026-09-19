@@ -997,7 +997,7 @@ class GroupAutomationWorker(QThread):
         self.log_signal.emit("INFO", f"🚀 Launching Multi-Threaded FB Group {self.task_type.upper()} Workflow (FewFeed Extension Automation)...")
         self.log_signal.emit("INFO", f"👥 Accounts: {len(accounts)} | 📋 Target Join Groups: {len(join_group_codes)} | 📢 Post Groups: {len(post_group_codes)}")
         self.log_signal.emit("INFO", f"🧵 Concurrent Browsers (Threads): {threads} | ⏳ Action Delay: {delay}s")
-        self.log_signal.emit("INFO", f"📱 Mobile Device Emulation Enforced: deviceMetrics={{width: 393, height: 851, pixelRatio: 3.0}}")
+        self.log_signal.emit("INFO", f"💻 Desktop Chrome Browser Context Loaded with FEWFEED Chrome Extension.")
         self.log_signal.emit("INFO", f"🧩 Chrome Extension: FEWFEED pre-loaded across all {threads} concurrent browser instance(s).")
 
         total_accs = len(accounts)
@@ -4670,6 +4670,21 @@ class FBAutoBotMainWindow(QMainWindow):
         self.id_location_input.setToolTip("Sets the Facebook ID's primary Marketplace location on the homepage before listing.")
         col_id_loc.addWidget(self.id_location_input)
 
+        col_radius = QVBoxLayout()
+        col_radius.setContentsMargins(0, 0, 0, 0)
+        col_radius.setSpacing(2)
+        col_radius.setAlignment(Qt.AlignTop)
+        col_radius.addWidget(QLabel("Radius:"))
+        self.id_radius_select = QComboBox()
+        self.id_radius_select.setEditable(True)
+        self.id_radius_select.addItems([
+            "40 miles", "1 mile", "2 miles", "5 miles", "10 miles", "20 miles",
+            "60 miles", "80 miles", "100 miles", "250 miles", "500 miles",
+            "10 km", "20 km", "40 km", "60 km", "80 km", "100 km", "250 km", "500 km"
+        ])
+        self.id_radius_select.setToolTip("Select or enter the Marketplace location radius (e.g. 40 miles, 20 miles, 500 miles).")
+        col_radius.addWidget(self.id_radius_select)
+
         col_loc = QVBoxLayout()
         col_loc.setContentsMargins(0, 0, 0, 0)
         col_loc.setSpacing(2)
@@ -4684,6 +4699,7 @@ class FBAutoBotMainWindow(QMainWindow):
         i_r2.addLayout(col_t, stretch=3)
         i_r2.addLayout(col_p, stretch=1)
         i_r2.addLayout(col_id_loc, stretch=2)
+        i_r2.addLayout(col_radius, stretch=1)
         i_r2.addLayout(col_loc, stretch=3)
         item_layout.addLayout(i_r2)
 
@@ -4778,6 +4794,21 @@ class FBAutoBotMainWindow(QMainWindow):
         self.veh_id_loc_input.setToolTip("Sets the Facebook ID's primary Marketplace location on the homepage before listing.")
         col_vid_loc.addWidget(self.veh_id_loc_input)
 
+        col_vradius = QVBoxLayout()
+        col_vradius.setContentsMargins(0, 0, 0, 0)
+        col_vradius.setSpacing(2)
+        col_vradius.setAlignment(Qt.AlignTop)
+        col_vradius.addWidget(QLabel("Radius:"))
+        self.veh_id_radius_select = QComboBox()
+        self.veh_id_radius_select.setEditable(True)
+        self.veh_id_radius_select.addItems([
+            "40 miles", "1 mile", "2 miles", "5 miles", "10 miles", "20 miles",
+            "60 miles", "80 miles", "100 miles", "250 miles", "500 miles",
+            "10 km", "20 km", "40 km", "60 km", "80 km", "100 km", "250 km", "500 km"
+        ])
+        self.veh_id_radius_select.setToolTip("Select or enter the Marketplace location radius.")
+        col_vradius.addWidget(self.veh_id_radius_select)
+
         col_vloc = QVBoxLayout()
         col_vloc.setContentsMargins(0, 0, 0, 0)
         col_vloc.setSpacing(2)
@@ -4793,6 +4824,7 @@ class FBAutoBotMainWindow(QMainWindow):
         v_r2.addLayout(col_vmodel, stretch=2)
         v_r2.addLayout(col_vprice, stretch=1)
         v_r2.addLayout(col_vid_loc, stretch=2)
+        v_r2.addLayout(col_vradius, stretch=1)
         v_r2.addLayout(col_vloc, stretch=3)
         veh_layout.addLayout(v_r2)
 
@@ -4881,6 +4913,21 @@ class FBAutoBotMainWindow(QMainWindow):
         self.prop_id_loc_input.setToolTip("Sets the Facebook ID's primary Marketplace location on the homepage before listing.")
         col_pid_loc.addWidget(self.prop_id_loc_input)
 
+        col_pradius = QVBoxLayout()
+        col_pradius.setContentsMargins(0, 0, 0, 0)
+        col_pradius.setSpacing(2)
+        col_pradius.setAlignment(Qt.AlignTop)
+        col_pradius.addWidget(QLabel("Radius:"))
+        self.prop_id_radius_select = QComboBox()
+        self.prop_id_radius_select.setEditable(True)
+        self.prop_id_radius_select.addItems([
+            "40 miles", "1 mile", "2 miles", "5 miles", "10 miles", "20 miles",
+            "60 miles", "80 miles", "100 miles", "250 miles", "500 miles",
+            "10 km", "20 km", "40 km", "60 km", "80 km", "100 km", "250 km", "500 km"
+        ])
+        self.prop_id_radius_select.setToolTip("Select or enter the Marketplace location radius.")
+        col_pradius.addWidget(self.prop_id_radius_select)
+
         col_ploc = QVBoxLayout()
         col_ploc.setContentsMargins(0, 0, 0, 0)
         col_ploc.setSpacing(2)
@@ -4896,6 +4943,7 @@ class FBAutoBotMainWindow(QMainWindow):
         p_r2.addLayout(col_pbaths, stretch=1)
         p_r2.addLayout(col_pprice, stretch=1)
         p_r2.addLayout(col_pid_loc, stretch=2)
+        p_r2.addLayout(col_pradius, stretch=1)
         p_r2.addLayout(col_ploc, stretch=3)
         prop_layout.addLayout(p_r2)
 
@@ -5899,6 +5947,21 @@ class FBAutoBotMainWindow(QMainWindow):
         self.proj_id_loc_input.setToolTip("Sets location link under 'Create new listing' on Marketplace homepage before starting listing")
         col_id_loc.addWidget(self.proj_id_loc_input)
 
+        col_radius = QVBoxLayout()
+        col_radius.setContentsMargins(0, 0, 0, 0)
+        col_radius.setSpacing(2)
+        col_radius.setAlignment(Qt.AlignTop)
+        col_radius.addWidget(QLabel("Radius:"))
+        self.proj_id_radius_select = QComboBox()
+        self.proj_id_radius_select.setEditable(True)
+        self.proj_id_radius_select.addItems([
+            "40 miles", "1 mile", "2 miles", "5 miles", "10 miles", "20 miles",
+            "60 miles", "80 miles", "100 miles", "250 miles", "500 miles",
+            "10 km", "20 km", "40 km", "60 km", "80 km", "100 km", "250 km", "500 km"
+        ])
+        self.proj_id_radius_select.setToolTip("Select or enter the Marketplace location radius.")
+        col_radius.addWidget(self.proj_id_radius_select)
+
         col_loc = QVBoxLayout()
         col_loc.setContentsMargins(0, 0, 0, 0)
         col_loc.setSpacing(2)
@@ -5911,6 +5974,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         pi_r3.addLayout(col_p, stretch=1)
         pi_r3.addLayout(col_id_loc, stretch=2)
+        pi_r3.addLayout(col_radius, stretch=1)
         pi_r3.addLayout(col_loc, stretch=3)
         p_item_layout.addLayout(pi_r3)
 
@@ -6005,6 +6069,21 @@ class FBAutoBotMainWindow(QMainWindow):
         self.proj_veh_id_loc_input.setToolTip("Sets location link under 'Create new listing' on Marketplace homepage before starting listing")
         col_pvid_loc.addWidget(self.proj_veh_id_loc_input)
 
+        col_pvradius = QVBoxLayout()
+        col_pvradius.setContentsMargins(0, 0, 0, 0)
+        col_pvradius.setSpacing(2)
+        col_pvradius.setAlignment(Qt.AlignTop)
+        col_pvradius.addWidget(QLabel("Radius:"))
+        self.proj_veh_id_radius_select = QComboBox()
+        self.proj_veh_id_radius_select.setEditable(True)
+        self.proj_veh_id_radius_select.addItems([
+            "40 miles", "1 mile", "2 miles", "5 miles", "10 miles", "20 miles",
+            "60 miles", "80 miles", "100 miles", "250 miles", "500 miles",
+            "10 km", "20 km", "40 km", "60 km", "80 km", "100 km", "250 km", "500 km"
+        ])
+        self.proj_veh_id_radius_select.setToolTip("Select or enter the Marketplace location radius.")
+        col_pvradius.addWidget(self.proj_veh_id_radius_select)
+
         col_pvloc = QVBoxLayout()
         col_pvloc.setContentsMargins(0, 0, 0, 0)
         col_pvloc.setSpacing(2)
@@ -6019,6 +6098,7 @@ class FBAutoBotMainWindow(QMainWindow):
         pv_r2.addLayout(col_pvmodel, stretch=2)
         pv_r2.addLayout(col_pvprice, stretch=1)
         pv_r2.addLayout(col_pvid_loc, stretch=2)
+        pv_r2.addLayout(col_pvradius, stretch=1)
         pv_r2.addLayout(col_pvloc, stretch=3)
         p_veh_layout.addLayout(pv_r2)
 
@@ -6107,6 +6187,21 @@ class FBAutoBotMainWindow(QMainWindow):
         self.proj_prop_id_loc_input.setToolTip("Sets the Facebook ID's primary Marketplace location on the homepage before listing.")
         col_ppid_loc.addWidget(self.proj_prop_id_loc_input)
 
+        col_ppradius = QVBoxLayout()
+        col_ppradius.setContentsMargins(0, 0, 0, 0)
+        col_ppradius.setSpacing(2)
+        col_ppradius.setAlignment(Qt.AlignTop)
+        col_ppradius.addWidget(QLabel("Radius:"))
+        self.proj_prop_id_radius_select = QComboBox()
+        self.proj_prop_id_radius_select.setEditable(True)
+        self.proj_prop_id_radius_select.addItems([
+            "40 miles", "1 mile", "2 miles", "5 miles", "10 miles", "20 miles",
+            "60 miles", "80 miles", "100 miles", "250 miles", "500 miles",
+            "10 km", "20 km", "40 km", "60 km", "80 km", "100 km", "250 km", "500 km"
+        ])
+        self.proj_prop_id_radius_select.setToolTip("Select or enter the Marketplace location radius.")
+        col_ppradius.addWidget(self.proj_prop_id_radius_select)
+
         col_pploc = QVBoxLayout()
         col_pploc.setContentsMargins(0, 0, 0, 0)
         col_pploc.setSpacing(2)
@@ -6122,6 +6217,7 @@ class FBAutoBotMainWindow(QMainWindow):
         pp_r2.addLayout(col_ppbaths, stretch=1)
         pp_r2.addLayout(col_ppprice, stretch=1)
         pp_r2.addLayout(col_ppid_loc, stretch=2)
+        pp_r2.addLayout(col_ppradius, stretch=1)
         pp_r2.addLayout(col_pploc, stretch=3)
         p_prop_layout.addLayout(pp_r2)
 
@@ -6368,6 +6464,13 @@ class FBAutoBotMainWindow(QMainWindow):
         self.proj_price_input.setText(str(tdata.get("price", "0")))
         if hasattr(self, 'proj_id_loc_input'):
             self.proj_id_loc_input.setText(tdata.get("id_location", ""))
+        if hasattr(self, 'proj_id_radius_select'):
+            rad = tdata.get("id_radius", tdata.get("radius", "40 miles"))
+            idx_r = self.proj_id_radius_select.findText(rad)
+            if idx_r >= 0:
+                self.proj_id_radius_select.setCurrentIndex(idx_r)
+            else:
+                self.proj_id_radius_select.setEditText(rad)
         self.proj_location_input.setPlainText(tdata.get("location", ""))
         self.proj_desc_input.setPlainText(tdata.get("description", ""))
 
@@ -6388,6 +6491,13 @@ class FBAutoBotMainWindow(QMainWindow):
             self.proj_veh_price_input.setText(str(tdata.get("vehicle_price", tdata.get("price", "15000"))))
         if hasattr(self, 'proj_veh_id_loc_input'):
             self.proj_veh_id_loc_input.setText(tdata.get("vehicle_id_location", tdata.get("id_location", "")))
+        if hasattr(self, 'proj_veh_id_radius_select'):
+            vrad = tdata.get("vehicle_id_radius", tdata.get("id_radius", tdata.get("radius", "40 miles")))
+            idx_vr = self.proj_veh_id_radius_select.findText(vrad)
+            if idx_vr >= 0:
+                self.proj_veh_id_radius_select.setCurrentIndex(idx_vr)
+            else:
+                self.proj_veh_id_radius_select.setEditText(vrad)
         if hasattr(self, 'proj_veh_location_input'):
             self.proj_veh_location_input.setPlainText(tdata.get("vehicle_location", tdata.get("location", "")))
         if hasattr(self, 'proj_veh_desc_input'):
@@ -6414,6 +6524,13 @@ class FBAutoBotMainWindow(QMainWindow):
             self.proj_prop_price_input.setText(str(tdata.get("property_price", tdata.get("price", "1800"))))
         if hasattr(self, 'proj_prop_id_loc_input'):
             self.proj_prop_id_loc_input.setText(tdata.get("property_id_location", tdata.get("id_location", "")))
+        if hasattr(self, 'proj_prop_id_radius_select'):
+            prad = tdata.get("property_id_radius", tdata.get("id_radius", tdata.get("radius", "40 miles")))
+            idx_pr = self.proj_prop_id_radius_select.findText(prad)
+            if idx_pr >= 0:
+                self.proj_prop_id_radius_select.setCurrentIndex(idx_pr)
+            else:
+                self.proj_prop_id_radius_select.setEditText(prad)
         if hasattr(self, 'proj_prop_location_input'):
             self.proj_prop_location_input.setPlainText(tdata.get("property_location", tdata.get("location", "")))
         if hasattr(self, 'proj_prop_desc_input'):
@@ -6466,6 +6583,7 @@ class FBAutoBotMainWindow(QMainWindow):
             title = f"{v_year} {v_make} {v_model}".strip() if (v_make or v_model) else self.proj_title_input.text().strip()
             price = self.proj_veh_price_input.text().strip() if hasattr(self, 'proj_veh_price_input') else (self.proj_price_input.text().strip() or "0")
             id_loc = self.proj_veh_id_loc_input.text().strip() if hasattr(self, 'proj_veh_id_loc_input') else ""
+            id_rad = self.proj_veh_id_radius_select.currentText().strip() if hasattr(self, 'proj_veh_id_radius_select') else "40 miles"
             loc = self.proj_veh_location_input.toPlainText().strip() if hasattr(self, 'proj_veh_location_input') else ""
             desc = self.proj_veh_desc_input.toPlainText().strip() if hasattr(self, 'proj_veh_desc_input') else ""
         elif ltype == "Property for sale or rent":
@@ -6475,12 +6593,14 @@ class FBAutoBotMainWindow(QMainWindow):
             title = f"{p_beds} Bed {p_type} for {p_rent}".strip()
             price = self.proj_prop_price_input.text().strip() if hasattr(self, 'proj_prop_price_input') else (self.proj_price_input.text().strip() or "0")
             id_loc = self.proj_prop_id_loc_input.text().strip() if hasattr(self, 'proj_prop_id_loc_input') else ""
+            id_rad = self.proj_prop_id_radius_select.currentText().strip() if hasattr(self, 'proj_prop_id_radius_select') else "40 miles"
             loc = self.proj_prop_location_input.toPlainText().strip() if hasattr(self, 'proj_prop_location_input') else ""
             desc = self.proj_prop_desc_input.toPlainText().strip() if hasattr(self, 'proj_prop_desc_input') else ""
         else:
             title = self.proj_title_input.text().strip()
             price = self.proj_price_input.text().strip() or "0"
             id_loc = self.proj_id_loc_input.text().strip() if hasattr(self, 'proj_id_loc_input') else ""
+            id_rad = self.proj_id_radius_select.currentText().strip() if hasattr(self, 'proj_id_radius_select') else "40 miles"
             loc = self.proj_location_input.toPlainText().strip() or "Local Radius"
             desc = self.proj_desc_input.toPlainText().strip()
 
@@ -6492,6 +6612,8 @@ class FBAutoBotMainWindow(QMainWindow):
             "title": title,
             "price": price or "0",
             "id_location": id_loc,
+            "id_radius": id_rad,
+            "radius": id_rad,
             "location": loc or "Local Radius",
             "description": desc,
             # Specialized Vehicle Fields
@@ -6501,6 +6623,7 @@ class FBAutoBotMainWindow(QMainWindow):
             "vehicle_model": self.proj_veh_model_input.text().strip() if hasattr(self, 'proj_veh_model_input') else "",
             "vehicle_price": self.proj_veh_price_input.text().strip() if hasattr(self, 'proj_veh_price_input') else "",
             "vehicle_id_location": self.proj_veh_id_loc_input.text().strip() if hasattr(self, 'proj_veh_id_loc_input') else "",
+            "vehicle_id_radius": self.proj_veh_id_radius_select.currentText().strip() if hasattr(self, 'proj_veh_id_radius_select') else "40 miles",
             "vehicle_location": self.proj_veh_location_input.toPlainText().strip() if hasattr(self, 'proj_veh_location_input') else "",
             "vehicle_description": self.proj_veh_desc_input.toPlainText().strip() if hasattr(self, 'proj_veh_desc_input') else "",
             # Specialized Property Fields
@@ -6510,6 +6633,7 @@ class FBAutoBotMainWindow(QMainWindow):
             "bathrooms": self.proj_prop_bathrooms_select.currentText() if hasattr(self, 'proj_prop_bathrooms_select') else "1",
             "property_price": self.proj_prop_price_input.text().strip() if hasattr(self, 'proj_prop_price_input') else "",
             "property_id_location": self.proj_prop_id_loc_input.text().strip() if hasattr(self, 'proj_prop_id_loc_input') else "",
+            "property_id_radius": self.proj_prop_id_radius_select.currentText().strip() if hasattr(self, 'proj_prop_id_radius_select') else "40 miles",
             "property_location": self.proj_prop_location_input.toPlainText().strip() if hasattr(self, 'proj_prop_location_input') else "",
             "property_description": self.proj_prop_desc_input.toPlainText().strip() if hasattr(self, 'proj_prop_desc_input') else "",
             # Advanced Property Specs
@@ -6882,6 +7006,7 @@ class FBAutoBotMainWindow(QMainWindow):
             main_loc = self.proj_main_loc_input.text().strip()
 
         t0 = project_tabs[0]
+        id_radius = t0.get("id_radius") or t0.get("vehicle_id_radius") or t0.get("property_id_radius") or "40 miles"
         payload = {
             "title": t0.get("title", "Project Campaign"),
             "price": t0.get("price", "0"),
@@ -6903,6 +7028,8 @@ class FBAutoBotMainWindow(QMainWindow):
             "heating_type": t0.get("heating_type", "None"),
             "location": t0.get("location", "Local Radius"),
             "id_location": t0.get("id_location", ""),
+            "id_radius": id_radius,
+            "radius": id_radius,
             "project_main_location": main_loc,
             "description": t0.get("description", ""),
             "tabs_count": len(project_tabs),
@@ -7159,6 +7286,7 @@ class FBAutoBotMainWindow(QMainWindow):
             title = f"{v_year} {v_make} {v_model}".strip()
             price = self.veh_price_input.text().strip() if hasattr(self, 'veh_price_input') else "0"
             id_location = self.veh_id_loc_input.text().strip() if hasattr(self, 'veh_id_loc_input') else ""
+            id_radius = self.veh_id_radius_select.currentText().strip() if hasattr(self, 'veh_id_radius_select') else "40 miles"
             location = self.veh_location_input.toPlainText().strip() if hasattr(self, 'veh_location_input') else "Local Radius"
             description = self.veh_desc_input.toPlainText().strip() if hasattr(self, 'veh_desc_input') else ""
         elif ltype == "Property for sale or rent":
@@ -7169,6 +7297,7 @@ class FBAutoBotMainWindow(QMainWindow):
             title = f"{p_beds} Bed {p_type} for {p_rent}".strip()
             price = self.prop_price_input.text().strip() if hasattr(self, 'prop_price_input') else "0"
             id_location = self.prop_id_loc_input.text().strip() if hasattr(self, 'prop_id_loc_input') else ""
+            id_radius = self.prop_id_radius_select.currentText().strip() if hasattr(self, 'prop_id_radius_select') else "40 miles"
             location = self.prop_location_input.toPlainText().strip() if hasattr(self, 'prop_location_input') else "Local Radius"
             description = self.prop_desc_input.toPlainText().strip() if hasattr(self, 'prop_desc_input') else ""
         else:
@@ -7178,6 +7307,7 @@ class FBAutoBotMainWindow(QMainWindow):
                 QMessageBox.warning(self, "Missing Fields", "Please provide at least a Product Title.")
                 return
             id_location = self.id_location_input.text().strip() if hasattr(self, 'id_location_input') else ""
+            id_radius = self.id_radius_select.currentText().strip() if hasattr(self, 'id_radius_select') else "40 miles"
             location = self.location_input.toPlainText().strip() if hasattr(self, 'location_input') else "Local Radius"
             description = self.desc_input.toPlainText().strip() if hasattr(self, 'desc_input') else ""
 
@@ -7235,6 +7365,8 @@ class FBAutoBotMainWindow(QMainWindow):
             "ac_type": self.prop_ac_select.currentText() if hasattr(self, 'prop_ac_select') else "None",
             "heating_type": self.prop_heating_select.currentText() if hasattr(self, 'prop_heating_select') else "None",
             "id_location": id_location,
+            "id_radius": id_radius,
+            "radius": id_radius,
             "location": location or "Local Radius",
             "description": description,
             "tabs_count": tabs_count,

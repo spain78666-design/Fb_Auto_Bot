@@ -806,14 +806,15 @@ class FacebookMarketplaceBot:
     # --------------------------------------------------------------------------
     # Core Listing Publication Flow & Multi-Tab Engine
     # --------------------------------------------------------------------------
-    async def set_account_marketplace_location(self, page: Page, main_location: str) -> bool:
-        """Sets the Chrome ID / Account primary Marketplace default location on Facebook Marketplace homepage."""
+    async def set_account_marketplace_location(self, page: Page, main_location: str, radius: str = "40 miles") -> bool:
+        """Sets the Chrome ID / Account primary Marketplace default location and radius on Facebook Marketplace homepage."""
         if not main_location or not main_location.strip():
             return False
 
         loc_name = main_location.strip()
+        rad_val = (radius or "40 miles").strip()
         self.log("INFO", f"==================================================")
-        self.log("INFO", f"🌍 Setting Chrome ID Marketplace Default Location to '{loc_name}'...")
+        self.log("INFO", f"🌍 Setting Chrome ID Marketplace Default Location to '{loc_name}' (Radius: {rad_val})...")
 
         try:
             if "facebook.com/marketplace" not in page.url or "/create/" in page.url:
@@ -878,6 +879,43 @@ class FacebookMarketplaceBot:
                         await page.keyboard.press("Enter")
                         await self.sleep(1.0)
 
+                    # Handle Radius selection inside dialog if radius is provided
+                    if rad_val:
+                        try:
+                            rad_btn = page.locator("div[role='dialog'] div[aria-label*='Radius'], div[role='dialog'] div[aria-label*='radius'], div[role='dialog'] div[role='combobox'], div[role='dialog'] span:has-text('mile'), div[role='dialog'] span:has-text('km'), div[role='dialog'] div[role='button']:has-text('mile'), div[role='dialog'] div[role='button']:has-text('km')").first
+                            if await rad_btn.is_visible(timeout=2000):
+                                self.log("INFO", f"🧭 Selecting Marketplace Radius: '{rad_val}'...")
+                                await rad_btn.click(force=True)
+                                await self.sleep(1.0)
+
+                                rad_num = "".join([c for c in rad_val if c.isdigit()])
+                                rad_unit = "km" if "km" in rad_val.lower() else "mile"
+
+                                option_selectors = [
+                                    f"div[role='option']:has-text('{rad_val}')",
+                                    f"ul[role='listbox'] li:has-text('{rad_val}')",
+                                    f"div[role='menuitem']:has-text('{rad_val}')",
+                                    f"div[role='menuitemradio']:has-text('{rad_val}')",
+                                    f"div[role='option']:has-text('{rad_num} {rad_unit}')",
+                                    f"ul[role='listbox'] li:has-text('{rad_num} {rad_unit}')",
+                                    f"div[role='option']:has-text('{rad_num}')",
+                                    f"ul[role='listbox'] li:has-text('{rad_num}')",
+                                    f"span:has-text('{rad_val}')",
+                                    f"span:has-text('{rad_num} {rad_unit}')"
+                                ]
+
+                                for r_sel in option_selectors:
+                                    try:
+                                        r_elem = page.locator(r_sel).first
+                                        if await r_elem.is_visible(timeout=600):
+                                            await r_elem.click(force=True)
+                                            await self.sleep(0.8)
+                                            break
+                                    except Exception:
+                                        continue
+                        except Exception as rad_err:
+                            self.log("DEBUG", f"Radius selector notice: {str(rad_err)[:50]}")
+
                     apply_btn = page.locator("div[role='dialog'] div[role='button']:has-text('Apply'), div[role='dialog'] div[role='button']:has-text('Save'), div[role='dialog'] button:has-text('Apply'), div[role='dialog'] div[role='button']:has-text('حفظ')").first
                     if await apply_btn.is_visible(timeout=2000):
                         await apply_btn.click(force=True)
@@ -886,7 +924,7 @@ class FacebookMarketplaceBot:
                         await page.keyboard.press("Enter")
                         await self.sleep(1.5)
 
-                    self.log("SUCCESS", f"✅ Account ID Marketplace Default Location set to '{loc_name}'!")
+                    self.log("SUCCESS", f"✅ Account ID Marketplace Default Location set to '{loc_name}' (Radius: {rad_val})!")
                     return True
 
             self.log("INFO", "Marketplace default location updated/retained.")
@@ -907,9 +945,10 @@ class FacebookMarketplaceBot:
 
         # 0. Set Chrome ID / Account Main Location first if provided (applied ONCE on primary tab for all tabs)
         main_account_loc = payload.get("project_main_location", "").strip() or payload.get("main_location", "").strip() or payload.get("id_location", "").strip()
+        main_account_rad = payload.get("id_radius", "").strip() or payload.get("radius", "").strip() or "40 miles"
         if main_account_loc:
-            self.log("INFO", f"📍 Setting primary Chrome ID / Account Marketplace Location to '{main_account_loc}' (shared across all tabs)...")
-            await self.set_account_marketplace_location(self.page, main_account_loc)
+            self.log("INFO", f"📍 Setting primary Chrome ID / Account Marketplace Location to '{main_account_loc}' with Radius '{main_account_rad}' (shared across all tabs)...")
+            await self.set_account_marketplace_location(self.page, main_account_loc, main_account_rad)
 
         self.log("INFO", f"==================================================")
         self.log("INFO", f"🚀 MULTI-TAB PARALLEL ENGINE: {tabs_count} Tab(s) Configured")

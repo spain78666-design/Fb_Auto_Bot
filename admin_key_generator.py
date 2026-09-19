@@ -41,9 +41,16 @@ def sanitize_slug(name: str) -> str:
 
 
 def normalize_hwid_hex(hwid: str) -> str:
+    if not hwid:
+        return ""
     clean = hwid.strip().upper()
-    hex_only = "".join(c for c in clean if c in "0123456789ABCDEF")
-    return hex_only[:16] if hex_only else clean.replace("-", "")
+    # Strip prefixes FBAUTO / FBAC / FBA / FB (with or without hyphens) to isolate raw machine hex
+    import re
+    stripped = re.sub(r'^(FBAUTO|FBAC|FBA|FB)[-\s]?', '', clean)
+    hex_only = "".join(c for c in stripped if c in "0123456789ABCDEF")
+    if not hex_only:
+        hex_only = "".join(c for c in clean if c in "0123456789ABCDEF")
+    return hex_only[:16]
 
 
 def generate_license_key(

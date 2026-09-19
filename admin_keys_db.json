@@ -1,0 +1,72 @@
+[
+  {
+    "key": "FB26-MTH-DELL-8491290466193948-6AD63950-860371A4BA98",
+    "customer": "Dell",
+    "hwid": "8491290466193948",
+    "tier": "Monthly License",
+    "created_date": "2026-09-19 15:37:52",
+    "expiry_date": "2026-10-19 15:37:52",
+    "notes": "",
+    "status": "ACTIVE"
+  },
+  {
+    "key": "FB26-MTH-DELL-8491290466193948-6AD63950-AE0091675455",
+    "customer": "Dell",
+    "hwid": "8491-2904-6619-3948",
+    "tier": "Monthly License",
+    "created_date": "2026-09-19 15:37:52",
+    "expiry_date": "2026-10-19 15:37:52",
+    "notes": "",
+    "status": "ACTIVE"
+  },
+  {
+    "key": "FB26-MTH-DELL-1A2B3C4D5E6F7A8B-6AD63950-3875AE1C6233",
+    "customer": "Dell",
+    "hwid": "FBAUTO-1A2B-3C4D-5E6F-7A8B",
+    "tier": "Monthly License",
+    "created_date": "2026-09-19 15:37:52",
+    "expiry_date": "2026-10-19 15:37:52",
+    "notes": "",
+    "status": "ACTIVE"
+  },
+  {
+    "key": "FB26-MTH-DELL-8491290466193948-6AD63950-73EAA617EE29",
+    "customer": "Dell",
+    "hwid": "FBAUTO-8491-2904-6619-3948",
+    "tier": "Monthly License",
+    "created_date": "2026-09-19 15:37:52",
+    "expiry_date": "2026-10-19 15:37:52",
+    "notes": "",
+    "status": "ACTIVE"
+  },
+  {
+    "key": "FB26-MTH-DELL-1A2B3C4D5E6F7A8B-6AD63923-A0527CD546E9",
+    "customer": "Dell",
+    "hwid": "FBAUTO-1A2B-3C4D-5E6F-7A8B",
+    "tier": "Monthly License",
+    "created_date": "2026-09-19 15:37:07",
+    "expiry_date": "2026-10-19 15:37:07",
+    "notes": "",
+    "status": "ACTIVE"
+  },
+  {
+    "key": "FB26-MTH-DELL-FBA1A2B3C4D5E6F7-6AD638DF-482D1009FE1A",
+    "customer": "Dell",
+    "hwid": "FBAUTO-1A2B-3C4D-5E6F-7A8B",
+    "tier": "Monthly License",
+    "created_date": "2026-09-19 15:35:59",
+    "expiry_date": "2026-10-19 15:35:59",
+    "notes": "",
+    "status": "ACTIVE"
+  },
+  {
+    "key": "FB26-MTH-DELL-FBA3E8A9B1C7E4D-6AD638DB-09A0604A5F28",
+    "customer": "Dell",
+    "hwid": "FBAUTO-3E8A-9B1C-7E4D",
+    "tier": "Monthly License",
+    "created_date": "2026-09-19 15:35:55",
+    "expiry_date": "2026-10-19 15:35:55",
+    "notes": "",
+    "status": "ACTIVE"
+  }
+]
