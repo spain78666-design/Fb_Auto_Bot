@@ -56,21 +56,28 @@ def get_master_fewfeed_source_dir() -> Optional[str]:
     if not os.path.isdir(base_profiles):
         return None
 
-    # Priority 1: dedicated shared template
+    # Priority 1: master_fewfeed_profile (Created via Master QFit / FewFeed Scan)
+    master_profile_dir = os.path.join(base_profiles, "master_fewfeed_profile")
+    if os.path.isdir(master_profile_dir):
+        def_dir = os.path.join(master_profile_dir, "Default") if os.path.isdir(os.path.join(master_profile_dir, "Default")) else master_profile_dir
+        if os.path.isdir(os.path.join(def_dir, "Local Storage")) or os.path.isfile(os.path.join(def_dir, "Network", "Cookies")) or os.path.isfile(os.path.join(def_dir, "Cookies")) or os.path.isdir(os.path.join(def_dir, "IndexedDB")):
+            return master_profile_dir
+
+    # Priority 2: dedicated shared template
     shared_dir = os.path.join(base_profiles, "fewfeed_shared")
     if os.path.isdir(shared_dir):
-        def_dir = os.path.join(shared_dir, "Default")
-        if os.path.isdir(os.path.join(def_dir, "Local Storage")) or os.path.isfile(os.path.join(def_dir, "Network", "Cookies")) or os.path.isfile(os.path.join(def_dir, "Cookies")):
+        def_dir = os.path.join(shared_dir, "Default") if os.path.isdir(os.path.join(shared_dir, "Default")) else shared_dir
+        if os.path.isdir(os.path.join(def_dir, "Local Storage")) or os.path.isfile(os.path.join(def_dir, "Network", "Cookies")) or os.path.isfile(os.path.join(def_dir, "Cookies")) or os.path.isdir(os.path.join(def_dir, "IndexedDB")):
             return shared_dir
 
-    # Priority 2: dedicated master template
+    # Priority 3: dedicated master template
     master_dir = os.path.join(base_profiles, "fewfeed_master")
     if os.path.isdir(master_dir):
-        def_dir = os.path.join(master_dir, "Default")
-        if os.path.isdir(os.path.join(def_dir, "Local Storage")) or os.path.isfile(os.path.join(def_dir, "Network", "Cookies")) or os.path.isfile(os.path.join(def_dir, "Cookies")):
+        def_dir = os.path.join(master_dir, "Default") if os.path.isdir(os.path.join(master_dir, "Default")) else master_dir
+        if os.path.isdir(os.path.join(def_dir, "Local Storage")) or os.path.isfile(os.path.join(def_dir, "Network", "Cookies")) or os.path.isfile(os.path.join(def_dir, "Cookies")) or os.path.isdir(os.path.join(def_dir, "IndexedDB")):
             return master_dir
 
-    # Priority 3: Search all profile directories for the one with the latest modified session data
+    # Priority 4: Search all profile directories for the one with the latest modified session data
     candidates = []
     try:
         for entry in os.listdir(base_profiles):
@@ -192,18 +199,56 @@ def copy_fewfeed_session_data(src_profile_dir: str, dst_profile_dir: str):
 
 def save_as_master_fewfeed_template(source_profile_dir: str):
     """
-    Saves the specified profile as the master template (profiles/fewfeed_shared)
+    Saves the specified profile as the master template (profiles/master_fewfeed_profile and fewfeed_shared)
     so all newly created browser profiles will automatically inherit it.
     """
     if not source_profile_dir or not os.path.isdir(source_profile_dir):
         return
+    master_dir = os.path.join(get_base_dir(), "profiles", "master_fewfeed_profile")
+    copy_fewfeed_session_data(source_profile_dir, master_dir)
     shared_dir = os.path.join(get_base_dir(), "profiles", "fewfeed_shared")
     copy_fewfeed_session_data(source_profile_dir, shared_dir)
 
+def get_custom_extension_path() -> Optional[str]:
+    """Retrieves user-configured FewFeed extension folder from configuration if set."""
+    try:
+        cfg_file = os.path.join(get_base_dir(), "config", "extension_config.json")
+        if os.path.isfile(cfg_file):
+            with open(cfg_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                custom_p = data.get("extension_path")
+                if custom_p and os.path.isdir(custom_p) and os.path.exists(os.path.join(custom_p, "manifest.json")):
+                    return os.path.abspath(custom_p)
+    except Exception:
+        pass
+    return None
+
+def set_custom_extension_path(folder_path: str) -> bool:
+    """Stores user-configured custom unpacked FewFeed extension directory."""
+    try:
+        if folder_path and os.path.isdir(folder_path) and os.path.exists(os.path.join(folder_path, "manifest.json")):
+            cfg_dir = os.path.join(get_base_dir(), "config")
+            os.makedirs(cfg_dir, exist_ok=True)
+            cfg_file = os.path.join(cfg_dir, "extension_config.json")
+            with open(cfg_file, "w", encoding="utf-8") as f:
+                json.dump({"extension_path": os.path.abspath(folder_path)}, f, indent=2)
+            return True
+    except Exception:
+        pass
+    return False
+
 def get_fewfeed_extension_path() -> Optional[str]:
-    """Resolves the absolute path to FEWFEED extension folder."""
+    """Resolves the absolute path to FEWFEED extension folder, checking custom path and bundle candidates."""
+    # Priority 1: User-selected custom unpacked extension
+    custom = get_custom_extension_path()
+    if custom:
+        return custom
+
+    # Priority 2: Standard and bundled workspace paths
     candidates = [
         os.path.join(get_base_dir(), "FEWFEED"),
+        os.path.join(get_base_dir(), "fewfeed"),
+        os.path.join(get_base_dir(), "extensions", "FEWFEED"),
         os.path.join(getattr(sys, '_MEIPASS', ''), "FEWFEED"),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FEWFEED")),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "FEWFEED")),
@@ -398,15 +443,16 @@ class FacebookGroupBot:
             "--disable-notifications",
             "--password-store=basic",
             "--no-first-run",
-            "--no-service-autorun"
+            "--no-service-autorun",
+            "--enable-extensions",
+            "--allow-legacy-extension-manifests"
         ]
 
         if ext_path and os.path.exists(ext_path):
             launch_args.append(f"--load-extension={ext_path}")
-            launch_args.append(f"--disable-extensions-except={ext_path}")
-            self.log("SUCCESS", f"🧩 Pre-loading Chrome Extension: {os.path.basename(ext_path)} -> {ext_path}")
+            self.log("SUCCESS", f"🧩 Chrome Extension Loaded: {os.path.basename(ext_path)} -> {ext_path}")
         else:
-            self.log("WARNING", f"FEWFEED extension folder not detected at {ext_path}. Proceeding without extension.")
+            self.log("WARNING", f"FEWFEED extension folder not detected at {ext_path}. Proceeding.")
 
         ignore_default_args = ["--enable-automation", "--disable-extensions"]
 
@@ -441,21 +487,12 @@ class FacebookGroupBot:
             flat_cookie = os.path.join(dst_default, "Cookies")
             idb_path = os.path.join(dst_default, "IndexedDB")
 
-            has_session = False
-            if os.path.isdir(ls_path) and os.listdir(ls_path):
-                has_session = True
-            elif (os.path.isfile(net_path) and os.path.getsize(net_path) > 2048) or (os.path.isfile(flat_cookie) and os.path.getsize(flat_cookie) > 2048):
-                has_session = True
-            elif os.path.isdir(idb_path) and os.listdir(idb_path):
-                has_session = True
-
-            if not has_session:
-                # Synchronize from master/shared FewFeed profile template
-                src_master = get_master_fewfeed_source_dir()
-                if src_master and os.path.abspath(src_master) != os.path.abspath(profile_dir):
-                    self.log("INFO", f"🔄 Synchronizing saved FewFeed/Google session from master profile into {os.path.basename(profile_dir)}...")
-                    copy_fewfeed_session_data(src_master, profile_dir)
-                    self.log("SUCCESS", "✅ FewFeed & Google authentication state cloned successfully across browser.")
+            # Always synchronize FewFeed extension & master session from master profile template
+            src_master = get_master_fewfeed_source_dir()
+            if src_master and os.path.abspath(src_master) != os.path.abspath(profile_dir):
+                self.log("INFO", f"🔄 Synchronizing FewFeed Extension & Master Session from {os.path.basename(src_master)} into {os.path.basename(profile_dir)}...")
+                copy_fewfeed_session_data(src_master, profile_dir)
+                self.log("SUCCESS", "✅ FewFeed session & extension synced into browser profile.")
 
         # Clear profile locks to prevent SingletonLock errors
         if profile_dir and os.path.exists(profile_dir):
@@ -730,13 +767,139 @@ class FacebookGroupBot:
         self.log("SUCCESS", f"✅ FewFeed tool ready: {target_url}")
 
     async def open_fewfeed_dashboard(self):
-        """Backwards compatible alias for tool page loader."""
-        await self.open_fewfeed_tool_page("https://fewfeed.app/tool/auto-post-fb-group")
+        """Opens FewFeed main dashboard at https://fewfeed.app/ where extension synchronizes FB ID."""
+        if not hasattr(self, 'fewfeed_page') or self.fewfeed_page is None or self.fewfeed_page.is_closed():
+            self.log("INFO", "📑 Opening FewFeed on a NEW TAB (keeping Facebook ID tab active in Tab 1)...")
+            self.fewfeed_page = await self.context.new_page()
 
-    async def run_fewfeed_group_joining(self, group_codes: List[str], delay_seconds: int = 15) -> int:
+        self.page = self.fewfeed_page
+        self.log("INFO", "🌐 Opening FewFeed Extension Dashboard (https://fewfeed.app/)...")
+        try:
+            await self.page.goto("https://fewfeed.app/", wait_until="domcontentloaded", timeout=40000)
+        except Exception as ex:
+            self.log("WARNING", f"FewFeed dashboard navigation notice: {str(ex)[:60]}")
+
+        # Wait for extension to synchronize with Facebook ID without rapid reloading loops
+        self.log("INFO", "⏳ Waiting for FewFeed extension to detect and sync active Facebook profile...")
+        
+        # Check if already attached or if 'Login FB to use' button exists
+        for check_i in range(12):
+            if self._cancel_requested:
+                break
+            try:
+                sync_status = await self.page.evaluate("""() => {
+                    const bodyText = document.body ? document.body.innerText : '';
+                    const m = bodyText.match(/([a-zA-Z\\s]+)\\s+(\\d{10,20})/);
+                    const hasProfile = !!m;
+                    const name = m ? m[1].trim() : '';
+                    const id = m ? m[2].trim() : '';
+
+                    const btns = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
+                    let hasUseTool = false;
+                    let loginBtnFound = false;
+
+                    for (const b of btns) {
+                        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+                        if (txt.includes('use this tool')) hasUseTool = true;
+                        if (txt.includes('login fb')) {
+                            loginBtnFound = true;
+                            // Click it once to trigger handshake if not already connected
+                            if (!hasProfile) {
+                                b.click();
+                            }
+                        }
+                    }
+
+                    return { hasProfile, name, id, hasUseTool, loginBtnFound };
+                }""")
+
+                if sync_status.get("hasProfile") or sync_status.get("hasUseTool"):
+                    if sync_status.get("name") and sync_status.get("id"):
+                        self.log("SUCCESS", f"👤 Connected Facebook Profile: {sync_status.get('name')} (ID: {sync_status.get('id')})")
+                    else:
+                        self.log("SUCCESS", f"✅ FewFeed successfully connected to Facebook ID!")
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(1.0)
+
+    async def open_fewfeed_tool_by_click(self, tool_name: str) -> bool:
         """
-        Automates FewFeed 'Auto Join To Facebook Groups' via direct tool URL.
-        Injects Group IDs, sets THREAD (1) and DELAY, skips LIMIT and questions, and clicks 'JOINs'.
+        Navigates to FewFeed main dashboard (https://fewfeed.app/), confirms the Facebook ID is loaded,
+        and clicks the 'Use this tool' button directly on the requested tool card:
+        - 'join' -> Auto Join To Facebook Groups PRO 2023
+        - 'post' -> Auto Post To Facebook Groups PRO 2023
+        """
+        await self.open_fewfeed_dashboard()
+
+        tool_label = "Auto Join To Facebook Groups PRO 2023" if tool_name.lower() in ("join", "joining") else "Auto Post To Facebook Groups PRO 2023"
+        self.log("INFO", f"🖱️ Locating and clicking 'Use this tool' for: {tool_label}...")
+
+        # Precise DOM element target and click
+        clicked = await self.page.evaluate("""(target) => {
+            const isJoin = (target === 'join' || target === 'joining');
+            const targetTitle = isJoin ? 'auto join to facebook groups' : 'auto post to facebook groups';
+            const altKeywords = isJoin ? ['auto join', 'cyber hermit'] : ['auto post', 'jera'];
+
+            // Strategy 1: Find all 'Use this tool' buttons and check parent container text
+            const allButtons = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
+            for (const btn of allButtons) {
+                const btnText = (btn.innerText || btn.textContent || '').trim().toLowerCase();
+                if (btnText.includes('use this tool') || btnText === 'use this tool') {
+                    let parent = btn.parentElement;
+                    for (let depth = 0; depth < 6 && parent; depth++) {
+                        const cardText = (parent.innerText || '').toLowerCase();
+                        if (cardText.includes(targetTitle) || altKeywords.some(kw => cardText.includes(kw))) {
+                            btn.scrollIntoView({ block: 'center' });
+                            btn.click();
+                            return true;
+                        }
+                        parent = parent.parentElement;
+                    }
+                }
+            }
+
+            // Strategy 2: Search for card containers directly
+            const cards = Array.from(document.querySelectorAll('div, section, article')).filter(el => {
+                const t = (el.innerText || '').toLowerCase();
+                return (t.includes(targetTitle) || altKeywords.some(kw => t.includes(kw))) && t.includes('use this tool');
+            });
+
+            for (const card of cards) {
+                const btn = card.querySelector('button, a, div[role="button"]');
+                if (btn) {
+                    btn.scrollIntoView({ block: 'center' });
+                    btn.click();
+                    return true;
+                }
+            }
+
+            return false;
+        }""", tool_name.lower())
+
+        if clicked:
+            self.log("SUCCESS", f"✅ Clicked 'Use this tool' on FewFeed Dashboard for {tool_label}!")
+            await asyncio.sleep(4.0)
+            return True
+        else:
+            self.log("WARNING", f"⚠️ Direct card click fallback: navigating to tool URL...")
+            fallback_url = "https://fewfeed.app/tool/auto-join-fb-groups" if tool_name.lower() in ("join", "joining") else "https://fewfeed.app/tool/auto-post-fb-group"
+            try:
+                await self.page.goto(fallback_url, wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(3.0)
+                return True
+            except Exception:
+                return False
+
+    async def run_fewfeed_group_joining(
+        self,
+        group_codes: List[str],
+        thread_val: int = 1,
+        delay_seconds: int = 15
+    ) -> int:
+        """
+        Automates FewFeed 'Auto Join To Facebook Groups' by clicking 'Use this tool' from Dashboard.
+        Injects Group IDs, sets user THREAD and DELAY, skips questions, and clicks 'JOINs'.
         """
         if not group_codes:
             self.log("INFO", "No target group codes provided for joining. Skipping joining phase.")
@@ -746,23 +909,38 @@ class FacebookGroupBot:
         self.log("INFO", f"👥 [FewFeed Auto Join] Starting automated joining for {len(group_codes)} group(s)...")
         self.set_progress(10)
 
-        # Step 1: Open Auto Join Tool URL
-        target_join_url = "https://fewfeed.app/tool/auto-join-fb-groups"
-        await self.open_fewfeed_tool_page(target_join_url)
+        # Step 1: Open Auto Join Tool by clicking 'Use this tool' on FewFeed Dashboard
+        await self.open_fewfeed_tool_by_click("join")
         self.set_progress(25)
 
-        # Step 2: Inject Group IDs, THREAD (1), and DELAY (seconds)
+        # Step 2: Inject Group IDs, user THREAD and DELAY
         codes_text = "\n".join(group_codes)
-        thread_val = "1"
-        delay_val = str(delay_seconds if delay_seconds and delay_seconds > 0 else 120)
+        thread_str = str(max(1, int(thread_val)))
+        delay_str = str(max(1, int(delay_seconds)))
 
-        self.log("INFO", f"📋 Injecting {len(group_codes)} Group ID(s), THREAD={thread_val}, DELAY={delay_val}s into FewFeed Auto Join tool...")
+        self.log("INFO", f"📋 Injecting {len(group_codes)} Group ID(s), THREAD={thread_str}, DELAY={delay_str}s into FewFeed Auto Join tool...")
 
         injection_res = await self.page.evaluate("""(data) => {
             const { codesText, threadStr, delayStr } = data;
             let filledTa = false;
             let filledThread = false;
             let filledDelay = false;
+
+            function setNativeVal(el, val) {
+                if (!el) return;
+                const valueSetter = Object.getOwnPropertyDescriptor(el, 'value')?.set;
+                const proto = Object.getPrototypeOf(el);
+                const protoSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                if (protoSetter && valueSetter !== protoSetter) {
+                    protoSetter.call(el, val);
+                } else if (valueSetter) {
+                    valueSetter.call(el, val);
+                } else {
+                    el.value = val;
+                }
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
 
             // 1. Fill Textarea (Group IDs)
             const textareas = Array.from(document.querySelectorAll('textarea'));
@@ -774,9 +952,7 @@ class FacebookGroupBot:
             }) || textareas[0];
 
             if (mainTa) {
-                mainTa.value = codesText;
-                mainTa.dispatchEvent(new Event('input', { bubbles: true }));
-                mainTa.dispatchEvent(new Event('change', { bubbles: true }));
+                setNativeVal(mainTa, codesText);
                 filledTa = true;
             }
 
@@ -788,16 +964,12 @@ class FacebookGroupBot:
                 const prevText = (inp.previousElementSibling ? inp.previousElementSibling.innerText : '').toUpperCase();
                 
                 if (pText.includes('THREAD') || prevText.includes('THREAD')) {
-                    inp.value = threadStr;
-                    inp.dispatchEvent(new Event('input', { bubbles: true }));
-                    inp.dispatchEvent(new Event('change', { bubbles: true }));
+                    setNativeVal(inp, threadStr);
                     filledThread = true;
                 }
                 
                 if (pText.includes('DELAY') || prevText.includes('DELAY')) {
-                    inp.value = delayStr;
-                    inp.dispatchEvent(new Event('input', { bubbles: true }));
-                    inp.dispatchEvent(new Event('change', { bubbles: true }));
+                    setNativeVal(inp, delayStr);
                     filledDelay = true;
                 }
             }
@@ -806,15 +978,11 @@ class FacebookGroupBot:
             if (!filledThread || !filledDelay) {
                 const numInputs = inputs.filter(i => i.type === 'number' || i.type === 'text' || !i.type);
                 if (numInputs.length >= 1 && !filledThread) {
-                    numInputs[0].value = threadStr;
-                    numInputs[0].dispatchEvent(new Event('input', { bubbles: true }));
-                    numInputs[0].dispatchEvent(new Event('change', { bubbles: true }));
+                    setNativeVal(numInputs[0], threadStr);
                     filledThread = true;
                 }
                 if (numInputs.length >= 2 && !filledDelay) {
-                    numInputs[1].value = delayStr;
-                    numInputs[1].dispatchEvent(new Event('input', { bubbles: true }));
-                    numInputs[1].dispatchEvent(new Event('change', { bubbles: true }));
+                    setNativeVal(numInputs[1], delayStr);
                     filledDelay = true;
                 }
             }
@@ -822,8 +990,8 @@ class FacebookGroupBot:
             return { filledTa, filledThread, filledDelay };
         }""", {
             "codesText": codes_text,
-            "threadStr": thread_val,
-            "delayStr": delay_val
+            "threadStr": thread_str,
+            "delayStr": delay_str
         })
 
         if injection_res.get("filledTa"):
@@ -832,10 +1000,10 @@ class FacebookGroupBot:
             self.log("WARNING", "⚠️ Group IDs textarea fallback triggered.")
 
         if injection_res.get("filledThread"):
-            self.log("SUCCESS", f"🧵 THREAD set to: {thread_val}")
+            self.log("SUCCESS", f"🧵 THREAD set to: {thread_str}")
 
         if injection_res.get("filledDelay"):
-            self.log("SUCCESS", f"⏱️ DELAY set to: {delay_val} seconds")
+            self.log("SUCCESS", f"⏱️ DELAY set to: {delay_str} seconds")
 
         # Step 3: Trigger 'JOINs' button
         self.log("INFO", "🚀 Clicking 'JOINs' button in FewFeed Auto Join tool...")
@@ -883,7 +1051,7 @@ class FacebookGroupBot:
         self.set_progress(45)
 
         # Wait cycles
-        wait_cycles = min(len(group_codes) * int(delay_val), 60)
+        wait_cycles = min(len(group_codes) * int(delay_str), 60)
         self.log("INFO", f"⏳ Monitoring FewFeed automated group joining progress ({wait_cycles}s window)...")
         for w in range(0, max(5, int(wait_cycles / 5))):
             if self._cancel_requested:
@@ -900,17 +1068,19 @@ class FacebookGroupBot:
         links: Optional[List[str]] = None,
         descriptions: Optional[List[str]] = None,
         posting_mode: str = "Random",
-        delay_seconds: int = 30
+        thread_val: int = 1,
+        delay_seconds: int = 15
     ) -> int:
         """
-        Automates FewFeed 'Auto Post To Facebook Groups' via direct tool URL.
+        Automates FewFeed 'Auto Post To Facebook Groups' by clicking 'Use this tool' from Dashboard.
+        Fills Caption, Links, sets user THREAD & DELAY, Selects All Groups, and starts posting.
         """
         self.log("INFO", f"==================================================")
         self.log("INFO", f"📢 [FewFeed Auto Post] Starting automated group posting...")
         self.set_progress(55)
 
-        # Step 1: Directly open Auto Post Tool URL
-        await self.open_fewfeed_tool_page("https://fewfeed.app/tool/auto-post-fb-group")
+        # Step 1: Open Auto Post Tool by clicking 'Use this tool' on FewFeed Dashboard
+        await self.open_fewfeed_tool_by_click("post")
         self.set_progress(65)
 
         # Step 2: Prepare post text content & links
@@ -965,11 +1135,24 @@ class FacebookGroupBot:
         if not desc_filled:
             try:
                 await self.page.evaluate("""(text) => {
+                    function setNativeVal(el, val) {
+                        if (!el) return;
+                        const valueSetter = Object.getOwnPropertyDescriptor(el, 'value')?.set;
+                        const proto = Object.getPrototypeOf(el);
+                        const protoSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                        if (protoSetter && valueSetter !== protoSetter) {
+                            protoSetter.call(el, val);
+                        } else if (valueSetter) {
+                            valueSetter.call(el, val);
+                        } else {
+                            el.value = val;
+                        }
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
                     const ta = document.querySelector('textarea');
                     if (ta) {
-                        ta.value = text;
-                        ta.dispatchEvent(new Event('input', { bubbles: true }));
-                        ta.dispatchEvent(new Event('change', { bubbles: true }));
+                        setNativeVal(ta, text);
                         return true;
                     }
                     return false;
@@ -989,7 +1172,68 @@ class FacebookGroupBot:
             except Exception:
                 pass
 
-        # Step 5: Select All Groups in FewFeed
+        # Step 5: Inject THREAD and DELAY into FewFeed Auto Post options
+        thread_str = str(max(1, int(thread_val)))
+        delay_str = str(max(1, int(delay_seconds)))
+        self.log("INFO", f"⚙️ Setting FewFeed Auto Post options: THREAD={thread_str}, DELAY={delay_str}s...")
+
+        try:
+            await self.page.evaluate("""(data) => {
+                const { threadStr, delayStr } = data;
+                function setNativeVal(el, val) {
+                    if (!el) return;
+                    const valueSetter = Object.getOwnPropertyDescriptor(el, 'value')?.set;
+                    const proto = Object.getPrototypeOf(el);
+                    const protoSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                    if (protoSetter && valueSetter !== protoSetter) {
+                        protoSetter.call(el, val);
+                    } else if (valueSetter) {
+                        valueSetter.call(el, val);
+                    } else {
+                        el.value = val;
+                    }
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+
+                const inputs = Array.from(document.querySelectorAll('input'));
+                let filledThread = false;
+                let filledDelay = false;
+
+                for (const inp of inputs) {
+                    const pText = (inp.parentElement ? inp.parentElement.innerText : '').toUpperCase();
+                    const prevText = (inp.previousElementSibling ? inp.previousElementSibling.innerText : '').toUpperCase();
+                    const ph = (inp.placeholder || '').toUpperCase();
+                    const nm = (inp.name || '').toUpperCase();
+
+                    if (pText.includes('THREAD') || prevText.includes('THREAD') || ph.includes('THREAD') || nm.includes('THREAD')) {
+                        setNativeVal(inp, threadStr);
+                        filledThread = true;
+                    }
+                    if (pText.includes('DELAY') || prevText.includes('DELAY') || ph.includes('DELAY') || nm.includes('DELAY') || ph.includes('SEC')) {
+                        setNativeVal(inp, delayStr);
+                        filledDelay = true;
+                    }
+                }
+
+                if (!filledThread || !filledDelay) {
+                    const numInputs = inputs.filter(i => i.type === 'number' || (!i.type || i.type === 'text') && (i.placeholder || '').match(/\d/));
+                    if (numInputs.length >= 1 && !filledThread) {
+                        setNativeVal(numInputs[0], threadStr);
+                    }
+                    if (numInputs.length >= 2 && !filledDelay) {
+                        setNativeVal(numInputs[1], delayStr);
+                    }
+                }
+            }""", {"threadStr": thread_str, "delayStr": delay_str})
+            self.log("SUCCESS", f"✅ Set FewFeed Auto Post: THREAD={thread_str}, DELAY={delay_str}s")
+        except Exception as opt_err:
+            self.log("INFO", f"FewFeed post options injection: {str(opt_err)[:60]}")
+
+        # Step 6: Select All Facebook Groups
+        self.log("INFO", "⏳ Waiting for Facebook Groups list to render in FewFeed...")
+        await asyncio.sleep(2.5)
+
         self.log("INFO", "☑️ Selecting all available Facebook Groups in FewFeed tool...")
         select_all_selectors = [
             'input[type="checkbox"]#select_all',
@@ -1007,159 +1251,149 @@ class FacebookGroupBot:
                 if sel_el and await sel_el.is_visible():
                     await sel_el.click()
                     selected_all = True
-                    self.log("SUCCESS", "✅ Clicked 'Select All' groups in FewFeed.")
+                    self.log("SUCCESS", "✅ Clicked 'Select All' groups button in FewFeed.")
                     break
             except Exception:
                 continue
 
-        if not selected_all:
-            # Fallback: check all individual checkboxes in group list
-            try:
-                chk_count = await self.page.evaluate("""() => {
-                    const chks = document.querySelectorAll('input[type="checkbox"]');
-                    let count = 0;
-                    chks.forEach(c => {
-                        if (!c.checked) {
-                            c.checked = true;
-                            c.dispatchEvent(new Event('change', { bubbles: true }));
-                            count++;
-                        }
-                    });
-                    return count;
-                }""")
-                if chk_count > 0:
-                    self.log("SUCCESS", f"✅ Checked all {chk_count} Facebook Group checkboxes in FewFeed.")
-            except Exception as e:
-                self.log("WARNING", f"Checkbox scan: {str(e)[:70]}")
-
-        # Step 6: Set Post Delay if available
+        # Check and ensure all group checkboxes are checked
         try:
-            delay_input = await self.page.query_selector('input[type="number"], input[name*="delay" i], input[placeholder*="delay" i], input[placeholder*="second" i]')
-            if delay_input and await delay_input.is_visible():
-                await delay_input.fill(str(delay_seconds))
-                self.log("INFO", f"⏳ Set FewFeed Post interval: {delay_seconds}s")
-        except Exception:
-            pass
+            chk_count = await self.page.evaluate("""() => {
+                const chks = document.querySelectorAll('input[type="checkbox"]');
+                let count = 0;
+                chks.forEach(c => {
+                    if (!c.checked) {
+                        c.checked = true;
+                        c.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    count++;
+                });
+                return count;
+            }""")
+            self.log("SUCCESS", f"✅ Selected {chk_count} Facebook Groups for Auto Posting.")
+        except Exception as e:
+            self.log("WARNING", f"Checkbox scan: {str(e)[:70]}")
 
         self.set_progress(80)
 
-        # Step 7: Click Start Post button in FewFeed
-        self.log("INFO", "🚀 Triggering 'Start Post' in FewFeed Auto Post Extension Tool...")
-        start_post_selectors = [
-            'button:has-text("Start Post")',
-            'button:has-text("Start Posting")',
-            'button:has-text("Post Now")',
-            'button:has-text("Start")',
-            'button:has-text("Post")',
-            'button:has-text("Submit")',
-            'button[type="submit"]',
-            'div[role="button"]:has-text("Start")'
-        ]
-
-        post_started = False
-        for psel in start_post_selectors:
-            try:
-                pbtn = await self.page.query_selector(psel)
-                if pbtn and await pbtn.is_visible():
-                    await pbtn.scroll_into_view_if_needed()
-                    await asyncio.sleep(0.5)
-                    await pbtn.click()
-                    post_started = True
-                    self.log("SUCCESS", "✅ Clicked 'Start Post' in FewFeed Auto Post Tool!")
-                    break
-            except Exception:
-                continue
-
-        if not post_started:
-            self.log("INFO", "FewFeed Auto Post submission complete.")
-
-        self.set_progress(95)
-
-        # Monitor posting progress: Blue -> Active Red -> Finished Blue
-        self.log("INFO", "👀 Monitoring FewFeed Start Post button color transitions (Blue -> Active Red -> Finished Blue)...")
-        
-        # Step A: Detect transition to RED (indicating active posting)
-        turned_red = False
-        for _ in range(15):
-            if self._cancel_requested:
-                break
-            try:
-                is_red = await self.page.evaluate("""() => {
-                    const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
-                    for (const b of btns) {
-                        const txt = (b.textContent || '').trim().toLowerCase();
-                        const style = window.getComputedStyle(b);
-                        const bg = style.backgroundColor;
-                        // Check if text says Stop or style is reddish
-                        if (txt.includes('stop') || txt.includes('pause') || bg.includes('239') || bg.includes('220') || bg.includes('red') || (b.className && (b.className.toLowerCase().includes('danger') || b.className.toLowerCase().includes('stop')))) {
-                            return true;
-                        }
+        # Step 7: Post execution (2 consecutive cycles as requested by user)
+        # Cycle 1: Click Start -> Wait for RED -> Wait for BLUE -> Wait 2s
+        # Cycle 2: Click Start -> Wait for RED -> Wait for BLUE -> Wait 2s -> Close Chrome
+        async def trigger_and_wait_posting_cycle(cycle_num: int) -> bool:
+            self.log("INFO", f"🚀 [Posting Cycle {cycle_num}/2] Clicking 'Start Post' in FewFeed Auto Post Tool...")
+            
+            # Click Start/Post button
+            clicked = await self.page.evaluate("""() => {
+                const btns = Array.from(document.querySelectorAll('button, div[role="button"], input[type="submit"]'));
+                for (const b of btns) {
+                    const txt = (b.innerText || b.value || b.textContent || '').trim().toLowerCase();
+                    if (txt.includes('start post') || txt.includes('start posting') || txt.includes('post now') || txt === 'post' || txt === 'start') {
+                        b.scrollIntoView({ block: 'center' });
+                        b.click();
+                        return true;
                     }
-                    return false;
-                }""")
-                if is_red:
-                    turned_red = True
-                    self.log("INFO", "🔴 Button turned RED: FewFeed group posting is actively running...")
+                }
+                return false;
+            }""")
+            
+            if not clicked:
+                for psel in ['button:has-text("Start Post")', 'button:has-text("Start Posting")', 'button:has-text("Post")', 'button:has-text("Start")', 'button[type="submit"]']:
+                    try:
+                        pbtn = await self.page.query_selector(psel)
+                        if pbtn and await pbtn.is_visible():
+                            await pbtn.click()
+                            clicked = True
+                            break
+                    except Exception:
+                        pass
+
+            self.log("INFO", f"👀 [Posting Cycle {cycle_num}/2] Waiting for button to turn RED (Active Posting)...")
+            turned_red = False
+            for _ in range(15):
+                if self._cancel_requested:
                     break
-            except Exception:
-                pass
-            await asyncio.sleep(1.0)
-
-        # Step B: Wait for 2 posting cycles / until button turns back to BLUE
-        self.log("INFO", "⏳ Waiting for FewFeed posting cycles to finish and button to return to BLUE...")
-        max_wait_seconds = max(180, (len(group_codes or [1]) * delay_seconds * 3))
-        start_time = time.time()
-
-        while time.time() - start_time < max_wait_seconds:
-            if self._cancel_requested:
-                break
-            await asyncio.sleep(3.0)
-
-            try:
-                state = await self.page.evaluate("""() => {
-                    const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
-                    let hasStop = false;
-                    let hasStart = false;
-                    let isBlue = false;
-                    for (const b of btns) {
-                        const txt = (b.textContent || '').trim().toLowerCase();
-                        const style = window.getComputedStyle(b);
-                        const bg = style.backgroundColor;
-                        if (txt.includes('stop') || bg.includes('239') || bg.includes('220')) {
-                            hasStop = true;
+                try:
+                    is_red = await self.page.evaluate("""() => {
+                        const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
+                        for (const b of btns) {
+                            const txt = (b.textContent || '').trim().toLowerCase();
+                            const style = window.getComputedStyle(b);
+                            const bg = style.backgroundColor || '';
+                            if (txt.includes('stop') || txt.includes('pause') || bg.includes('239') || bg.includes('220') || bg.includes('red') || (b.className && (b.className.toLowerCase().includes('danger') || b.className.toLowerCase().includes('stop')))) {
+                                return true;
+                            }
                         }
-                        if (txt.includes('start') || txt.includes('post') || bg.includes('59') || bg.includes('37') || bg.includes('blue') || (b.className && b.className.toLowerCase().includes('primary'))) {
-                            hasStart = true;
-                            isBlue = true;
+                        return false;
+                    }""")
+                    if is_red:
+                        turned_red = True
+                        self.log("INFO", f"🔴 [Posting Cycle {cycle_num}/2] Button turned RED: FewFeed group posting is actively running...")
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(1.0)
+
+            # Wait for button to turn back to BLUE
+            self.log("INFO", f"⏳ [Posting Cycle {cycle_num}/2] Waiting for posting to finish and button to return to BLUE...")
+            max_wait_seconds = max(180, (len(group_codes or [1]) * delay_seconds * 3))
+            start_time = time.time()
+
+            while time.time() - start_time < max_wait_seconds:
+                if self._cancel_requested:
+                    break
+                await asyncio.sleep(2.0)
+
+                try:
+                    state = await self.page.evaluate("""() => {
+                        const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
+                        let hasStop = false;
+                        let isBlue = false;
+                        for (const b of btns) {
+                            const txt = (b.textContent || '').trim().toLowerCase();
+                            const style = window.getComputedStyle(b);
+                            const bg = style.backgroundColor || '';
+                            if (txt.includes('stop') || bg.includes('239') || bg.includes('220') || bg.includes('red')) {
+                                hasStop = true;
+                            }
+                            if (txt.includes('start') || txt.includes('post') || bg.includes('59') || bg.includes('37') || bg.includes('blue') || (b.className && b.className.toLowerCase().includes('primary'))) {
+                                isBlue = true;
+                            }
                         }
-                    }
-                    return { hasStop, hasStart, isBlue };
-                }""")
+                        return { hasStop, isBlue };
+                    }""")
 
-                # If it was running in Red and now Stop is gone or button turned back to Blue
-                if turned_red and not state.get("hasStop") and state.get("isBlue"):
-                    self.log("SUCCESS", "🔵 FewFeed posting completed! Button has returned to BLUE.")
-                    break
-                
-                # Check for completion notification or text
-                page_text = (await self.page.content()).lower()
-                if "posting finished" in page_text or "all posts completed" in page_text or "success: 100%" in page_text:
-                    self.log("SUCCESS", "✅ FewFeed reported all posts finished!")
-                    break
-            except Exception:
-                pass
+                    if (turned_red and not state.get("hasStop") and state.get("isBlue")) or (not state.get("hasStop") and state.get("isBlue") and (time.time() - start_time > 8)):
+                        self.log("SUCCESS", f"🔵 [Posting Cycle {cycle_num}/2] Posting finished! Button has returned to BLUE.")
+                        break
 
+                    page_text = (await self.page.content()).lower()
+                    if "posting finished" in page_text or "all posts completed" in page_text or "success: 100%" in page_text:
+                        self.log("SUCCESS", f"✅ [Posting Cycle {cycle_num}/2] FewFeed reported all posts finished!")
+                        break
+                except Exception:
+                    pass
+
+            return True
+
+        # Run Cycle 1
+        await trigger_and_wait_posting_cycle(1)
+        self.set_progress(92)
+        self.log("INFO", "⏱️ Waiting 2 seconds before running second posting cycle...")
+        await asyncio.sleep(2.0)
+
+        # Run Cycle 2 (Repeat one more time as requested)
+        await trigger_and_wait_posting_cycle(2)
         self.set_progress(100)
-        self.log("SUCCESS", "🎉 FewFeed automated group posting cycle completed! Closing browser for account...")
-        await asyncio.sleep(3.0)
+        self.log("SUCCESS", "🎉 Both FewFeed group posting cycles completed! Button is BLUE. Closing Chrome browser...")
+        await asyncio.sleep(2.5)
         return 1
 
     # --------------------------------------------------------------------------
     # Fallback Direct Facebook DOM Group Joining Workflow
     # --------------------------------------------------------------------------
-    async def run_group_joining(self, group_codes: List[str], delay_seconds: int = 15):
+    async def run_group_joining(self, group_codes: List[str], thread_val: int = 1, delay_seconds: int = 15):
         """Joins specified Facebook groups via FewFeed or direct fallback."""
-        return await self.run_fewfeed_group_joining(group_codes=group_codes, delay_seconds=delay_seconds)
+        return await self.run_fewfeed_group_joining(group_codes=group_codes, thread_val=thread_val, delay_seconds=delay_seconds)
 
     # --------------------------------------------------------------------------
     # Fallback Direct Facebook DOM Group Posting Workflow
@@ -1170,7 +1404,8 @@ class FacebookGroupBot:
         links: List[str],
         descriptions: List[str],
         posting_mode: str = "Random",
-        delay_seconds: int = 30
+        thread_val: int = 1,
+        delay_seconds: int = 15
     ):
         """Posts links and descriptions across target Facebook Groups via FewFeed."""
         return await self.run_fewfeed_group_posting(
@@ -1178,6 +1413,7 @@ class FacebookGroupBot:
             links=links,
             descriptions=descriptions,
             posting_mode=posting_mode,
+            thread_val=thread_val,
             delay_seconds=delay_seconds
         )
 
@@ -1345,7 +1581,10 @@ class FacebookGroupBot:
         links: Optional[List[str]] = None,
         descriptions: Optional[List[str]] = None,
         posting_mode: str = "Random",
-        delay_seconds: int = 20
+        delay_seconds: int = 15,
+        join_delay_seconds: Optional[int] = None,
+        post_thread: int = 1,
+        join_thread: int = 1
     ) -> Dict[str, Any]:
         """
         Master-level unified single-click execution flow:
@@ -1366,6 +1605,7 @@ class FacebookGroupBot:
         # Resolve joining & posting codes
         j_codes = join_group_codes if join_group_codes is not None else (group_codes if task_type.lower() in ("joining", "join") else [])
         p_codes = post_group_codes if post_group_codes is not None else (group_codes if task_type.lower() in ("posting", "post") else [])
+        j_delay = join_delay_seconds if (join_delay_seconds is not None and join_delay_seconds > 0) else delay_seconds
 
         try:
             # 1. Initialization & Extension Verification
@@ -1380,18 +1620,23 @@ class FacebookGroupBot:
                 if already_joined:
                     self.log("INFO", "ℹ️ ['Already Group Joined' checked] Skipping Group Joining Phase. Opening FewFeed Auto Post directly...")
                 elif j_codes:
-                    self.log("INFO", f"⚡ [Unified Phase 1/2] Launching FewFeed Auto Join for {len(j_codes)} groups...")
-                    await self.run_fewfeed_group_joining(group_codes=j_codes, delay_seconds=delay_seconds)
+                    self.log("INFO", f"⚡ [Unified Phase 1/2] Launching FewFeed Auto Join for {len(j_codes)} groups (THREAD={join_thread}, DELAY={j_delay}s)...")
+                    await self.run_fewfeed_group_joining(
+                        group_codes=j_codes,
+                        thread_val=join_thread,
+                        delay_seconds=j_delay
+                    )
                 else:
                     self.log("INFO", "ℹ️ [Unified Phase 1/2] No join group codes provided. Proceeding to Auto Post...")
 
                 # Phase 2: Auto Post to Groups in FewFeed
-                self.log("INFO", f"⚡ [Unified Phase 2/2] Launching FewFeed Auto Post...")
+                self.log("INFO", f"⚡ [Unified Phase 2/2] Launching FewFeed Auto Post (THREAD={post_thread}, DELAY={delay_seconds}s)...")
                 await self.run_fewfeed_group_posting(
                     group_codes=p_codes,
                     links=links or [],
                     descriptions=descriptions or [],
                     posting_mode=posting_mode,
+                    thread_val=post_thread,
                     delay_seconds=delay_seconds
                 )
                 results["status"] = "completed"
@@ -1400,7 +1645,8 @@ class FacebookGroupBot:
             elif task_type.lower() in ("joining", "join"):
                 joined_count = await self.run_group_joining(
                     group_codes=j_codes or group_codes or [],
-                    delay_seconds=delay_seconds
+                    thread_val=join_thread,
+                    delay_seconds=j_delay
                 )
                 results["items_processed"] = joined_count
                 results["status"] = "completed"
@@ -1411,6 +1657,7 @@ class FacebookGroupBot:
                     links=links or [],
                     descriptions=descriptions or [],
                     posting_mode=posting_mode,
+                    thread_val=post_thread,
                     delay_seconds=delay_seconds
                 )
                 results["items_processed"] = posted_count

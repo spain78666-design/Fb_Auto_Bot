@@ -1060,6 +1060,9 @@ class GroupAutomationWorker(QThread):
                 descriptions = self.payload.get("descriptions", [])
                 posting_mode = self.payload.get("mode", "Random")
                 already_joined = self.payload.get("already_joined", False)
+                post_thread = self.payload.get("post_thread", 1)
+                join_thread = self.payload.get("join_thread", 1)
+                join_delay = self.payload.get("join_delay", delay)
 
                 await bot.run_workflow(
                     task_type=self.task_type,
@@ -1070,7 +1073,10 @@ class GroupAutomationWorker(QThread):
                     links=links,
                     descriptions=descriptions,
                     posting_mode=posting_mode,
-                    delay_seconds=delay
+                    delay_seconds=delay,
+                    join_delay_seconds=join_delay,
+                    post_thread=post_thread,
+                    join_thread=join_thread
                 )
 
             except Exception as ex:
@@ -1249,7 +1255,10 @@ class AutomationWorker(QThread):
                 chosen_method = chosen_method.replace("📁 ", "").strip()
 
             use_method_replay = False
-            if chosen_method and chosen_method not in ("Default Item Listing (Standard)", "Default Facebook Marketplace Flow", "None", ""):
+            # Project campaigns and multi-tab runs use native parallel Playwright automation, never macro replay
+            if "project" in chosen_method.lower() or resolved_payload.get("project_tabs") or int(resolved_payload.get("tabs_count", resolved_payload.get("posts_per_id", 1))) > 1:
+                use_method_replay = False
+            elif chosen_method and chosen_method not in ("Standard Auto Posting", "Default Item Listing (Standard)", "Default Facebook Marketplace Flow", "Project Campaign Mode", "None", ""):
                 if HAS_FAULT_TOLERANCE and HAS_MACRO_RECORDER:
                     methods_dir = MacroMethodManager.get_methods_dir()
                     verif = MethodFallbackManager.verify_method_availability(chosen_method, methods_dir)
@@ -4580,8 +4589,8 @@ class FBAutoBotMainWindow(QMainWindow):
         col_imgs.addWidget(QLabel("🖼️ Images per Post / Tab:"))
         self.imgs_per_post_spin = QSpinBox()
         self.imgs_per_post_spin.setRange(1, 10)
-        self.imgs_per_post_spin.setValue(2)
-        self.imgs_per_post_spin.setToolTip("How many product images to upload into each tab/listing (e.g. 2 images per post). Images are randomly picked from your selected pool.")
+        self.imgs_per_post_spin.setValue(1)
+        self.imgs_per_post_spin.setToolTip("How many product images to upload into each tab/listing (e.g. 1 image per post). Images are cleanly distributed across tabs without duplicates.")
         self.imgs_per_post_spin.setStyleSheet("font-weight: 700; color: #38bdf8;")
         col_imgs.addWidget(self.imgs_per_post_spin)
         row2.addLayout(col_imgs, stretch=1)
@@ -7281,6 +7290,14 @@ class FBAutoBotMainWindow(QMainWindow):
         self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
         if success:
             self.progress_bar.setValue(100)
+            # Automatically uncheck all finished accounts from checklist
+            if hasattr(self, 'acc_checkboxes'):
+                for chk in self.acc_checkboxes:
+                    chk.setChecked(False)
+                self.update_account_selection_summary()
+            if hasattr(self, 'proj_acc_checkboxes'):
+                for chk in self.proj_acc_checkboxes:
+                    chk.setChecked(False)
             QMessageBox.information(self, "Automation Complete", f"All listing tasks finished successfully!\n\n{message}")
         else:
             QMessageBox.warning(self, "Automation Stopped", f"Automation execution finished:\n\n{message}")
@@ -7677,7 +7694,10 @@ class FBAutoBotMainWindow(QMainWindow):
             "descriptions": descriptions,
             "mode": mode,
             "threads": threads,
-            "delay": delay
+            "delay": delay,
+            "post_thread": threads,
+            "join_thread": 1,
+            "join_delay": delay
         }
 
         self.btn_start_grp_post.setEnabled(False)
@@ -7722,8 +7742,10 @@ class FBAutoBotMainWindow(QMainWindow):
             return
 
         mode = "Random" if "Random" in self.grp_post_mode_select.currentText() else "Sequential"
-        threads = self.grp_post_thread_spin.value() if hasattr(self, 'grp_post_thread_spin') else 1
-        delay = self.grp_post_delay_spin.value() if hasattr(self, 'grp_post_delay_spin') else 15
+        post_threads = self.grp_post_thread_spin.value() if hasattr(self, 'grp_post_thread_spin') else 1
+        post_delay = self.grp_post_delay_spin.value() if hasattr(self, 'grp_post_delay_spin') else 15
+        join_threads = self.grp_join_thread_spin.value() if hasattr(self, 'grp_join_thread_spin') else 1
+        join_delay = self.grp_join_delay_spin.value() if hasattr(self, 'grp_join_delay_spin') else 15
 
         cf_email = "codeabm71@gmail.com"
         cf_pass = "Fewfeew"
@@ -7754,8 +7776,11 @@ class FBAutoBotMainWindow(QMainWindow):
             "links": links,
             "descriptions": descriptions,
             "mode": mode,
-            "threads": threads,
-            "delay": delay
+            "threads": max(post_threads, 1),
+            "delay": post_delay,
+            "post_thread": post_threads,
+            "join_thread": join_threads,
+            "join_delay": join_delay
         }
 
         self.btn_start_grp_unified.setEnabled(False)
@@ -7835,6 +7860,10 @@ class FBAutoBotMainWindow(QMainWindow):
 
         if success:
             self.progress_bar.setValue(100)
+            # Automatically uncheck all finished group accounts from checklist
+            if hasattr(self, 'grp_acc_checkboxes'):
+                for chk in self.grp_acc_checkboxes:
+                    chk.setChecked(False)
             QMessageBox.information(self, "Group Task Complete", f"Facebook Group FewFeed automation finished!\n\n{message}")
         else:
             QMessageBox.warning(self, "Group Task Notice", f"Facebook Group execution notice:\n\n{message}")

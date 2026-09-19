@@ -1192,15 +1192,23 @@ class MacroMethodPlayer:
                     if "next" in str(target_text).lower() or "next" in str(aria_label).lower():
                         element = await self._find_button_by_text(page, ["Next", "اگلا"])
                     elif "publish" in str(target_text).lower() or "publish" in str(aria_label).lower() or "post" in str(target_text).lower():
+                        if getattr(page, "_is_marketplace_published", False):
+                            self.log("INFO", f"Step #{idx} [CLICK]: Publish already completed on this tab, skipping duplicate.")
+                            continue
                         element = await self._find_button_by_text(page, ["Publish", "Post", "شائع"])
 
                 if element:
                     try:
                         lbl = target_text or aria_label or selector[:25]
+                        # Strictly prevent clicking draft or save controls
+                        if any(term in str(lbl).lower() for term in ["draft", "save", "محفوظ"]):
+                            continue
                         self.log("INFO", f"Step #{idx} [CLICK]: Clicking [{lbl}]...")
                         await element.scroll_into_view_if_needed()
                         await asyncio.sleep(0.2)
                         await element.click()
+                        if any(term in str(lbl).lower() for term in ["publish", "post", "شائع"]):
+                            page._is_marketplace_published = True
                         await asyncio.sleep(0.4)
                     except Exception as ex:
                         self.log("WARNING", f"Click step #{idx} notice: {str(ex)[:50]}")
@@ -1367,6 +1375,9 @@ class MacroMethodPlayer:
         """Attempts to press Next and Publish if active."""
         if self._is_stopped or page.is_closed():
             return
+        if getattr(page, "_is_marketplace_published", False):
+            self.log("INFO", "Marketplace listing already published on this tab, skipping redundant finalization.")
+            return
         try:
             # Check for Next button
             next_btn = await self._find_button_by_text(page, ["Next", "اگلا"])
@@ -1375,9 +1386,13 @@ class MacroMethodPlayer:
                 await next_btn.click()
                 await asyncio.sleep(3.0)
 
+            if getattr(page, "_is_marketplace_published", False):
+                return
+
             # Check for Publish button
             pub_btn = await self._find_button_by_text(page, ["Publish", "Post", "شائع"])
             if pub_btn:
+                page._is_marketplace_published = True
                 self.log("INFO", "Publishing listing...")
                 await pub_btn.click()
                 await asyncio.sleep(4.0)

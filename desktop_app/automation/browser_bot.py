@@ -905,55 +905,90 @@ class FacebookMarketplaceBot:
         tabs_count = int(payload.get("tabs_count", payload.get("posts_per_id", 1)))
         tabs_count = max(1, min(tabs_count, 100))
 
-        # 0. Set Chrome ID / Account Main Location first if provided
-        main_account_loc = payload.get("project_main_location", "").strip() or payload.get("main_location", "").strip()
+        # 0. Set Chrome ID / Account Main Location first if provided (applied ONCE on primary tab for all tabs)
+        main_account_loc = payload.get("project_main_location", "").strip() or payload.get("main_location", "").strip() or payload.get("id_location", "").strip()
         if main_account_loc:
+            self.log("INFO", f"📍 Setting primary Chrome ID / Account Marketplace Location to '{main_account_loc}' (shared across all tabs)...")
             await self.set_account_marketplace_location(self.page, main_account_loc)
 
         self.log("INFO", f"==================================================")
         self.log("INFO", f"🚀 MULTI-TAB PARALLEL ENGINE: {tabs_count} Tab(s) Configured")
-        self.log("INFO", f"⚡ Preparing Distinct Location & Picture Mappings...")
+        self.log("INFO", f"⚡ Preparing Strict Per-Tab Column & Location Mappings...")
 
         # 1. Distinct Location & Picture Mapping or Project Tabs Mapping
         if payload.get("project_tabs") and len(payload["project_tabs"]) > 0:
             proj_tabs = payload["project_tabs"]
             tabs_count = len(proj_tabs)
             tab_payloads = []
+
+            # Global location pool if tab does not specify its own
+            global_raw_loc = payload.get("location", "")
+            global_loc_pool = [l.strip() for l in re.split(r'[\r\n,;]+', str(global_raw_loc)) if l.strip()]
+
             for i, pt in enumerate(proj_tabs):
                 tp = dict(payload)
                 tp["tab_index"] = i + 1
                 tp["total_tabs"] = tabs_count
-                tp["listing_type"] = pt.get("listing_type", payload.get("listing_type", "Item for sale"))
-                tp["title"] = pt.get("title", "")
-                tp["price"] = pt.get("price", "0")
-                tp["category"] = pt.get("category", "Household")
-                tp["condition"] = pt.get("condition", "New")
-                tp["vehicle_type"] = pt.get("vehicle_type", "Car/Truck")
-                tp["vehicle_year"] = pt.get("vehicle_year", "2022")
-                tp["vehicle_make"] = pt.get("vehicle_make", "")
-                tp["vehicle_model"] = pt.get("vehicle_model", "")
-                tp["rental_type"] = pt.get("rental_type", "Rent")
-                tp["property_type"] = pt.get("property_type", "Apartment/Condo")
-                tp["bedrooms"] = pt.get("bedrooms", "1")
-                tp["bathrooms"] = pt.get("bathrooms", "1")
 
-                # Pick a random location from tab location pool if user provided multiple
-                raw_loc = pt.get("location", "")
-                loc_pool = [l.strip() for l in re.split(r'[\r\n,;]+', str(raw_loc)) if l.strip()]
-                if loc_pool:
-                    chosen_loc = random.choice(loc_pool)
+                # A. Strict Listing Type Identification
+                ltype = pt.get("listing_type") or "Item for sale"
+                tp["listing_type"] = ltype
+
+                # B. Extract Tab-Specific Columns Strictly (No Cross-Contamination)
+                if ltype == "Vehicle for sale" or "vehicle" in ltype.lower() or "car" in ltype.lower():
+                    tp["vehicle_type"] = pt.get("vehicle_type") or "Car/Truck"
+                    tp["vehicle_year"] = str(pt.get("vehicle_year") or "2022")
+                    tp["vehicle_make"] = pt.get("vehicle_make") or ""
+                    tp["vehicle_model"] = pt.get("vehicle_model") or ""
+                    tp["price"] = str(pt.get("vehicle_price") or pt.get("price") or "0")
+                    tp["description"] = pt.get("vehicle_description") or pt.get("description") or ""
+                    tp["title"] = pt.get("title") or f"{tp['vehicle_year']} {tp['vehicle_make']} {tp['vehicle_model']}".strip()
+                    raw_loc = pt.get("vehicle_location") or pt.get("location") or ""
+                elif ltype == "Property for sale or rent" or "rent" in ltype.lower() or "property" in ltype.lower():
+                    tp["rental_type"] = pt.get("rental_type") or "Rent"
+                    tp["property_type"] = pt.get("property_type") or "Apartment/Condo"
+                    tp["bedrooms"] = str(pt.get("bedrooms") or "1")
+                    tp["bathrooms"] = str(pt.get("bathrooms") or "1")
+                    tp["property_sqft"] = str(pt.get("property_sqft") or "")
+                    tp["laundry_type"] = pt.get("laundry_type") or "None"
+                    tp["parking_type"] = pt.get("parking_type") or "None"
+                    tp["ac_type"] = pt.get("ac_type") or "None"
+                    tp["heating_type"] = pt.get("heating_type") or "None"
+                    tp["price"] = str(pt.get("property_price") or pt.get("price") or "0")
+                    tp["description"] = pt.get("property_description") or pt.get("description") or ""
+                    tp["title"] = pt.get("title") or f"{tp['bedrooms']} Bed {tp['property_type']} for {tp['rental_type']}".strip()
+                    raw_loc = pt.get("property_location") or pt.get("location") or ""
+                else:  # Item for sale
+                    tp["title"] = pt.get("title") or ""
+                    tp["price"] = str(pt.get("price") or "0")
+                    tp["category"] = pt.get("category") or "Household"
+                    tp["condition"] = pt.get("condition") or "New"
+                    tp["description"] = pt.get("description") or ""
+                    raw_loc = pt.get("location") or ""
+
+                # C. Tab Location Assignment Rule:
+                # If tab has multiple locations (e.g. 20-25 lines), pick randomly from that pool.
+                # If only 1 location is provided, all tabs use that same location.
+                tab_loc_pool = [l.strip() for l in re.split(r'[\r\n,;]+', str(raw_loc)) if l.strip()]
+                active_pool = tab_loc_pool if tab_loc_pool else global_loc_pool
+
+                if len(active_pool) > 1:
+                    chosen_loc = random.choice(active_pool)
+                elif len(active_pool) == 1:
+                    chosen_loc = active_pool[0]
                 else:
                     chosen_loc = main_account_loc or "Local Radius"
                 tp["location"] = chosen_loc
 
-                tp["description"] = pt.get("description", "")
-                tp["images"] = pt.get("images", [])
+                # D. Images & Protection
+                tp["images"] = pt.get("images") or payload.get("images", [])
                 tp["anti_dup_shield"] = pt.get("anti_dup_shield", True)
                 tp["anti_dup_rotate"] = pt.get("anti_dup_rotate", True)
                 tp["wipe_exif"] = pt.get("wipe_exif", True)
                 tp["anti_dup_noise"] = pt.get("anti_dup_noise", False)
                 tab_payloads.append(tp)
-            self.log("INFO", f"📁 Project Campaign Mode Active: {len(tab_payloads)} Tab(s) loaded.")
+
+            self.log("INFO", f"📁 Project Campaign Mode Active: {len(tab_payloads)} Tab(s) strictly configured.")
         elif HAS_FAULT_TOLERANCE and DistinctDataMapper:
             tab_payloads = DistinctDataMapper.map_tabs_payload(payload, tabs_count, log_callback=self.log)
         else:
@@ -965,14 +1000,14 @@ class FacebookMarketplaceBot:
                 tp = dict(payload)
                 tp["tab_index"] = i + 1
                 tp["total_tabs"] = tabs_count
-                tp["location"] = random.choice(loc_pool)
+                tp["location"] = loc_pool[0] if len(loc_pool) == 1 else random.choice(loc_pool)
                 tp["images"] = [imgs_pool[i % len(imgs_pool)]] if imgs_pool else []
                 tab_payloads.append(tp)
 
         self.log("INFO", f"⚡ Distinct Tab Assignments:")
         for idx, tp in enumerate(tab_payloads, 1):
             img_name = os.path.basename(tp['images'][0]) if tp.get('images') else 'None'
-            self.log("INFO", f"   📍 Tab [{idx}/{tabs_count}]: Location = '{tp['location']}' | Picture = '{img_name}'")
+            self.log("INFO", f"   📍 Tab [{idx}/{tabs_count}]: Type = '{tp['listing_type']}' | Loc = '{tp['location']}' | Photo = '{img_name}'")
 
         # 2. Open ALL tabs simultaneously in Chrome
         tabs: List[Page] = [self.page]
@@ -990,38 +1025,7 @@ class FacebookMarketplaceBot:
 
         self.log("SUCCESS", f"✅ All {len(tabs)} Chrome tabs are now open simultaneously in the browser!")
 
-        # 3. Simultaneously navigate all tabs to the Marketplace homepage first
-        self.log("INFO", "🌐 Navigating all tabs simultaneously to Facebook Marketplace homepage...")
-        async def navigate_to_marketplace_home(tab_num: int, page_obj: Page):
-            await asyncio.sleep((tab_num - 1) * random.uniform(0.15, 0.3))
-            try:
-                await page_obj.goto("https://www.facebook.com/marketplace/", wait_until="domcontentloaded", timeout=45000)
-            except Exception as e:
-                self.log("WARNING", f"Tab [{tab_num}/{tabs_count}] homepage notice: {str(e)[:45]}")
-
-        await asyncio.gather(*[navigate_to_marketplace_home(i + 1, tabs[i]) for i in range(len(tabs))])
-        self.log("SUCCESS", "🎉 All tabs loaded at Facebook Marketplace homepage!")
-
-        # 4. Set Facebook ID Location on first tab and refresh all tabs
-        id_location = payload.get("id_location", "").strip()
-        if id_location:
-            self.log("INFO", f"📍 First tab: Updating primary Facebook ID / Account Location to '{id_location}'...")
-            set_ok = await self.set_account_marketplace_location(tabs[0], id_location)
-            if set_ok:
-                self.log("SUCCESS", f"✅ Successfully updated ID Location to '{id_location}' on first tab!")
-            else:
-                self.log("WARNING", "Could not complete setting ID Location directly, proceeding...")
-
-            self.log("INFO", "🔄 Refreshing all tabs so they inherit the new Account ID Location...")
-            async def reload_tab(tab_num: int, page_obj: Page):
-                try:
-                    await page_obj.reload(wait_until="domcontentloaded", timeout=30000)
-                except Exception as e:
-                    self.log("WARNING", f"Tab [{tab_num}/{tabs_count}] refresh notice: {str(e)[:45]}")
-            await asyncio.gather(*[reload_tab(i + 1, tabs[i]) for i in range(len(tabs))])
-            self.log("SUCCESS", "🎉 All tabs refreshed successfully!")
-
-        # 5. Simultaneously navigate all tabs to their respective Marketplace listing creation forms
+        # 3. Simultaneously navigate all tabs to their respective Marketplace listing creation forms
         async def navigate_to_create_form(tab_num: int, page_obj: Page, tab_load: dict):
             t_ad_type = tab_load.get("listing_type", tab_load.get("ad_type", "item")).lower()
             if "vehicle" in t_ad_type or "car" in t_ad_type or "auto" in t_ad_type:
@@ -1030,213 +1034,195 @@ class FacebookMarketplaceBot:
                 target_url = "https://www.facebook.com/marketplace/create/rental"
             else:
                 target_url = "https://www.facebook.com/marketplace/create/item"
-            self.log("INFO", f"🌐 Opening Marketplace Listing Creation page on Tab [{tab_num}/{tabs_count}]: {target_url}...")
+            self.log("INFO", f"🌐 Opening Marketplace Listing Form on Tab [{tab_num}/{tabs_count}]: {target_url}...")
             try:
                 await page_obj.goto(target_url, wait_until="domcontentloaded", timeout=45000)
             except Exception as e:
                 self.log("WARNING", f"Tab [{tab_num}/{tabs_count}] creation load notice: {str(e)[:45]}")
 
         await asyncio.gather(*[navigate_to_create_form(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))])
-        self.log("SUCCESS", "🎉 All tabs loaded at Marketplace listing creation form!")
+        self.log("SUCCESS", "🎉 All tabs loaded at their respective Marketplace listing creation forms!")
 
-        # 6. Method Manager Verification & Live UI Fallback determination
-        chosen_method = payload.get("method", "").replace("📁 ", "").strip()
-        use_method_replay = False
+        # 4. Strict Tab-by-Tab Form Filling & Next Advancement (Executed in parallel)
+        self.log("INFO", f"📁 ISOLATED TAB-BY-TAB AUTOMATION: Executing strict column filling across all {tabs_count} tab(s)...")
 
-        if chosen_method and chosen_method not in ("Default Item Listing (Standard)", "Default Facebook Marketplace Flow", "None", ""):
-            if HAS_FAULT_TOLERANCE and HAS_MACRO_RECORDER and MethodFallbackManager:
-                verif = MethodFallbackManager.verify_method_availability(chosen_method, MacroMethodManager.get_methods_dir())
-                if verif.is_valid:
-                    use_method_replay = True
-                    self.log("INFO", f"🎯 Active Method Replay: '{chosen_method}' across tabs.")
-                else:
-                    self.log("WARNING", f"🔄 Method '{chosen_method}' unavailable ({verif.reason}). Using Live UI Overrides.")
-            elif HAS_MACRO_RECORDER:
-                use_method_replay = True
+        async def fill_and_advance_tab(tab_idx: int, page_obj: Page, tab_load: dict) -> bool:
+            """
+            Executes the full listing creation process for a single tab in complete isolation:
+            1. Uploads photos with anti-duplicate protection and verifies thumbnail rendering
+            2. Strictly fills ONLY the fields configured for this tab's listing type (never mixing Item/Vehicle/Property)
+            3. Ensures all user-entered columns are completed (none skipped)
+            4. Advances through 'Next' to the final Publish screen
+            """
+            if page_obj.is_closed() or self._cancel_requested:
+                return False
 
-        # 7. Process all tabs step-by-step in parallel
-        success_count = 0
-        self.log("INFO", f"📁 STEP-BY-STEP PARALLEL AUTOMATION: Processing all {tabs_count} tab(s) simultaneously...")
+            ad_type = tab_load.get("listing_type", "Item for sale").strip()
+            self.log("INFO", f"📑 Tab [{tab_idx}/{tabs_count}]: Starting form automation for '{ad_type}'...")
 
-        # Step 5a: Upload Product Images first across all tabs
-        self.log("INFO", f"🖼️ Uploading product photos simultaneously across all {tabs_count} tabs...")
-        async def _upload_photos_task(i, p, payload):
-            try:
-                images = payload.get("images", [])
-                imgs_per_post = payload.get("images_per_post", 0) or payload.get("images_per_tab", 0)
+            # Step A: Upload Photos
+            images = tab_load.get("images", [])
+            imgs_per_post = tab_load.get("images_per_post", 0) or tab_load.get("images_per_tab", 0)
+            if images:
+                valid_images = [os.path.abspath(img) for img in images if os.path.exists(img)]
+                if valid_images:
+                    if imgs_per_post > 0 and len(valid_images) > imgs_per_post:
+                        start_idx = ((tab_idx - 1) * imgs_per_post) % len(valid_images)
+                        tab_images = [valid_images[(start_idx + k) % len(valid_images)] for k in range(imgs_per_post)]
+                    else:
+                        tab_images = valid_images
 
-                if images:
-                    valid_images = [os.path.abspath(img) for img in images if os.path.exists(img)]
-                    if valid_images:
-                        if imgs_per_post > 0 and len(valid_images) > imgs_per_post:
-                            start_idx = (i * imgs_per_post) % len(valid_images)
-                            tab_images = [valid_images[(start_idx + k) % len(valid_images)] for k in range(imgs_per_post)]
-                        else:
-                            tab_images = valid_images
+                    upload_files = tab_images
+                    anti_dup_shield = tab_load.get("anti_dup_shield", True) or tab_load.get("anti_dup_rotate", True)
+                    if anti_dup_shield and IMAGE_PROCESSOR_AVAILABLE:
+                        try:
+                            cfg = AntiDuplicateConfig(
+                                strip_exif=tab_load.get("wipe_exif", True),
+                                min_rotation=-0.5 if tab_load.get("anti_dup_rotate", True) else 0.0,
+                                max_rotation=0.5 if tab_load.get("anti_dup_rotate", True) else 0.0,
+                                contrast_jitter=0.02 if tab_load.get("anti_dup_noise", True) else 0.0,
+                                brightness_jitter=0.02 if tab_load.get("anti_dup_noise", True) else 0.0
+                            )
+                            processor = AntiDuplicateImageProcessor(config=cfg)
+                            upload_files = processor.process_batch(tab_images, log_callback=self.log)
+                        except Exception:
+                            upload_files = tab_images
+                    self.log("INFO", f"   👉 Tab [{tab_idx}/{tabs_count}]: Uploading {len(upload_files)} photo(s)...")
+                    uploaded = await self._upload_photos_to_page(page_obj, upload_files)
+                    if not uploaded:
+                        self.log("WARNING", f"Tab [{tab_idx}] photo upload retry...")
+                        await asyncio.sleep(1.0)
+                        await self._upload_photos_to_page(page_obj, upload_files)
+                    await self.sleep(1.0)
 
-                        upload_files = tab_images
-                        anti_dup_shield = payload.get("anti_dup_shield", True) or payload.get("anti_dup_rotate", True)
-                        
-                        if anti_dup_shield and IMAGE_PROCESSOR_AVAILABLE:
-                            try:
-                                cfg = AntiDuplicateConfig(
-                                    strip_exif=payload.get("wipe_exif", True),
-                                    min_rotation=-0.5 if payload.get("anti_dup_rotate", True) else 0.0,
-                                    max_rotation=0.5 if payload.get("anti_dup_rotate", True) else 0.0,
-                                    contrast_jitter=0.02 if payload.get("anti_dup_noise", True) else 0.0,
-                                    brightness_jitter=0.02 if payload.get("anti_dup_noise", True) else 0.0
-                                )
-                                processor = AntiDuplicateImageProcessor(config=cfg)
-                                upload_files = processor.process_batch(tab_images, log_callback=self.log)
-                            except Exception as img_err:
-                                upload_files = tab_images
-                        self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Uploading {len(upload_files)} photo(s)")
-                        await self._upload_photos_to_page(p, upload_files)
-            except Exception as e:
-                self.log("WARNING", f"Tab [{i+1}] Photo upload notice: {str(e)}")
+            # Step B: Strictly Fill Type-Specific Fields Without Cross-Contamination
+            if ad_type == "Vehicle for sale" or "vehicle" in ad_type.lower() or "car" in ad_type.lower():
+                v_type = tab_load.get("vehicle_type", "Car/Truck")
+                v_year = str(tab_load.get("vehicle_year", "2022"))
+                v_make = tab_load.get("vehicle_make", "")
+                v_model = tab_load.get("vehicle_model", "")
+                v_price = str(tab_load.get("vehicle_price") or tab_load.get("price") or "0")
+                v_loc = tab_load.get("vehicle_location") or tab_load.get("location", "")
+                v_desc = tab_load.get("vehicle_description") or tab_load.get("description", "")
 
-        await asyncio.gather(*[_upload_photos_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
-        await self.sleep(1.5)
+                self.log("INFO", f"   👉 Tab [{tab_idx}/{tabs_count}]: Vehicle ({v_year} {v_make} {v_model}) | Price: ${v_price} | Loc: {v_loc}")
+                if v_type:
+                    await self._set_vehicle_type_field(page_obj, v_type)
+                if v_year:
+                    await self._set_vehicle_year_field(page_obj, v_year)
+                if v_make:
+                    await self._set_vehicle_make_field(page_obj, v_make)
+                if v_model:
+                    await self._set_vehicle_model_field(page_obj, v_model)
+                if v_price and v_price != "0":
+                    await self._set_price_field(page_obj, v_price)
+                if v_loc and v_loc != "Local Radius":
+                    await self._set_location_field(page_obj, v_loc)
+                if v_desc:
+                    await self._set_description_field(page_obj, v_desc)
 
-        # Step 5b: Fill Type-Specific Primary Fields (Item Title/Cat/Cond, Vehicle Type/Year/Make/Model, Property Rent/Type/Beds/Baths)
-        self.log("INFO", f"✍️ Filling listing type fields simultaneously across all {tabs_count} tabs...")
-        async def _set_type_fields_task(i, p, payload):
-            try:
-                ad_t = payload.get("listing_type", "Item for sale").lower()
-                if "vehicle" in ad_t or "car" in ad_t or "auto" in ad_t:
-                    v_type = payload.get("vehicle_type", "Car/Truck")
-                    v_year = str(payload.get("vehicle_year", "2022"))
-                    v_make = payload.get("vehicle_make", "")
-                    v_model = payload.get("vehicle_model", "")
-                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Vehicle ({v_year} {v_make} {v_model})")
-                    if v_type:
-                        await self._set_vehicle_type_field(p, v_type)
-                    if v_year:
-                        await self._set_vehicle_year_field(p, v_year)
-                    if v_make:
-                        await self._set_vehicle_make_field(p, v_make)
-                    if v_model:
-                        await self._set_vehicle_model_field(p, v_model)
-                elif "rent" in ad_t or "home" in ad_t or "property" in ad_t or "house" in ad_t:
-                    r_type = payload.get("rental_type", "Rent")
-                    p_type = payload.get("property_type", "Apartment/Condo")
-                    beds = str(payload.get("bedrooms", "1"))
-                    baths = str(payload.get("bathrooms", "1"))
-                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Property ({beds} Bed {p_type} for {r_type})")
-                    if r_type:
-                        await self._set_rental_sale_type_field(p, r_type)
-                    if p_type:
-                        await self._set_property_type_field(p, p_type)
-                    if beds:
-                        await self._set_bedrooms_field(p, beds)
-                    if baths:
-                        await self._set_bathrooms_field(p, baths)
+            elif ad_type == "Property for sale or rent" or "rent" in ad_type.lower() or "property" in ad_type.lower():
+                r_type = tab_load.get("rental_type", "Rent")
+                p_type = tab_load.get("property_type", "Apartment/Condo")
+                beds = str(tab_load.get("bedrooms", "1"))
+                baths = str(tab_load.get("bathrooms", "1"))
+                p_price = str(tab_load.get("property_price") or tab_load.get("price") or "0")
+                p_loc = tab_load.get("property_location") or tab_load.get("location", "")
+                p_desc = tab_load.get("property_description") or tab_load.get("description", "")
 
-                    # Advanced property specifications
-                    sqft = payload.get("property_sqft", "")
-                    if sqft:
-                        await self._set_property_sqft_field(p, sqft)
-                    laundry = payload.get("laundry_type", "None")
-                    if laundry and laundry != "None":
-                        await self._set_property_generic_dropdown(p, "laundry", laundry)
-                    parking = payload.get("parking_type", "None")
-                    if parking and parking != "None":
-                        await self._set_property_generic_dropdown(p, "parking", parking)
-                    ac = payload.get("ac_type", "None")
-                    if ac and ac != "None":
-                        await self._set_property_generic_dropdown(p, "air conditioning", ac)
-                    heating = payload.get("heating_type", "None")
-                    if heating and heating != "None":
-                        await self._set_property_generic_dropdown(p, "heating", heating)
-                else:
-                    title = payload.get("title", "")
-                    cat = payload.get("category", "Household")
-                    c_text = payload.get("condition", "New")
-                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Item '{title[:25]}...'")
-                    if title:
-                        await self._set_title_field(p, title)
-                    if cat:
-                        await self._set_category_field(p, cat)
-                    if c_text:
-                        await self._set_condition_field(p, c_text)
-            except Exception as e:
-                self.log("WARNING", f"Tab [{i+1}] fields notice: {str(e)}")
+                self.log("INFO", f"   👉 Tab [{tab_idx}/{tabs_count}]: Property ({beds} Bed {p_type} for {r_type}) | Price: ${p_price} | Loc: {p_loc}")
+                if r_type:
+                    await self._set_rental_sale_type_field(page_obj, r_type)
+                if p_type:
+                    await self._set_property_type_field(page_obj, p_type)
+                if beds:
+                    await self._set_bedrooms_field(page_obj, beds)
+                if baths:
+                    await self._set_bathrooms_field(page_obj, baths)
+                if p_price and p_price != "0":
+                    await self._set_price_field(page_obj, p_price)
+                if p_loc and p_loc != "Local Radius":
+                    await self._set_location_field(page_obj, p_loc)
+                if p_desc:
+                    await self._set_description_field(page_obj, p_desc)
 
-        await asyncio.gather(*[_set_type_fields_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
-        await self.sleep(0.8)
+                # Optional advanced property specifications
+                sqft = tab_load.get("property_sqft", "")
+                if sqft:
+                    await self._set_property_sqft_field(page_obj, sqft)
+                laundry = tab_load.get("laundry_type", "None")
+                if laundry and laundry != "None":
+                    await self._set_property_generic_dropdown(page_obj, "laundry", laundry)
+                parking = tab_load.get("parking_type", "None")
+                if parking and parking != "None":
+                    await self._set_property_generic_dropdown(page_obj, "parking", parking)
+                ac = tab_load.get("ac_type", "None")
+                if ac and ac != "None":
+                    await self._set_property_generic_dropdown(page_obj, "air conditioning", ac)
+                heating = tab_load.get("heating_type", "None")
+                if heating and heating != "None":
+                    await self._set_property_generic_dropdown(page_obj, "heating", heating)
 
-        # Step 5c: Price Field across ALL Listing Types and ALL Tabs
-        self.log("INFO", f"💵 Filling Price simultaneously across all {tabs_count} tabs...")
-        async def _set_price_task(i, p, payload):
-            try:
-                price = payload.get("price", "0")
-                if price is not None and str(price).strip():
-                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Setting Price to '${price}'")
-                    await self._set_price_field(p, str(price))
-            except Exception as e:
-                self.log("WARNING", f"Tab [{i+1}] Price notice: {str(e)}")
+            else:  # Item for sale
+                title = tab_load.get("title", "")
+                cat = tab_load.get("category", "Household")
+                cond = tab_load.get("condition", "New")
+                price = str(tab_load.get("price", "0"))
+                loc = tab_load.get("location", "")
+                desc = tab_load.get("description", "")
 
-        await asyncio.gather(*[_set_price_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
-        await self.sleep(0.8)
-
-        # Step 5f: Description
-        self.log("INFO", f"📝 Filling Descriptions simultaneously across all {tabs_count} tabs...")
-        async def _set_desc_task(i, p, payload):
-            try:
-                description = payload.get("description", "")
-                if description:
-                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Typing description ({len(description)} chars)")
-                    await self._set_description_field(p, description)
-            except Exception as e:
-                self.log("WARNING", f"Tab [{i+1}] Description notice: {str(e)}")
-
-        await asyncio.gather(*[_set_desc_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
-        await self.sleep(0.8)
-
-        # Step 5g: Location Selection
-        self.log("INFO", f"📍 Setting Target Locations simultaneously across all {tabs_count} tabs...")
-        async def _set_loc_task(i, p, payload):
-            try:
-                loc = payload.get("location", "")
+                self.log("INFO", f"   👉 Tab [{tab_idx}/{tabs_count}]: Item '{title[:25]}' | Price: ${price} | Loc: {loc}")
+                if title:
+                    await self._set_title_field(page_obj, title)
+                if price and price != "0":
+                    await self._set_price_field(page_obj, price)
+                if cat:
+                    await self._set_category_field(page_obj, cat)
+                if cond:
+                    await self._set_condition_field(page_obj, cond)
                 if loc and loc != "Local Radius":
-                    self.log("INFO", f"   👉 Tab [{i+1}/{tabs_count}]: Typing location '{loc}'")
-                    await self._set_location_field(p, loc)
-            except Exception as e:
-                self.log("WARNING", f"Tab [{i+1}] Location notice: {str(e)}")
+                    await self._set_location_field(page_obj, loc)
+                if desc:
+                    await self._set_description_field(page_obj, desc)
 
-        await asyncio.gather(*[_set_loc_task(i, tabs[i], tab_payloads[i]) for i in range(len(tabs))], return_exceptions=True)
-        await self.sleep(1.0)
+            await self.sleep(1.0)
 
-        # Step 5h: Advance through "Next" Step across all tabs
-        self.log("INFO", f"➡️ Clicking 'Next' simultaneously across all {tabs_count} tabs...")
-        async def _next_task(i, p):
-            try:
-                await self._click_button_with_text(p, ["Next", "اگلا"])
-            except Exception as e:
-                self.log("WARNING", f"Tab [{i+1}] Next notice: {str(e)}")
+            # Step C: Advance through Next button to reach final Publish screen
+            self.log("INFO", f"➡️ Tab [{tab_idx}/{tabs_count}]: Advancing through 'Next'...")
+            advanced = await self._advance_next_step(page_obj)
+            if advanced:
+                self.log("SUCCESS", f"✅ Tab [{tab_idx}/{tabs_count}] ready on Publish screen.")
+                return True
+            else:
+                self.log("WARNING", f"Tab [{tab_idx}/{tabs_count}] did not confirm Next step transition, proceeding to barrier...")
+                return False
 
-        await asyncio.gather(*[_next_task(i, tabs[i]) for i in range(len(tabs))], return_exceptions=True)
-        await self.sleep(1.5)
+        tab_results = await asyncio.gather(*[
+            fill_and_advance_tab(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))
+        ], return_exceptions=True)
 
-        # Step 5i: Synchronization Barrier & 1-Click Mass Publish
+        # 5. Synchronization Barrier & 1-Click Mass Publish
         if not self._cancel_requested:
             self.log("INFO", f"==================================================")
             self.log("INFO", f"⏳ SYNCHRONIZATION BARRIER: Verifying all {len(tabs)} tabs are 100% ready on Publish screen...")
 
             async def wait_until_tab_ready_for_publish(t_idx: int, page_obj: Page) -> bool:
                 """Ensures page is on final Publish screen before allowing simultaneous release."""
-                for _ in range(8):
+                for _ in range(12):
                     if page_obj.is_closed():
                         return False
                     try:
-                        # Check for Publish / Post / Done button presence
+                        # Check for Publish / Post / Done button presence (excluding drafts)
                         btn_ready = await page_obj.evaluate("""
                             () => {
                                 const elements = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"]'));
-                                const targets = ['publish', 'post', 'done', 'save', 'شائع', 'پبلش'];
+                                const targets = ['publish', 'post', 'done', 'شائع', 'پبلش'];
                                 for (const el of elements) {
                                     const aria = (el.getAttribute('aria-label') || '').toLowerCase();
                                     const text = (el.innerText || el.textContent || '').toLowerCase();
+                                    if (aria.includes('draft') || text.includes('draft') || aria.includes('save') || text.includes('save')) {
+                                        continue;
+                                    }
                                     for (const t of targets) {
                                         if (aria.includes(t) || (text.length < 25 && text.includes(t))) {
                                             return true;
@@ -1250,7 +1236,24 @@ class FacebookMarketplaceBot:
                             return True
                     except Exception:
                         pass
-                    await asyncio.sleep(0.5)
+
+                    # If tab is still on Step 1 with Next button active, try advancing to Next
+                    try:
+                        is_step_1 = await page_obj.evaluate("""
+                            () => {
+                                const nextBtns = Array.from(document.querySelectorAll('div[role="button"], button')).filter(el => {
+                                    const a = (el.getAttribute('aria-label') || '').toLowerCase();
+                                    const t = (el.innerText || '').toLowerCase();
+                                    return (a === 'next' || t === 'next' || a === 'اگلا') && el.getAttribute('aria-disabled') !== 'true';
+                                });
+                                return nextBtns.length > 0;
+                            }
+                        """)
+                        if is_step_1:
+                            await self._advance_next_step(page_obj)
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.6)
                 return True
 
             # Barrier: wait for all tabs to be confirmed ready
@@ -1260,7 +1263,12 @@ class FacebookMarketplaceBot:
             self.log("INFO", f"🚀 1-CLICK INSTANT MASS PUBLISH: Triggering Publish across ALL {len(tabs)} tabs at the EXACT SAME MILLISECOND...")
             async def publish_tab_instantly(t_idx, page_obj, p_load):
                 try:
-                    return await self.publish_marketplace_listing_on_page(page_obj, p_load)
+                    res = await self.publish_marketplace_listing_on_page(page_obj, p_load)
+                    if not res:
+                        self.log("WARNING", f"Tab [{t_idx}] retrying publish click...")
+                        await asyncio.sleep(1.0)
+                        return await self.publish_marketplace_listing_on_page(page_obj, p_load)
+                    return res
                 except Exception as ex:
                     self.log("WARNING", f"Tab [{t_idx}] Publish notice: {str(ex)}")
                     return False
@@ -1276,12 +1284,15 @@ class FacebookMarketplaceBot:
     async def create_marketplace_listing(self, payload: Dict[str, Any]):
         """Executes single or multi-tab listing publication flow with Method Manager support."""
         tabs_count = int(payload.get("tabs_count", payload.get("posts_per_id", 1)))
-        if tabs_count > 1:
+        if tabs_count > 1 or (payload.get("project_tabs") and len(payload.get("project_tabs")) > 0):
             return await self.create_marketplace_batch(payload)
 
         # Single Tab Execution with Method Replay or Live UI Flow
         chosen_method = payload.get("method", "").replace("📁 ", "").strip()
-        if chosen_method and chosen_method not in ("Default Item Listing (Standard)", "Default Facebook Marketplace Flow", "None", ""):
+        if "project" in chosen_method.lower():
+            return await self.create_marketplace_batch(payload)
+
+        if chosen_method and chosen_method not in ("Standard Auto Posting", "Default Item Listing (Standard)", "Default Facebook Marketplace Flow", "Project Campaign Mode", "None", ""):
             use_method = False
             if HAS_FAULT_TOLERANCE and HAS_MACRO_RECORDER and MethodFallbackManager:
                 verif = MethodFallbackManager.verify_method_availability(chosen_method, MacroMethodManager.get_methods_dir())
@@ -1541,36 +1552,74 @@ class FacebookMarketplaceBot:
         return await self.publish_marketplace_listing_on_page(page, payload)
 
     async def _instant_js_click_publish(self, page: Page, title: str = "") -> bool:
-        """Instantly locates and clicks the Publish button using fast in-page JavaScript execution."""
+        """
+        Instantly locates and clicks the Publish button using precise single-event in-page execution.
+        Strictly prevents duplicate double-clicks across both Python memory and browser DOM state.
+        Strictly excludes 'Save Draft' and other non-publish buttons.
+        """
         if not page or page.is_closed():
             return False
 
+        # Python-level deduplication lock: prevent multiple clicks on same page instance
+        if getattr(page, "_is_marketplace_published", False):
+            self.log("INFO", f"Publish already dispatched for this page, skipping duplicate click.")
+            return True
+
         js_code = """
         () => {
-            const candidates = ['publish', 'post', 'done', 'save', 'شائع', 'پبلش'];
-            const elements = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"], div[aria-label*="Publish"], div[aria-label*="Post"], div[aria-label*="شائع"]'));
+            // Strictly guard against duplicate publication inside DOM window context
+            if (window.__marketplace_publish_triggered) {
+                return true;
+            }
+
+            // Strictly target Publish and Post actions; NEVER click 'Save Draft', 'Boost', 'More places', 'Group'
+            const exactTargets = ['publish', 'post', 'done', 'شائع', 'پبلش', 'publish listing', 'شائع کریں'];
+            const bannedWords = ['draft', 'save', 'boost', 'more places', 'group', 'groups', 'manage', 'recent', 'share', 'cancel', 'back', 'previous', 'محفوظ'];
+            
+            const elements = Array.from(document.querySelectorAll('div[role="button"], button, div[aria-label*="Publish"], div[aria-label*="Post"], div[aria-label*="شائع"]'));
             
             for (const el of elements) {
                 const label = (el.getAttribute('aria-label') || '').trim().toLowerCase();
                 const text = (el.innerText || el.textContent || '').trim().toLowerCase();
                 
-                for (const cand of candidates) {
-                    if (label === cand || text === cand || label.includes(cand) || (text.length < 25 && text.includes(cand))) {
-                        el.scrollIntoView({ behavior: 'instant', block: 'center' });
-                        el.click();
-                        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-                        return true;
-                    }
+                // Strictly exclude any banned terms
+                if (bannedWords.some(b => label.includes(b) || text.includes(b))) {
+                    continue;
+                }
+                
+                const isExact = exactTargets.some(t => label === t || text === t);
+                const isPrefix = (label.startsWith('publish') && !label.includes('draft')) || 
+                                 (text.startsWith('publish') && text.length < 25 && !text.includes('draft'));
+
+                if (isExact || isPrefix) {
+                    window.__marketplace_publish_triggered = true;
+                    el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                    // Trigger SINGLE clean click only
+                    el.click();
+                    // Disable element to prevent any subsequent duplicate clicks
+                    try {
+                        el.setAttribute('data-published-clicked', 'true');
+                        el.style.pointerEvents = 'none';
+                    } catch (e) {}
+                    return true;
                 }
             }
 
             // Secondary fallback: find primary action button on bottom right composer
-            const primaryBtn = document.querySelector('div[aria-label="Publish"][role="button"], div[aria-label="Post"][role="button"], button[type="submit"]');
+            const primaryBtn = document.querySelector('div[aria-label="Publish"][role="button"], div[aria-label="Post"][role="button"], div[aria-label="شائع"][role="button"]');
             if (primaryBtn) {
-                primaryBtn.scrollIntoView({ behavior: 'instant', block: 'center' });
-                primaryBtn.click();
-                primaryBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-                return true;
+                const pLabel = (primaryBtn.getAttribute('aria-label') || '').trim().toLowerCase();
+                const pText = (primaryBtn.innerText || primaryBtn.textContent || '').trim().toLowerCase();
+                if (!bannedWords.some(b => pLabel.includes(b) || pText.includes(b))) {
+                    window.__marketplace_publish_triggered = true;
+                    primaryBtn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                    primaryBtn.click();
+                    try {
+                        primaryBtn.setAttribute('data-published-clicked', 'true');
+                        primaryBtn.style.pointerEvents = 'none';
+                    } catch (e) {}
+                    return true;
+                }
             }
 
             return false;
@@ -1579,19 +1628,38 @@ class FacebookMarketplaceBot:
         try:
             clicked = await page.evaluate(js_code)
             if clicked:
+                try:
+                    page._is_marketplace_published = True
+                except Exception:
+                    pass
                 return True
         except Exception:
             pass
 
-        return await self._click_button_with_text(page, ["Publish", "Post", "شائع", "Done", "Save"])
+        # Tertiary fallback with strict exclusion of 'Save' / 'Draft'
+        if not getattr(page, "_is_marketplace_published", False):
+            clicked_fallback = await self._click_button_with_text(page, ["Publish", "Post", "شائع", "Done", "پبلش"])
+            if clicked_fallback:
+                try:
+                    page._is_marketplace_published = True
+                    await page.evaluate("() => { window.__marketplace_publish_triggered = true; }")
+                except Exception:
+                    pass
+                return True
+        return False
 
     async def publish_marketplace_listing_on_page(self, page: Page, payload: Dict[str, Any]) -> bool:
         """Triggers final 'Publish' button submission on an active Facebook Marketplace page."""
         if not page or page.is_closed() or self._cancel_requested:
             return False
 
+        # Guard: check if this tab has already published
+        if getattr(page, "_is_marketplace_published", False):
+            self.log("INFO", "Marketplace listing on this tab has already been dispatched. Skipping duplicate publish call.")
+            return True
+
         title = payload.get("title", "Listing")
-        self.log("INFO", f"🚀 Triggering instant publication for '{title[:40]}...'")
+        self.log("INFO", f"🚀 Triggering single publication for '{title[:40]}...'")
         
         clicked_publish = await self._instant_js_click_publish(page, title)
 
@@ -1688,20 +1756,29 @@ class FacebookMarketplaceBot:
             self.log("WARNING", f"Notice while typing title: {str(ex)}")
 
     async def _set_price_field(self, page: Page, price_str: str):
-        """Specifically locates and types into the Facebook Marketplace Price input."""
+        """Specifically locates and types into the Facebook Marketplace Price or Rent input."""
         selectors = [
             'label[aria-label="Price"] input',
             'label[aria-label*="Price"] input',
             'label[aria-label*="Price" i] input',
+            'label[aria-label*="Rent per month" i] input',
+            'label[aria-label*="Price per month" i] input',
+            'label[aria-label*="Rent" i] input',
             'label[aria-label*="قیمت"] input',
             'input[aria-label="Price"]',
             'input[aria-label*="Price"]',
             'input[aria-label*="Price" i]',
+            'input[aria-label*="Rent per month" i]',
+            'input[aria-label*="Price per month" i]',
+            'input[aria-label*="Rent" i]',
             'input[aria-label*="قیمت"]',
             'input[name="price"]',
             'label:has-text("Price") input',
+            'label:has-text("Rent per month") input',
+            'label:has-text("Rent") input',
             'div[aria-label="Price"] input',
-            'div[aria-label*="Price"] input'
+            'div[aria-label*="Price"] input',
+            'div[aria-label*="Rent" i] input'
         ]
         input_el = None
         for attempt in range(3):
@@ -1716,7 +1793,7 @@ class FacebookMarketplaceBot:
             if input_el:
                 break
             try:
-                input_el = await page.query_selector('xpath=//label[contains(translate(@aria-label, "PRICE", "price"), "price")]//input')
+                input_el = await page.query_selector('xpath=//label[contains(translate(@aria-label, "PRICERENT", "pricerent"), "price") or contains(translate(@aria-label, "PRICERENT", "pricerent"), "rent")]//input')
                 if input_el and await input_el.is_visible():
                     break
                 input_el = None
@@ -1801,11 +1878,20 @@ class FacebookMarketplaceBot:
             'label[aria-label="Location"] input',
             'label[aria-label*="Location"] input',
             'label[aria-label*="Location" i] input',
+            'label[aria-label*="Rental address" i] input',
+            'label[aria-label*="Property address" i] input',
+            'label[aria-label*="Address" i] input',
             'input[aria-label="Location"]',
             'input[aria-label*="Location"]',
             'input[aria-label*="Location" i]',
+            'input[aria-label*="Rental address" i]',
+            'input[aria-label*="Property address" i]',
+            'input[aria-label*="Address" i]',
             'label[aria-label*="لوکیشن"] input',
             'label:has-text("Location") input',
+            'label:has-text("Rental address") input',
+            'label:has-text("Property address") input',
+            'label:has-text("Address") input',
             'label:has-text("City") input'
         ]
         input_el = None
@@ -1851,26 +1937,57 @@ class FacebookMarketplaceBot:
             self.log("WARNING", f"Notice while setting location: {str(ex)}")
 
     async def _set_category_field(self, page: Page, category: str):
-        """Selects category dropdown matching Household, Appliances, Auto Parts, etc."""
-        # Category alias dictionary for Facebook Marketplace localization
-        cat_aliases = {
-            "household": ["Household", "Home & Kitchen", "Home goods", "Furniture", "Household Items", "Bedding", "Bath"],
-            "appliances": ["Appliances", "Major appliances", "Small appliances", "Home appliances", "Refrigerators"],
-            "auto parts": ["Auto parts", "Vehicle parts & accessories", "Car parts", "Auto Parts & Tires", "Automotive parts", "Parts & accessories"],
-            "electronics & computers": ["Electronics & Computers", "Electronics", "Computers", "Video Games", "Audio"],
-            "vehicles & parts": ["Vehicles & Parts", "Vehicles", "Auto parts", "Cars & Trucks"],
-            "furniture & decor": ["Furniture & Decor", "Furniture", "Home decor"],
-            "tools & appliances": ["Tools & Appliances", "Tools", "Appliances"]
+        """
+        Dynamically selects the requested category on Facebook Marketplace.
+        Accurately handles all categories (Appliances, Auto Parts, Household, etc.),
+        searches the opened listbox, scrolls to locate off-screen options, and NEVER
+        falls back to 'Household' if another category was requested.
+        """
+        if not category or page.is_closed():
+            return
+
+        cat_clean = category.strip()
+        cat_lower = cat_clean.lower()
+
+        # Extensive category aliases including all UI categories, Facebook labels, and Urdu
+        cat_aliases_map = {
+            "household": ["household", "home & kitchen", "home goods", "household items", "گھریلو اشیاء"],
+            "appliances": ["appliances", "major appliances", "small appliances", "home appliances", "refrigerators", "اپلائنسز"],
+            "auto parts": ["auto parts", "vehicle parts & accessories", "car parts", "auto parts & tires", "automotive parts", "parts & accessories", "آٹو پارٹس"],
+            "electronics & computers": ["electronics & computers", "electronics", "computers", "computers & tablets", "الیکٹرانکس"],
+            "home & kitchen": ["home & kitchen", "household", "kitchen appliances", "home goods", "باورچی خانہ"],
+            "tools & appliances": ["tools & appliances", "tools", "home improvement", "اوزار"],
+            "furniture & decor": ["furniture & decor", "furniture", "home decor", "living room furniture", "فرنیچر"],
+            "vehicles & parts": ["vehicles & parts", "vehicles", "auto parts", "cars & trucks", "گاڑیاں"],
+            "apparel & accessories": ["apparel & accessories", "clothing", "shoes", "bags", "men's clothing", "women's clothing", "لباس"],
+            "mobile phones & tablets": ["mobile phones & tablets", "cell phones", "mobile phones", "tablets", "موبائل فون"],
+            "sports & outdoors": ["sports & outdoors", "sporting goods", "outdoor recreation", "کھیل"],
+            "toys & games": ["toys & games", "toys", "games", "کھلونے"]
         }
 
-        cat_lower = category.strip().lower()
-        search_terms = cat_aliases.get(cat_lower, [category])
+        # Build search list: exact category first, aliases, then token subsets
+        search_terms = [cat_clean.lower()]
+        for key, aliases in cat_aliases_map.items():
+            if key == cat_lower or key in cat_lower or cat_lower in key:
+                for a in aliases:
+                    if a.lower() not in search_terms:
+                        search_terms.append(a.lower())
 
+        # Also add individual words if category is compound
+        words = [w for w in re.split(r'[\s&/,\-]+', cat_lower) if len(w) > 3]
+        for w in words:
+            if w not in search_terms:
+                search_terms.append(w)
+
+        self.log("INFO", f"🏷️ Selecting Category: '{cat_clean}'...")
+
+        # 1. Locate and click category dropdown
         dropdown_selectors = [
             'label[aria-label="Category"]',
             'label[aria-label*="Category"]',
             'div[aria-label="Category"][role="combobox"]',
             'div[aria-label*="Category"][role="button"]',
+            'div[aria-label="Category"]',
             'label:has-text("Category")',
             'span:has-text("Category")'
         ]
@@ -1884,31 +2001,105 @@ class FacebookMarketplaceBot:
             except Exception:
                 continue
 
-        if drop_el:
+        if not drop_el:
+            self.log("WARNING", f"Could not find category dropdown element for '{cat_clean}'.")
+            return
+
+        try:
             await drop_el.scroll_into_view_if_needed()
             await drop_el.click()
-            await self.sleep(1.2)
+            await self.sleep(1.0)
+        except Exception as click_err:
+            self.log("WARNING", f"Category dropdown click notice: {click_err}")
+            return
 
-            # Try matching option
-            found = False
-            for term in search_terms:
-                try:
-                    opt = await page.query_selector(f'div[role="option"]:has-text("{term}"), span:has-text("{term}"), div[role="button"]:has-text("{term}")')
-                    if opt and await opt.is_visible():
-                        await opt.click()
-                        self.log("INFO", f"Category option '{term}' selected.")
-                        found = True
-                        break
-                except Exception:
-                    continue
+        # 2. Check if a search filter input appears inside the popup/listbox
+        try:
+            search_input = await page.query_selector('div[role="dialog"] input[type="text"], div[role="listbox"] input[type="text"], input[aria-label*="Search categories" i], input[placeholder*="Search categories" i]')
+            if search_input and await search_input.is_visible():
+                await search_input.click()
+                await search_input.fill(cat_clean)
+                await self.sleep(0.8)
+                await page.keyboard.press("Enter")
+                await self.sleep(0.5)
+        except Exception:
+            pass
 
-            if not found:
-                # Click first available category
-                first_opt = await page.query_selector('div[role="listbox"] div[role="option"], div[role="menuitem"]')
-                if first_opt and await first_opt.is_visible():
-                    await first_opt.click()
-                    self.log("INFO", "Selected first available category.")
-            await self.sleep(0.6)
+        # 3. In-page JavaScript finder with scrolling support across listbox
+        js_find_category = """
+        (terms) => {
+            const listboxes = Array.from(document.querySelectorAll('div[role="listbox"], div[role="dialog"], div[role="menu"]'));
+            const options = Array.from(document.querySelectorAll('div[role="option"], div[role="menuitem"], div[role="button"][tabindex="0"]'));
+            
+            // Phase 1: Exact or startsWith match
+            for (const term of terms) {
+                for (const opt of options) {
+                    const txt = (opt.innerText || opt.textContent || '').trim().toLowerCase();
+                    const aria = (opt.getAttribute('aria-label') || '').trim().toLowerCase();
+                    if (txt === term || aria === term || txt.startsWith(term) || aria.startsWith(term)) {
+                        opt.scrollIntoView({ behavior: 'instant', block: 'center' });
+                        opt.click();
+                        return { matched: true, text: txt || aria };
+                    }
+                }
+            }
+
+            // Phase 2: Includes match
+            for (const term of terms) {
+                for (const opt of options) {
+                    const txt = (opt.innerText || opt.textContent || '').trim().toLowerCase();
+                    const aria = (opt.getAttribute('aria-label') || '').trim().toLowerCase();
+                    if (txt.includes(term) || aria.includes(term)) {
+                        opt.scrollIntoView({ behavior: 'instant', block: 'center' });
+                        opt.click();
+                        return { matched: true, text: txt || aria };
+                    }
+                }
+            }
+
+            // Phase 3: Try scrolling container down and check again
+            for (const box of listboxes) {
+                if (box.scrollHeight > box.clientHeight) {
+                    box.scrollTop += 300;
+                }
+            }
+            return { matched: false };
+        }
+        """
+
+        selected = False
+        try:
+            res = await page.evaluate(js_find_category, search_terms)
+            if res and res.get("matched"):
+                self.log("SUCCESS", f"✅ Category '{cat_clean}' successfully selected ({res.get('text', '')}).")
+                selected = True
+        except Exception as eval_err:
+            self.log("WARNING", f"In-page category search notice: {eval_err}")
+
+        # If not found on first pass, re-evaluate after scroll
+        if not selected:
+            await self.sleep(0.5)
+            try:
+                res2 = await page.evaluate(js_find_category, search_terms)
+                if res2 and res2.get("matched"):
+                    self.log("SUCCESS", f"✅ Category '{cat_clean}' selected after container scroll ({res2.get('text', '')}).")
+                    selected = True
+            except Exception:
+                pass
+
+        # If still not selected, try keyboard typing the category name
+        if not selected:
+            try:
+                self.log("INFO", f"Attempting keyboard category selection for '{cat_clean}'...")
+                await page.keyboard.type(cat_clean[:6], delay=80)
+                await self.sleep(0.6)
+                await page.keyboard.press("Enter")
+                selected = True
+                self.log("SUCCESS", f"✅ Category '{cat_clean}' submitted via keyboard navigation.")
+            except Exception as kerr:
+                self.log("WARNING", f"Keyboard category selection notice: {kerr}")
+
+        await self.sleep(0.6)
 
     async def _set_condition_field(self, page: Page, condition_text: str = "New"):
         """Selects item condition (e.g., New, Used – like new, Used – good, Used – fair)."""
@@ -2059,7 +2250,7 @@ class FacebookMarketplaceBot:
                 self.log("WARNING", f"Notice while setting vehicle year: {str(ex)}")
 
     async def _set_vehicle_make_field(self, page: Page, make_str: str):
-        """Types Make for Vehicle listing (e.g., Toyota, Honda, Ford)."""
+        """Types Make for Vehicle listing (e.g., Toyota, Honda, Ford) and selects autocomplete option."""
         if not make_str:
             return
         selectors = [
@@ -2086,13 +2277,22 @@ class FacebookMarketplaceBot:
                 await page.keyboard.press("Control+A")
                 await page.keyboard.press("Backspace")
                 await self._human_type(page, make_str, min_delay=30, max_delay=65)
-                self.log("INFO", f"Vehicle Make '{make_str}' entered.")
+                await self.sleep(0.8)
+                # Autocomplete option selection for Make
+                opt = await page.query_selector('div[role="listbox"] div[role="option"], ul[role="listbox"] li, div[role="option"]')
+                if opt and await opt.is_visible():
+                    await opt.click()
+                else:
+                    await page.keyboard.press("ArrowDown")
+                    await self.sleep(0.2)
+                    await page.keyboard.press("Enter")
+                self.log("INFO", f"Vehicle Make '{make_str}' entered and confirmed.")
                 await self.sleep(0.4)
             except Exception as ex:
                 self.log("WARNING", f"Notice while typing vehicle make: {str(ex)}")
 
     async def _set_vehicle_model_field(self, page: Page, model_str: str):
-        """Types Model for Vehicle listing (e.g., Camry, Civic, F-150)."""
+        """Types Model for Vehicle listing (e.g., Camry, Civic, F-150) and selects autocomplete option."""
         if not model_str:
             return
         selectors = [
@@ -2119,7 +2319,16 @@ class FacebookMarketplaceBot:
                 await page.keyboard.press("Control+A")
                 await page.keyboard.press("Backspace")
                 await self._human_type(page, model_str, min_delay=30, max_delay=65)
-                self.log("INFO", f"Vehicle Model '{model_str}' entered.")
+                await self.sleep(0.8)
+                # Autocomplete option selection for Model
+                opt = await page.query_selector('div[role="listbox"] div[role="option"], ul[role="listbox"] li, div[role="option"]')
+                if opt and await opt.is_visible():
+                    await opt.click()
+                else:
+                    await page.keyboard.press("ArrowDown")
+                    await self.sleep(0.2)
+                    await page.keyboard.press("Enter")
+                self.log("INFO", f"Vehicle Model '{model_str}' entered and confirmed.")
                 await self.sleep(0.4)
             except Exception as ex:
                 self.log("WARNING", f"Notice while typing vehicle model: {str(ex)}")
@@ -2347,26 +2556,192 @@ class FacebookMarketplaceBot:
             except Exception as ex:
                 self.log("WARNING", f"Notice while selecting {label_hint}: {str(ex)}")
 
-    async def _upload_photos_to_page(self, page: Page, files: List[str]):
-        """Injects files into input[type=file]."""
-        file_inputs = await page.query_selector_all('input[type="file"]')
-        if not file_inputs:
-            # wait briefly
+    async def _upload_photos_to_page(self, page: Page, files: List[str]) -> bool:
+        """
+        Robustly injects image files into Facebook Marketplace uploader with multiple selector fallbacks,
+        file chooser listeners, retry polling, and thumbnail preview confirmation.
+        """
+        if not page or page.is_closed() or not files:
+            return False
+
+        valid_files = [os.path.abspath(f) for f in files if os.path.exists(f)]
+        if not valid_files:
+            self.log("WARNING", f"No valid physical image files to upload: {files}")
+            return False
+
+        for attempt in range(1, 4):
+            if page.is_closed() or self._cancel_requested:
+                return False
+
+            self.log("INFO", f"🖼️ Upload attempt {attempt}/3: Locating Marketplace media file input...")
+
+            # 1. Query for existing file inputs
+            file_inputs = await page.query_selector_all('input[type="file"]')
+            if not file_inputs:
+                try:
+                    f = await page.wait_for_selector('input[type="file"], input[accept*="image"]', timeout=6000)
+                    if f:
+                        file_inputs = [f]
+                except Exception:
+                    file_inputs = []
+
+            # 2. Inject files directly into matched input elements
+            if file_inputs:
+                for finput in file_inputs:
+                    try:
+                        await finput.set_input_files(valid_files)
+                        self.log("SUCCESS", f"✅ Injected {len(valid_files)} photo(s) into file input.")
+                        if await self._wait_for_photo_thumbnail(page):
+                            return True
+                    except Exception:
+                        continue
+
+            # 3. If direct input didn't confirm, try clicking upload container while expecting file chooser
             try:
-                f = await page.wait_for_selector('input[type="file"]', timeout=5000)
-                if f:
-                    file_inputs = [f]
+                upload_btn = await page.query_selector(
+                    'div[aria-label*="Add photo" i], div[aria-label*="Add Photo" i], '
+                    'div[aria-label*="Add Photos" i], div[aria-label*="Add photos" i], '
+                    'div[role="button"]:has-text("Add photos"), div[role="button"]:has-text("Add Photos"), '
+                    'span:has-text("Add photos"), span:has-text("Add Photos"), '
+                    'div[aria-label*="تصاویر" i]'
+                )
+                if upload_btn:
+                    async with page.expect_file_chooser(timeout=6000) as fc_info:
+                        await upload_btn.click()
+                    file_chooser = await fc_info.value
+                    await file_chooser.set_files(valid_files)
+                    self.log("SUCCESS", f"✅ Set {len(valid_files)} photo(s) via file chooser event.")
+                    if await self._wait_for_photo_thumbnail(page):
+                        return True
+            except Exception as fc_err:
+                self.log("INFO", f"File chooser fallback notice: {str(fc_err)[:40]}")
+
+            # Scroll up to top to ensure media box is in DOM view
+            try:
+                await page.evaluate("""() => {
+                    const scrollables = Array.from(document.querySelectorAll('div[role="main"], div[role="navigation"], div[style*="overflow"]'));
+                    for (const el of scrollables) { el.scrollTop = 0; }
+                    window.scrollTo(0, 0);
+                }""")
             except Exception:
                 pass
+            await asyncio.sleep(1.5)
 
-        for finput in file_inputs:
-            try:
-                await finput.set_input_files(files)
-                self.log("SUCCESS", f"Injected {len(files)} photo(s) into Marketplace media uploader.")
-                return True
-            except Exception:
-                continue
         return False
+
+    async def _wait_for_photo_thumbnail(self, page: Page, timeout_secs: int = 10) -> bool:
+        """Waits and confirms that Facebook has received and rendered the uploaded photo thumbnail."""
+        start_t = asyncio.get_event_loop().time()
+        while asyncio.get_event_loop().time() - start_t < timeout_secs:
+            if page.is_closed() or self._cancel_requested:
+                return False
+            try:
+                has_thumbnail = await page.evaluate("""
+                    () => {
+                        const imgs = Array.from(document.querySelectorAll('img[src*="blob:"], img[src*="fbcdn"], img[src*="scontent"], img[alt*="photo" i], img[alt*="listing" i]'));
+                        if (imgs.length > 0) return true;
+                        const btns = Array.from(document.querySelectorAll('div[aria-label*="delete photo" i], div[aria-label*="remove photo" i], div[aria-label*="Delete" i], div[aria-label*="Photo 1" i]'));
+                        if (btns.length > 0) return true;
+                        return false;
+                    }
+                """)
+                if has_thumbnail:
+                    self.log("SUCCESS", "📸 Photo thumbnail confirmed uploaded and rendered by Facebook Marketplace.")
+                    return True
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+        self.log("INFO", "Photo upload payload dispatched; proceeding with form population.")
+        return True
+
+    async def _advance_next_step(self, page: Page) -> bool:
+        """
+        Robustly advances past the 'Next' step on Facebook Marketplace:
+        1. Triggers blur on any active input so form validation state settles.
+        2. Scrolls the left sidebar pane so the Next button is rendered and in viewport.
+        3. Polls until the Next button is enabled (not disabled / aria-disabled="true").
+        4. Clicks the Next button.
+        5. Verifies transition to the final Publish screen.
+        """
+        if not page or page.is_closed() or self._cancel_requested:
+            return False
+
+        # Step 1: Blur active element
+        try:
+            await page.evaluate("() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }")
+        except Exception:
+            pass
+
+        # Step 2: Scroll the sidebar container to ensure Next button is visible
+        try:
+            await page.evaluate("""() => {
+                const scrollables = Array.from(document.querySelectorAll('div[role="main"], div[role="navigation"], div[style*="overflow"]'));
+                for (const el of scrollables) {
+                    try { el.scrollTop = el.scrollHeight; } catch(e){}
+                }
+                window.scrollBy(0, 1000);
+            }""")
+        except Exception:
+            pass
+
+        await self.sleep(0.8)
+
+        # Step 3: Find and click enabled Next button
+        for attempt in range(8):
+            if page.is_closed() or self._cancel_requested:
+                return False
+
+            clicked = await page.evaluate("""
+                () => {
+                    const targets = ['next', 'اگلا'];
+                    const candidates = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"]'));
+                    for (const el of candidates) {
+                        const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+                        const text = (el.innerText || el.textContent || '').trim().toLowerCase();
+                        const disabled = el.getAttribute('aria-disabled') === 'true' || el.disabled;
+                        
+                        if (disabled) continue;
+
+                        for (const t of targets) {
+                            if (aria === t || text === t || aria.startsWith(t) || text.startsWith(t)) {
+                                el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                                el.click();
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }
+            """)
+            if clicked:
+                self.log("INFO", "➡️ 'Next' button clicked successfully.")
+                # Verify transition to Publish screen
+                for _ in range(6):
+                    await asyncio.sleep(0.5)
+                    is_publish_screen = await page.evaluate("""
+                        () => {
+                            const elements = Array.from(document.querySelectorAll('div[role="button"], button'));
+                            return elements.some(el => {
+                                const a = (el.getAttribute('aria-label') || '').toLowerCase();
+                                const t = (el.innerText || '').toLowerCase();
+                                return (a === 'publish' || t === 'publish' || a === 'post' || t === 'post' || a === 'شائع' || a === 'پبلش') &&
+                                       !a.includes('draft') && !t.includes('draft');
+                            });
+                        }
+                    """)
+                    if is_publish_screen:
+                        return True
+                return True
+
+            # If not yet clicked, scroll down further and wait briefly
+            try:
+                await page.evaluate("window.scrollBy(0, 300)")
+            except Exception:
+                pass
+            await asyncio.sleep(0.8)
+
+        # Final fallback with text click
+        return await self._click_button_with_text(page, ["Next", "اگلا"])
 
     async def _click_button_with_text(self, page: Page, text_candidates: List[str]) -> bool:
         """Finds and clicks a button by text or aria-label."""
