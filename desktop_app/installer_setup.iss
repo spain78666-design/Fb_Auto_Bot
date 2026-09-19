@@ -9,6 +9,7 @@
 #define MyAppPublisher "FB Auto Bot Enterprise"
 #define MyAppURL "https://fbautobot.vercel.app/"
 #define MyAppExeName "FBAutoBot.exe"
+#define MyAppID "fbautobot.enterprise.automation.v24"
 
 [Setup]
 ; Unique AppId generated for FB Auto Bot
@@ -33,7 +34,7 @@ DisableDirPage=no
 DisableReadyPage=no
 PrivilegesRequired=lowest
 UninstallDisplayIcon={app}\{#MyAppExeName}
-; SetupIconFile=assets\logo.ico
+SetupIconFile=assets\logo.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -53,9 +54,9 @@ Name: "{app}\profiles"; Flags: uninsneveruninstall
 Name: "{app}\temp_uploads"; Flags: deleteafterinstall
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; IconIndex: 0; AppUserModelID: "{#MyAppID}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; IconIndex: 0; AppUserModelID: "{#MyAppID}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

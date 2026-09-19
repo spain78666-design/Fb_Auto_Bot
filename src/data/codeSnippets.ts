@@ -525,6 +525,7 @@ export const installerSetupSnippet = `; ========================================
 #define MyAppPublisher "FB Auto Bot Enterprise"
 #define MyAppURL "https://fbautobot.vercel.app/"
 #define MyAppExeName "FBAutoBot.exe"
+#define MyAppID "fbautobot.enterprise.automation.v24"
 
 [Setup]
 AppId={{E8B7F92A-4D31-4A56-B1C8-92F73DAE84B0}
@@ -546,6 +547,7 @@ WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=lowest
 UninstallDisplayIcon={app}\\{#MyAppExeName}
+SetupIconFile=assets\\logo.ico
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
@@ -558,9 +560,9 @@ Name: "{app}\\config"; Flags: uninsneveruninstall
 Name: "{app}\\profiles"; Flags: uninsneveruninstall
 
 [Icons]
-Name: "{group}\\{#MyAppName}"; Filename: "{app}\\{#MyAppExeName}"
+Name: "{group}\\{#MyAppName}"; Filename: "{app}\\{#MyAppExeName}"; IconFilename: "{app}\\{#MyAppExeName}"; IconIndex: 0; AppUserModelID: "{#MyAppID}"
 Name: "{group}\\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\\{#MyAppName}"; Filename: "{app}\\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\\{#MyAppName}"; Filename: "{app}\\{#MyAppExeName}"; IconFilename: "{app}\\{#MyAppExeName}"; IconIndex: 0; AppUserModelID: "{#MyAppID}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

@@ -4755,6 +4755,19 @@ class FBAutoBotMainWindow(QMainWindow):
         v_r1.addLayout(col_vyear, stretch=1)
         veh_layout.addLayout(v_r1)
 
+        # Vehicle Title Row: Listing Title
+        v_title_row = QHBoxLayout()
+        col_vtitle = QVBoxLayout()
+        col_vtitle.setContentsMargins(0, 0, 0, 0)
+        col_vtitle.setSpacing(2)
+        col_vtitle.setAlignment(Qt.AlignTop)
+        col_vtitle.addWidget(QLabel("Listing Title (Max 100 chars):"))
+        self.veh_title_input = QLineEdit()
+        self.veh_title_input.setPlaceholderText("e.g., 2022 Toyota Camry SE Clean Title Low Mileage (Leave empty to auto-generate)")
+        col_vtitle.addWidget(self.veh_title_input)
+        v_title_row.addLayout(col_vtitle)
+        veh_layout.addLayout(v_title_row)
+
         # Vehicle Row 2: Make, Model, Price, ID Location, Target Locations
         v_r2 = QHBoxLayout()
         col_vmake = QVBoxLayout()
@@ -4873,6 +4886,19 @@ class FBAutoBotMainWindow(QMainWindow):
         col_ptype.addWidget(self.prop_type_select)
         p_r1.addLayout(col_ptype, stretch=1)
         prop_layout.addLayout(p_r1)
+
+        # Property Title Row: Listing Title
+        p_title_row = QHBoxLayout()
+        col_ptitle = QVBoxLayout()
+        col_ptitle.setContentsMargins(0, 0, 0, 0)
+        col_ptitle.setSpacing(2)
+        col_ptitle.setAlignment(Qt.AlignTop)
+        col_ptitle.addWidget(QLabel("Listing Title (Max 100 chars):"))
+        self.prop_title_input = QLineEdit()
+        self.prop_title_input.setPlaceholderText("e.g., Luxury 2 Bed Apartment for Rent in Downtown (Leave empty to auto-generate)")
+        col_ptitle.addWidget(self.prop_title_input)
+        p_title_row.addLayout(col_ptitle)
+        prop_layout.addLayout(p_title_row)
 
         # Property Row 2: Bedrooms, Bathrooms, Price, ID Location, Target Locations
         p_r2 = QHBoxLayout()
@@ -6030,6 +6056,19 @@ class FBAutoBotMainWindow(QMainWindow):
         pv_r1.addLayout(col_pvyear, stretch=1)
         p_veh_layout.addLayout(pv_r1)
 
+        # Vehicle Title Row: Listing Title
+        p_veh_title_row = QHBoxLayout()
+        col_pvtitle = QVBoxLayout()
+        col_pvtitle.setContentsMargins(0, 0, 0, 0)
+        col_pvtitle.setSpacing(2)
+        col_pvtitle.setAlignment(Qt.AlignTop)
+        col_pvtitle.addWidget(QLabel("Listing Title (Max 100 chars):"))
+        self.proj_veh_title_input = QLineEdit()
+        self.proj_veh_title_input.setPlaceholderText("e.g., 2022 Toyota Camry SE Clean Title Low Mileage (Leave empty to auto-generate)")
+        col_pvtitle.addWidget(self.proj_veh_title_input)
+        p_veh_title_row.addLayout(col_pvtitle)
+        p_veh_layout.addLayout(p_veh_title_row)
+
         # Vehicle Row 2: Make, Model, Price, ID Location, Target Locations
         pv_r2 = QHBoxLayout()
         col_pvmake = QVBoxLayout()
@@ -6147,6 +6186,19 @@ class FBAutoBotMainWindow(QMainWindow):
         col_pptype.addWidget(self.proj_prop_type_select)
         pp_r1.addLayout(col_pptype, stretch=1)
         p_prop_layout.addLayout(pp_r1)
+
+        # Property Title Row: Listing Title
+        p_prop_title_row = QHBoxLayout()
+        col_mptitle = QVBoxLayout()
+        col_mptitle.setContentsMargins(0, 0, 0, 0)
+        col_mptitle.setSpacing(2)
+        col_mptitle.setAlignment(Qt.AlignTop)
+        col_mptitle.addWidget(QLabel("Listing Title (Max 100 chars):"))
+        self.proj_prop_title_input = QLineEdit()
+        self.proj_prop_title_input.setPlaceholderText("e.g., Luxury 2 Bed Apartment for Rent in Downtown (Leave empty to auto-generate)")
+        col_mptitle.addWidget(self.proj_prop_title_input)
+        p_prop_title_row.addLayout(col_mptitle)
+        p_prop_layout.addLayout(p_prop_title_row)
 
         # Property Row 2: Bedrooms, Bathrooms, Price, ID Location, Target Locations
         pp_r2 = QHBoxLayout()
@@ -6475,6 +6527,8 @@ class FBAutoBotMainWindow(QMainWindow):
         self.proj_desc_input.setPlainText(tdata.get("description", ""))
 
         # Page 1: Vehicle for sale fields
+        if hasattr(self, 'proj_veh_title_input'):
+            self.proj_veh_title_input.setText(tdata.get("vehicle_title", tdata.get("title", "")))
         if hasattr(self, 'proj_veh_type_select'):
             idx_vt = self.proj_veh_type_select.findText(tdata.get("vehicle_type", "Car/Truck"))
             if idx_vt >= 0:
@@ -6504,6 +6558,8 @@ class FBAutoBotMainWindow(QMainWindow):
             self.proj_veh_desc_input.setPlainText(tdata.get("vehicle_description", tdata.get("description", "")))
 
         # Page 2: Property for sale or rent fields
+        if hasattr(self, 'proj_prop_title_input'):
+            self.proj_prop_title_input.setText(tdata.get("property_title", tdata.get("title", "")))
         if hasattr(self, 'proj_prop_rental_type_select'):
             idx_pr = self.proj_prop_rental_type_select.findText(tdata.get("rental_type", "Rent"))
             if idx_pr >= 0:
@@ -6580,7 +6636,11 @@ class FBAutoBotMainWindow(QMainWindow):
             v_year = self.proj_veh_year_select.currentText() if hasattr(self, 'proj_veh_year_select') else "2022"
             v_make = self.proj_veh_make_input.text().strip() if hasattr(self, 'proj_veh_make_input') else ""
             v_model = self.proj_veh_model_input.text().strip() if hasattr(self, 'proj_veh_model_input') else ""
-            title = f"{v_year} {v_make} {v_model}".strip() if (v_make or v_model) else self.proj_title_input.text().strip()
+            v_custom_title = self.proj_veh_title_input.text().strip() if hasattr(self, 'proj_veh_title_input') else ""
+            if v_custom_title:
+                title = v_custom_title
+            else:
+                title = f"{v_year} {v_make} {v_model}".strip() if (v_make or v_model) else self.proj_title_input.text().strip()
             price = self.proj_veh_price_input.text().strip() if hasattr(self, 'proj_veh_price_input') else (self.proj_price_input.text().strip() or "0")
             id_loc = self.proj_veh_id_loc_input.text().strip() if hasattr(self, 'proj_veh_id_loc_input') else ""
             id_rad = self.proj_veh_id_radius_select.currentText().strip() if hasattr(self, 'proj_veh_id_radius_select') else "40 miles"
@@ -6590,7 +6650,11 @@ class FBAutoBotMainWindow(QMainWindow):
             p_rent = self.proj_prop_rental_type_select.currentText() if hasattr(self, 'proj_prop_rental_type_select') else "Rent"
             p_type = self.proj_prop_type_select.currentText() if hasattr(self, 'proj_prop_type_select') else "Apartment/Condo"
             p_beds = self.proj_prop_bedrooms_select.currentText() if hasattr(self, 'proj_prop_bedrooms_select') else "1"
-            title = f"{p_beds} Bed {p_type} for {p_rent}".strip()
+            p_custom_title = self.proj_prop_title_input.text().strip() if hasattr(self, 'proj_prop_title_input') else ""
+            if p_custom_title:
+                title = p_custom_title
+            else:
+                title = f"{p_beds} Bed {p_type} for {p_rent}".strip()
             price = self.proj_prop_price_input.text().strip() if hasattr(self, 'proj_prop_price_input') else (self.proj_price_input.text().strip() or "0")
             id_loc = self.proj_prop_id_loc_input.text().strip() if hasattr(self, 'proj_prop_id_loc_input') else ""
             id_rad = self.proj_prop_id_radius_select.currentText().strip() if hasattr(self, 'proj_prop_id_radius_select') else "40 miles"
@@ -6617,6 +6681,7 @@ class FBAutoBotMainWindow(QMainWindow):
             "location": loc or "Local Radius",
             "description": desc,
             # Specialized Vehicle Fields
+            "vehicle_title": self.proj_veh_title_input.text().strip() if hasattr(self, 'proj_veh_title_input') else "",
             "vehicle_type": self.proj_veh_type_select.currentText() if hasattr(self, 'proj_veh_type_select') else "Car/Truck",
             "vehicle_year": self.proj_veh_year_select.currentText() if hasattr(self, 'proj_veh_year_select') else "2022",
             "vehicle_make": self.proj_veh_make_input.text().strip() if hasattr(self, 'proj_veh_make_input') else "",
@@ -6627,7 +6692,7 @@ class FBAutoBotMainWindow(QMainWindow):
             "vehicle_location": self.proj_veh_location_input.toPlainText().strip() if hasattr(self, 'proj_veh_location_input') else "",
             "vehicle_description": self.proj_veh_desc_input.toPlainText().strip() if hasattr(self, 'proj_veh_desc_input') else "",
             # Specialized Property Fields
-            "rental_type": self.proj_prop_rental_type_select.currentText() if hasattr(self, 'proj_prop_rental_type_select') else "Rent",
+            "property_title": self.proj_prop_title_input.text().strip() if hasattr(self, 'proj_prop_title_input') else "",
             "property_type": self.proj_prop_type_select.currentText() if hasattr(self, 'proj_prop_type_select') else "Apartment/Condo",
             "bedrooms": self.proj_prop_bedrooms_select.currentText() if hasattr(self, 'proj_prop_bedrooms_select') else "1",
             "bathrooms": self.proj_prop_bathrooms_select.currentText() if hasattr(self, 'proj_prop_bathrooms_select') else "1",
@@ -7283,7 +7348,8 @@ class FBAutoBotMainWindow(QMainWindow):
             if not v_make or not v_model:
                 QMessageBox.warning(self, "Missing Fields", "Please provide at least Vehicle Make and Model.")
                 return
-            title = f"{v_year} {v_make} {v_model}".strip()
+            v_custom_title = self.veh_title_input.text().strip() if hasattr(self, 'veh_title_input') else ""
+            title = v_custom_title if v_custom_title else f"{v_year} {v_make} {v_model}".strip()
             price = self.veh_price_input.text().strip() if hasattr(self, 'veh_price_input') else "0"
             id_location = self.veh_id_loc_input.text().strip() if hasattr(self, 'veh_id_loc_input') else ""
             id_radius = self.veh_id_radius_select.currentText().strip() if hasattr(self, 'veh_id_radius_select') else "40 miles"
@@ -7294,7 +7360,8 @@ class FBAutoBotMainWindow(QMainWindow):
             p_type = self.prop_type_select.currentText() if hasattr(self, 'prop_type_select') else "Apartment/Condo"
             p_beds = self.prop_bedrooms_select.currentText() if hasattr(self, 'prop_bedrooms_select') else "1"
             p_baths = self.prop_bathrooms_select.currentText() if hasattr(self, 'prop_bathrooms_select') else "1"
-            title = f"{p_beds} Bed {p_type} for {p_rent}".strip()
+            p_custom_title = self.prop_title_input.text().strip() if hasattr(self, 'prop_title_input') else ""
+            title = p_custom_title if p_custom_title else f"{p_beds} Bed {p_type} for {p_rent}".strip()
             price = self.prop_price_input.text().strip() if hasattr(self, 'prop_price_input') else "0"
             id_location = self.prop_id_loc_input.text().strip() if hasattr(self, 'prop_id_loc_input') else ""
             id_radius = self.prop_id_radius_select.currentText().strip() if hasattr(self, 'prop_id_radius_select') else "40 miles"

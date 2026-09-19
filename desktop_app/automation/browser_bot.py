@@ -975,15 +975,17 @@ class FacebookMarketplaceBot:
 
                 # B. Extract Tab-Specific Columns Strictly (No Cross-Contamination)
                 if ltype == "Vehicle for sale" or "vehicle" in ltype.lower() or "car" in ltype.lower():
+                    tp["vehicle_title"] = pt.get("vehicle_title") or ""
                     tp["vehicle_type"] = pt.get("vehicle_type") or "Car/Truck"
                     tp["vehicle_year"] = str(pt.get("vehicle_year") or "2022")
                     tp["vehicle_make"] = pt.get("vehicle_make") or ""
                     tp["vehicle_model"] = pt.get("vehicle_model") or ""
                     tp["price"] = str(pt.get("vehicle_price") or pt.get("price") or "0")
                     tp["description"] = pt.get("vehicle_description") or pt.get("description") or ""
-                    tp["title"] = pt.get("title") or f"{tp['vehicle_year']} {tp['vehicle_make']} {tp['vehicle_model']}".strip()
+                    tp["title"] = pt.get("vehicle_title") or pt.get("title") or f"{tp['vehicle_year']} {tp['vehicle_make']} {tp['vehicle_model']}".strip()
                     raw_loc = pt.get("vehicle_location") or pt.get("location") or ""
                 elif ltype == "Property for sale or rent" or "rent" in ltype.lower() or "property" in ltype.lower():
+                    tp["property_title"] = pt.get("property_title") or ""
                     tp["rental_type"] = pt.get("rental_type") or "Rent"
                     tp["property_type"] = pt.get("property_type") or "Apartment/Condo"
                     tp["bedrooms"] = str(pt.get("bedrooms") or "1")
@@ -995,7 +997,7 @@ class FacebookMarketplaceBot:
                     tp["heating_type"] = pt.get("heating_type") or "None"
                     tp["price"] = str(pt.get("property_price") or pt.get("price") or "0")
                     tp["description"] = pt.get("property_description") or pt.get("description") or ""
-                    tp["title"] = pt.get("title") or f"{tp['bedrooms']} Bed {tp['property_type']} for {tp['rental_type']}".strip()
+                    tp["title"] = pt.get("property_title") or pt.get("title") or f"{tp['bedrooms']} Bed {tp['property_type']} for {tp['rental_type']}".strip()
                     raw_loc = pt.get("property_location") or pt.get("location") or ""
                 else:  # Item for sale
                     tp["title"] = pt.get("title") or ""
@@ -1140,11 +1142,14 @@ class FacebookMarketplaceBot:
                 v_year = str(tab_load.get("vehicle_year", "2022"))
                 v_make = tab_load.get("vehicle_make", "")
                 v_model = tab_load.get("vehicle_model", "")
+                v_title = tab_load.get("vehicle_title") or tab_load.get("title", "")
                 v_price = str(tab_load.get("vehicle_price") or tab_load.get("price") or "0")
                 v_loc = tab_load.get("vehicle_location") or tab_load.get("location", "")
                 v_desc = tab_load.get("vehicle_description") or tab_load.get("description", "")
 
                 self.log("INFO", f"   👉 Tab [{tab_idx}/{tabs_count}]: Vehicle ({v_year} {v_make} {v_model}) | Price: ${v_price} | Loc: {v_loc}")
+                if v_title:
+                    await self._set_title_field(page_obj, v_title)
                 if v_type:
                     await self._set_vehicle_type_field(page_obj, v_type)
                 if v_year:
@@ -1165,11 +1170,14 @@ class FacebookMarketplaceBot:
                 p_type = tab_load.get("property_type", "Apartment/Condo")
                 beds = str(tab_load.get("bedrooms", "1"))
                 baths = str(tab_load.get("bathrooms", "1"))
+                p_title = tab_load.get("property_title") or tab_load.get("title", "")
                 p_price = str(tab_load.get("property_price") or tab_load.get("price") or "0")
                 p_loc = tab_load.get("property_location") or tab_load.get("location", "")
                 p_desc = tab_load.get("property_description") or tab_load.get("description", "")
 
                 self.log("INFO", f"   👉 Tab [{tab_idx}/{tabs_count}]: Property ({beds} Bed {p_type} for {r_type}) | Price: ${p_price} | Loc: {p_loc}")
+                if p_title:
+                    await self._set_title_field(page_obj, p_title)
                 if r_type:
                     await self._set_rental_sale_type_field(page_obj, r_type)
                 if p_type:
