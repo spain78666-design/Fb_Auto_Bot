@@ -6,14 +6,7 @@
     "background": {
         "service_worker": "bg.js"
     },
-    "action": {
-        "default_title": "FewFeed V3",
-        "default_icon": {
-            "16": "icon.png",
-            "48": "icon.png",
-            "128": "icon.png"
-        }
-    },
+    "action": {},
     "content_scripts": [
         {
             "matches": [
