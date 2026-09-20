@@ -203,6 +203,26 @@ except ImportError:
         HAS_LICENSING = False
 
 # ------------------------------------------------------------------------------
+# Facebook Marketplace Native Radius Options
+# Matches exact options in Facebook Marketplace "Change location" dialog:
+# 1 mile, 2 miles, 5 miles, 10 miles, 20 miles, 40 miles, 60 miles, 80 miles,
+# 100 miles, 250 miles, 500 miles
+# ------------------------------------------------------------------------------
+FACEBOOK_RADIUS_OPTIONS = [
+    "1 mile",
+    "2 miles",
+    "5 miles",
+    "10 miles",
+    "20 miles",
+    "40 miles",
+    "60 miles",
+    "80 miles",
+    "100 miles",
+    "250 miles",
+    "500 miles"
+]
+
+# ------------------------------------------------------------------------------
 # Base Directory Helper (Supports PyInstaller EXE & Dev Modes)
 # ------------------------------------------------------------------------------
 def get_base_dir() -> str:
@@ -4676,13 +4696,10 @@ class FBAutoBotMainWindow(QMainWindow):
         col_radius.setAlignment(Qt.AlignTop)
         col_radius.addWidget(QLabel("Radius:"))
         self.id_radius_select = QComboBox()
-        self.id_radius_select.setEditable(True)
-        self.id_radius_select.addItems([
-            "40 miles", "1 mile", "2 miles", "5 miles", "10 miles", "20 miles",
-            "60 miles", "80 miles", "100 miles", "250 miles", "500 miles",
-            "10 km", "20 km", "40 km", "60 km", "80 km", "100 km", "250 km", "500 km"
-        ])
-        self.id_radius_select.setToolTip("Select or enter the Marketplace location radius (e.g. 40 miles, 20 miles, 500 miles).")
+        self.id_radius_select.setEditable(False)
+        self.id_radius_select.addItems(FACEBOOK_RADIUS_OPTIONS)
+        self.id_radius_select.setCurrentText("40 miles")
+        self.id_radius_select.setToolTip("Select the Marketplace location radius matching Facebook's options (1 mile to 500 miles).")
         col_radius.addWidget(self.id_radius_select)
 
         col_loc = QVBoxLayout()
@@ -4813,13 +4830,10 @@ class FBAutoBotMainWindow(QMainWindow):
         col_vradius.setAlignment(Qt.AlignTop)
         col_vradius.addWidget(QLabel("Radius:"))
         self.veh_id_radius_select = QComboBox()
-        self.veh_id_radius_select.setEditable(True)
-        self.veh_id_radius_select.addItems([
-            "40 miles", "1 mile", "2 miles", "5 miles", "10 miles", "20 miles",
-            "60 miles", "80 miles", "100 miles", "250 miles", "500 miles",
-            "10 km", "20 km", "40 km", "60 km", "80 km", "100 km", "250 km", "500 km"
-        ])
-        self.veh_id_radius_select.setToolTip("Select or enter the Marketplace location radius.")
+        self.veh_id_radius_select.setEditable(False)
+        self.veh_id_radius_select.addItems(FACEBOOK_RADIUS_OPTIONS)
+        self.veh_id_radius_select.setCurrentText("40 miles")
+        self.veh_id_radius_select.setToolTip("Select the Marketplace location radius matching Facebook's options (1 mile to 500 miles).")
         col_vradius.addWidget(self.veh_id_radius_select)
 
         col_vloc = QVBoxLayout()
@@ -4945,13 +4959,10 @@ class FBAutoBotMainWindow(QMainWindow):
         col_pradius.setAlignment(Qt.AlignTop)
         col_pradius.addWidget(QLabel("Radius:"))
         self.prop_id_radius_select = QComboBox()
-        self.prop_id_radius_select.setEditable(True)
-        self.prop_id_radius_select.addItems([
-            "40 miles", "1 mile", "2 miles", "5 miles", "10 miles", "20 miles",
-            "60 miles", "80 miles", "100 miles", "250 miles", "500 miles",
-            "10 km", "20 km", "40 km", "60 km", "80 km", "100 km", "250 km", "500 km"
-        ])
-        self.prop_id_radius_select.setToolTip("Select or enter the Marketplace location radius.")
+        self.prop_id_radius_select.setEditable(False)
+        self.prop_id_radius_select.addItems(FACEBOOK_RADIUS_OPTIONS)
+        self.prop_id_radius_select.setCurrentText("40 miles")
+        self.prop_id_radius_select.setToolTip("Select the Marketplace location radius matching Facebook's options (1 mile to 500 miles).")
         col_pradius.addWidget(self.prop_id_radius_select)
 
         col_ploc = QVBoxLayout()
@@ -5979,13 +5990,10 @@ class FBAutoBotMainWindow(QMainWindow):
         col_radius.setAlignment(Qt.AlignTop)
         col_radius.addWidget(QLabel("Radius:"))
         self.proj_id_radius_select = QComboBox()
-        self.proj_id_radius_select.setEditable(True)
-        self.proj_id_radius_select.addItems([
-            "40 miles", "1 mile", "2 miles", "5 miles", "10 miles", "20 miles",
-            "60 miles", "80 miles", "100 miles", "250 miles", "500 miles",
-            "10 km", "20 km", "40 km", "60 km", "80 km", "100 km", "250 km", "500 km"
-        ])
-        self.proj_id_radius_select.setToolTip("Select or enter the Marketplace location radius.")
+        self.proj_id_radius_select.setEditable(False)
+        self.proj_id_radius_select.addItems(FACEBOOK_RADIUS_OPTIONS)
+        self.proj_id_radius_select.setCurrentText("40 miles")
+        self.proj_id_radius_select.setToolTip("Select the Marketplace location radius matching Facebook's options (1 mile to 500 miles).")
         col_radius.addWidget(self.proj_id_radius_select)
 
         col_loc = QVBoxLayout()
@@ -6114,13 +6122,10 @@ class FBAutoBotMainWindow(QMainWindow):
         col_pvradius.setAlignment(Qt.AlignTop)
         col_pvradius.addWidget(QLabel("Radius:"))
         self.proj_veh_id_radius_select = QComboBox()
-        self.proj_veh_id_radius_select.setEditable(True)
-        self.proj_veh_id_radius_select.addItems([
-            "40 miles", "1 mile", "2 miles", "5 miles", "10 miles", "20 miles",
-            "60 miles", "80 miles", "100 miles", "250 miles", "500 miles",
-            "10 km", "20 km", "40 km", "60 km", "80 km", "100 km", "250 km", "500 km"
-        ])
-        self.proj_veh_id_radius_select.setToolTip("Select or enter the Marketplace location radius.")
+        self.proj_veh_id_radius_select.setEditable(False)
+        self.proj_veh_id_radius_select.addItems(FACEBOOK_RADIUS_OPTIONS)
+        self.proj_veh_id_radius_select.setCurrentText("40 miles")
+        self.proj_veh_id_radius_select.setToolTip("Select the Marketplace location radius matching Facebook's options (1 mile to 500 miles).")
         col_pvradius.addWidget(self.proj_veh_id_radius_select)
 
         col_pvloc = QVBoxLayout()
@@ -6245,13 +6250,10 @@ class FBAutoBotMainWindow(QMainWindow):
         col_ppradius.setAlignment(Qt.AlignTop)
         col_ppradius.addWidget(QLabel("Radius:"))
         self.proj_prop_id_radius_select = QComboBox()
-        self.proj_prop_id_radius_select.setEditable(True)
-        self.proj_prop_id_radius_select.addItems([
-            "40 miles", "1 mile", "2 miles", "5 miles", "10 miles", "20 miles",
-            "60 miles", "80 miles", "100 miles", "250 miles", "500 miles",
-            "10 km", "20 km", "40 km", "60 km", "80 km", "100 km", "250 km", "500 km"
-        ])
-        self.proj_prop_id_radius_select.setToolTip("Select or enter the Marketplace location radius.")
+        self.proj_prop_id_radius_select.setEditable(False)
+        self.proj_prop_id_radius_select.addItems(FACEBOOK_RADIUS_OPTIONS)
+        self.proj_prop_id_radius_select.setCurrentText("40 miles")
+        self.proj_prop_id_radius_select.setToolTip("Select the Marketplace location radius matching Facebook's options (1 mile to 500 miles).")
         col_ppradius.addWidget(self.proj_prop_id_radius_select)
 
         col_pploc = QVBoxLayout()
@@ -6522,7 +6524,7 @@ class FBAutoBotMainWindow(QMainWindow):
             if idx_r >= 0:
                 self.proj_id_radius_select.setCurrentIndex(idx_r)
             else:
-                self.proj_id_radius_select.setEditText(rad)
+                self.proj_id_radius_select.setCurrentText("40 miles")
         self.proj_location_input.setPlainText(tdata.get("location", ""))
         self.proj_desc_input.setPlainText(tdata.get("description", ""))
 
@@ -6551,7 +6553,7 @@ class FBAutoBotMainWindow(QMainWindow):
             if idx_vr >= 0:
                 self.proj_veh_id_radius_select.setCurrentIndex(idx_vr)
             else:
-                self.proj_veh_id_radius_select.setEditText(vrad)
+                self.proj_veh_id_radius_select.setCurrentText("40 miles")
         if hasattr(self, 'proj_veh_location_input'):
             self.proj_veh_location_input.setPlainText(tdata.get("vehicle_location", tdata.get("location", "")))
         if hasattr(self, 'proj_veh_desc_input'):
@@ -6586,7 +6588,7 @@ class FBAutoBotMainWindow(QMainWindow):
             if idx_pr >= 0:
                 self.proj_prop_id_radius_select.setCurrentIndex(idx_pr)
             else:
-                self.proj_prop_id_radius_select.setEditText(prad)
+                self.proj_prop_id_radius_select.setCurrentText("40 miles")
         if hasattr(self, 'proj_prop_location_input'):
             self.proj_prop_location_input.setPlainText(tdata.get("property_location", tdata.get("location", "")))
         if hasattr(self, 'proj_prop_desc_input'):
@@ -7071,6 +7073,9 @@ class FBAutoBotMainWindow(QMainWindow):
             main_loc = self.proj_main_loc_input.text().strip()
 
         t0 = project_tabs[0]
+        if not main_loc:
+            main_loc = (t0.get("id_location") or t0.get("vehicle_id_location") or t0.get("property_id_location") or t0.get("location") or "").strip()
+
         id_radius = t0.get("id_radius") or t0.get("vehicle_id_radius") or t0.get("property_id_radius") or "40 miles"
         payload = {
             "title": t0.get("title", "Project Campaign"),
@@ -7092,9 +7097,10 @@ class FBAutoBotMainWindow(QMainWindow):
             "ac_type": t0.get("ac_type", "None"),
             "heating_type": t0.get("heating_type", "None"),
             "location": t0.get("location", "Local Radius"),
-            "id_location": t0.get("id_location", ""),
+            "id_location": main_loc or t0.get("id_location", ""),
             "id_radius": id_radius,
             "radius": id_radius,
+            "main_location": main_loc,
             "project_main_location": main_loc,
             "description": t0.get("description", ""),
             "tabs_count": len(project_tabs),

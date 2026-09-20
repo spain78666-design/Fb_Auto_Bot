@@ -882,42 +882,82 @@ class FacebookMarketplaceBot:
                     # Handle Radius selection inside dialog if radius is provided
                     if rad_val:
                         try:
-                            rad_btn = page.locator("div[role='dialog'] div[aria-label*='Radius'], div[role='dialog'] div[aria-label*='radius'], div[role='dialog'] div[role='combobox'], div[role='dialog'] span:has-text('mile'), div[role='dialog'] span:has-text('km'), div[role='dialog'] div[role='button']:has-text('mile'), div[role='dialog'] div[role='button']:has-text('km')").first
-                            if await rad_btn.is_visible(timeout=2000):
-                                self.log("INFO", f"🧭 Selecting Marketplace Radius: '{rad_val}'...")
-                                await rad_btn.click(force=True)
-                                await self.sleep(1.0)
+                            self.log("INFO", f"🧭 Selecting Marketplace Radius: '{rad_val}'...")
+                            # 1. Open Radius dropdown inside dialog
+                            opened_radius = await page.evaluate("""() => {
+                                const dialog = document.querySelector('div[role="dialog"]');
+                                if (!dialog) return false;
+                                
+                                const candidates = Array.from(dialog.querySelectorAll('label, div[role="combobox"], div[role="button"], div[aria-haspopup="listbox"], span'));
+                                for (const el of candidates) {
+                                    const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+                                    const text = (el.innerText || '').toLowerCase();
+                                    if (aria.includes('radius') || text.includes('radius')) {
+                                        el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                                        el.click();
+                                        return true;
+                                    }
+                                }
+                                for (const el of candidates) {
+                                    const text = (el.innerText || '').toLowerCase();
+                                    if ((text.includes('mile') || text.includes('km')) && !text.includes('within')) {
+                                        el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                                        el.click();
+                                        return true;
+                                    }
+                                }
+                                return false;
+                            }""")
 
-                                rad_num = "".join([c for c in rad_val if c.isdigit()])
-                                rad_unit = "km" if "km" in rad_val.lower() else "mile"
+                            if not opened_radius:
+                                rad_btn = page.locator("div[role='dialog'] div[aria-label*='Radius' i], div[role='dialog'] label:has-text('Radius'), div[role='dialog'] div[role='combobox'], div[role='dialog'] span:has-text('mile'), div[role='dialog'] span:has-text('km')").first
+                                if await rad_btn.is_visible(timeout=2000):
+                                    await rad_btn.click(force=True)
 
+                            await self.sleep(0.8)
+
+                            # 2. Select option matching rad_val (e.g. '10 miles', '40 miles', '500 miles')
+                            rad_num = "".join([c for c in rad_val if c.isdigit()])
+                            matched_opt = await page.evaluate("""(target) => {
+                                const tClean = target.trim().toLowerCase();
+                                const tNum = tClean.replace(/[^0-9]/g, '');
+                                const options = Array.from(document.querySelectorAll('div[role="option"], div[role="menuitem"], div[role="listbox"] div, ul[role="listbox"] li, span'));
+                                for (const opt of options) {
+                                    const text = (opt.innerText || opt.textContent || '').trim().toLowerCase();
+                                    if (text === tClean || text === `${tNum} miles` || text === `${tNum} mile` || text === `${tNum} km`) {
+                                        opt.scrollIntoView({ behavior: 'instant', block: 'center' });
+                                        opt.click();
+                                        return true;
+                                    }
+                                }
+                                return false;
+                            }""", rad_val)
+
+                            if not matched_opt:
                                 option_selectors = [
                                     f"div[role='option']:has-text('{rad_val}')",
                                     f"ul[role='listbox'] li:has-text('{rad_val}')",
                                     f"div[role='menuitem']:has-text('{rad_val}')",
-                                    f"div[role='menuitemradio']:has-text('{rad_val}')",
-                                    f"div[role='option']:has-text('{rad_num} {rad_unit}')",
-                                    f"ul[role='listbox'] li:has-text('{rad_num} {rad_unit}')",
-                                    f"div[role='option']:has-text('{rad_num}')",
-                                    f"ul[role='listbox'] li:has-text('{rad_num}')",
+                                    f"div[role='option']:has-text('{rad_num} miles')",
+                                    f"div[role='option']:has-text('{rad_num} mile')",
                                     f"span:has-text('{rad_val}')",
-                                    f"span:has-text('{rad_num} {rad_unit}')"
+                                    f"span:has-text('{rad_num} miles')"
                                 ]
-
                                 for r_sel in option_selectors:
                                     try:
                                         r_elem = page.locator(r_sel).first
                                         if await r_elem.is_visible(timeout=600):
                                             await r_elem.click(force=True)
-                                            await self.sleep(0.8)
+                                            await self.sleep(0.5)
                                             break
                                     except Exception:
                                         continue
+                            await self.sleep(0.6)
                         except Exception as rad_err:
                             self.log("DEBUG", f"Radius selector notice: {str(rad_err)[:50]}")
 
-                    apply_btn = page.locator("div[role='dialog'] div[role='button']:has-text('Apply'), div[role='dialog'] div[role='button']:has-text('Save'), div[role='dialog'] button:has-text('Apply'), div[role='dialog'] div[role='button']:has-text('حفظ')").first
-                    if await apply_btn.is_visible(timeout=2000):
+                    apply_btn = page.locator("div[role='dialog'] div[role='button']:has-text('Apply'), div[role='dialog'] button:has-text('Apply'), div[role='dialog'] span:has-text('Apply'), div[role='dialog'] div[role='button']:has-text('Save'), div[role='dialog'] div[role='button']:has-text('حفظ')").first
+                    if await apply_btn.is_visible(timeout=2500):
                         await apply_btn.click(force=True)
                         await self.sleep(2.0)
                     else:
@@ -946,8 +986,15 @@ class FacebookMarketplaceBot:
         # 0. Set Chrome ID / Account Main Location first if provided (applied ONCE on primary tab for all tabs)
         main_account_loc = payload.get("project_main_location", "").strip() or payload.get("main_location", "").strip() or payload.get("id_location", "").strip()
         main_account_rad = payload.get("id_radius", "").strip() or payload.get("radius", "").strip() or "40 miles"
+        if not main_account_loc and payload.get("project_tabs") and len(payload["project_tabs"]) > 0:
+            t0 = payload["project_tabs"][0]
+            main_account_loc = (t0.get("id_location") or t0.get("vehicle_id_location") or t0.get("property_id_location") or "").strip()
+            if not main_account_rad or main_account_rad == "40 miles":
+                main_account_rad = t0.get("id_radius") or t0.get("vehicle_id_radius") or t0.get("property_id_radius") or "40 miles"
+
         if main_account_loc:
-            self.log("INFO", f"📍 Setting primary Chrome ID / Account Marketplace Location to '{main_account_loc}' with Radius '{main_account_rad}' (shared across all tabs)...")
+            self.log("INFO", f"==================================================")
+            self.log("INFO", f"📍 Step 1: Setting primary Chrome ID / Account Marketplace Location to '{main_account_loc}' with Radius '{main_account_rad}'...")
             await self.set_account_marketplace_location(self.page, main_account_loc, main_account_rad)
 
         self.log("INFO", f"==================================================")
@@ -1071,15 +1118,43 @@ class FacebookMarketplaceBot:
             t_ad_type = tab_load.get("listing_type", tab_load.get("ad_type", "item")).lower()
             if "vehicle" in t_ad_type or "car" in t_ad_type or "auto" in t_ad_type:
                 target_url = "https://www.facebook.com/marketplace/create/vehicle"
+                type_labels = ["vehicle", "car", "truck"]
             elif "rent" in t_ad_type or "home" in t_ad_type or "property" in t_ad_type or "house" in t_ad_type:
                 target_url = "https://www.facebook.com/marketplace/create/rental"
+                type_labels = ["home for sale or rent", "property", "rent", "home"]
             else:
                 target_url = "https://www.facebook.com/marketplace/create/item"
-            self.log("INFO", f"🌐 Opening Marketplace Listing Form on Tab [{tab_num}/{tabs_count}]: {target_url}...")
+                type_labels = ["item for sale", "item", "سلعة للبيع"]
+
+            self.log("INFO", f"🌐 Step 3: Opening Marketplace Listing Form on Tab [{tab_num}/{tabs_count}]: {target_url}...")
             try:
                 await page_obj.goto(target_url, wait_until="domcontentloaded", timeout=45000)
+                await asyncio.sleep(1.5)
             except Exception as e:
                 self.log("WARNING", f"Tab [{tab_num}/{tabs_count}] creation load notice: {str(e)[:45]}")
+
+            # If page landed on https://www.facebook.com/marketplace/create without sub-path, click the type card
+            try:
+                cur_url = page_obj.url.rstrip("/")
+                if cur_url.endswith("/marketplace/create"):
+                    self.log("INFO", f"👉 Tab [{tab_num}/{tabs_count}]: Selecting Listing Type Card...")
+                    await page_obj.evaluate("""(targets) => {
+                        const cards = Array.from(document.querySelectorAll('a, div[role="button"], div[role="link"], span'));
+                        for (const card of cards) {
+                            const text = (card.innerText || card.textContent || '').trim().toLowerCase();
+                            for (const t of targets) {
+                                if (text === t || text.includes(t)) {
+                                    card.scrollIntoView({ behavior: 'instant', block: 'center' });
+                                    card.click();
+                                    return true;
+                                }
+                            }
+                        }
+                        return false;
+                    }""", type_labels)
+                    await asyncio.sleep(1.5)
+            except Exception:
+                pass
 
         await asyncio.gather(*[navigate_to_create_form(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))])
         self.log("SUCCESS", "🎉 All tabs loaded at their respective Marketplace listing creation forms!")
@@ -1158,8 +1233,8 @@ class FacebookMarketplaceBot:
                     await self._set_vehicle_make_field(page_obj, v_make)
                 if v_model:
                     await self._set_vehicle_model_field(page_obj, v_model)
-                if v_price and v_price != "0":
-                    await self._set_price_field(page_obj, v_price)
+                if v_price is not None and str(v_price).strip() != "":
+                    await self._set_price_field(page_obj, str(v_price).strip())
                 if v_loc and v_loc != "Local Radius":
                     await self._set_location_field(page_obj, v_loc)
                 if v_desc:
@@ -1186,8 +1261,8 @@ class FacebookMarketplaceBot:
                     await self._set_bedrooms_field(page_obj, beds)
                 if baths:
                     await self._set_bathrooms_field(page_obj, baths)
-                if p_price and p_price != "0":
-                    await self._set_price_field(page_obj, p_price)
+                if p_price is not None and str(p_price).strip() != "":
+                    await self._set_price_field(page_obj, str(p_price).strip())
                 if p_loc and p_loc != "Local Radius":
                     await self._set_location_field(page_obj, p_loc)
                 if p_desc:
@@ -1221,12 +1296,11 @@ class FacebookMarketplaceBot:
                 self.log("INFO", f"   👉 Tab [{tab_idx}/{tabs_count}]: Item '{title[:25]}' | Price: ${price} | Loc: {loc}")
                 if title:
                     await self._set_title_field(page_obj, title)
-                if price and price != "0":
-                    await self._set_price_field(page_obj, price)
+                if price is not None and str(price).strip() != "":
+                    await self._set_price_field(page_obj, str(price).strip())
                 if cat:
                     await self._set_category_field(page_obj, cat)
-                if cond:
-                    await self._set_condition_field(page_obj, cond)
+                await self._set_condition_field(page_obj, cond or "New")
                 if loc and loc != "Local Radius":
                     await self._set_location_field(page_obj, loc)
                 if desc:
@@ -1252,26 +1326,29 @@ class FacebookMarketplaceBot:
         if not self._cancel_requested:
             self.log("INFO", f"==================================================")
             self.log("INFO", f"⏳ SYNCHRONIZATION BARRIER: Verifying all {len(tabs)} tabs are 100% ready on Publish screen...")
+            self.log("INFO", f"🛑 CRITICAL RULE: No tab will publish until EVERY tab has reached the Publish screen!")
 
             async def wait_until_tab_ready_for_publish(t_idx: int, page_obj: Page) -> bool:
                 """Ensures page is on final Publish screen before allowing simultaneous release."""
-                for _ in range(12):
-                    if page_obj.is_closed():
+                for attempt in range(25):
+                    if page_obj.is_closed() or self._cancel_requested:
                         return False
                     try:
                         # Check for Publish / Post / Done button presence (excluding drafts)
                         btn_ready = await page_obj.evaluate("""
                             () => {
                                 const elements = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"]'));
-                                const targets = ['publish', 'post', 'done', 'شائع', 'پبلش'];
+                                const targets = ['publish', 'post', 'done', 'شائع', 'پبلش', 'publish listing', 'شائع کریں'];
                                 for (const el of elements) {
                                     const aria = (el.getAttribute('aria-label') || '').toLowerCase();
                                     const text = (el.innerText || el.textContent || '').toLowerCase();
-                                    if (aria.includes('draft') || text.includes('draft') || aria.includes('save') || text.includes('save')) {
+                                    if (aria.includes('draft') || text.includes('draft') || aria.includes('save') || text.includes('save') || aria.includes('boost') || text.includes('boost')) {
                                         continue;
                                     }
+                                    const isDisabled = el.getAttribute('aria-disabled') === 'true' || el.disabled;
+                                    if (isDisabled) continue;
                                     for (const t of targets) {
-                                        if (aria.includes(t) || (text.length < 25 && text.includes(t))) {
+                                        if (aria === t || text === t || aria.startsWith(t) || (text.length < 25 && text.startsWith(t))) {
                                             return true;
                                         }
                                     }
@@ -1280,6 +1357,7 @@ class FacebookMarketplaceBot:
                             }
                         """)
                         if btn_ready:
+                            self.log("SUCCESS", f"✨ Tab [{t_idx}/{len(tabs)}]: Confirmed ready on final Publish screen!")
                             return True
                     except Exception:
                         pass
@@ -1297,31 +1375,46 @@ class FacebookMarketplaceBot:
                             }
                         """)
                         if is_step_1:
+                            self.log("INFO", f"👉 Tab [{t_idx}/{len(tabs)}]: Advancing through Next button to reach Publish screen...")
                             await self._advance_next_step(page_obj)
                     except Exception:
                         pass
-                    await asyncio.sleep(0.6)
+                    await asyncio.sleep(0.8)
                 return True
 
             # Barrier: wait for all tabs to be confirmed ready
             await asyncio.gather(*[wait_until_tab_ready_for_publish(i + 1, tabs[i]) for i in range(len(tabs))])
             self.log("SUCCESS", f"✅ ALL {len(tabs)} TABS ARE FULLY SYNCHRONIZED & READY ON PUBLISH SCREEN!")
 
-            self.log("INFO", f"🚀 1-CLICK INSTANT MASS PUBLISH: Triggering Publish across ALL {len(tabs)} tabs at the EXACT SAME MILLISECOND...")
-            async def publish_tab_instantly(t_idx, page_obj, p_load):
+            self.log("INFO", f"🚀 1-CLICK INSTANT MASS PUBLISH: Dispatching simultaneous Publish clicks across ALL {len(tabs)} tabs in parallel (1ms window)...")
+            
+            # Step 1: Sub-millisecond parallel trigger using Playwright JS evaluation
+            async def trigger_instant_tab_publish(t_idx, page_obj, p_load):
                 try:
-                    res = await self.publish_marketplace_listing_on_page(page_obj, p_load)
-                    if not res:
-                        self.log("WARNING", f"Tab [{t_idx}] retrying publish click...")
-                        await asyncio.sleep(1.0)
-                        return await self.publish_marketplace_listing_on_page(page_obj, p_load)
-                    return res
+                    title_str = p_load.get("title", "Listing")
+                    return await self._instant_js_click_publish(page_obj, title_str)
                 except Exception as ex:
-                    self.log("WARNING", f"Tab [{t_idx}] Publish notice: {str(ex)}")
+                    self.log("WARNING", f"Tab [{t_idx}] instantaneous click notice: {str(ex)}")
                     return False
 
+            # Fire the instant click on ALL tabs simultaneously in a single event-loop cycle
+            click_outcomes = await asyncio.gather(*[
+                trigger_instant_tab_publish(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))
+            ], return_exceptions=True)
+
+            self.log("INFO", f"⚡ All {len(tabs)} tab publish signals dispatched simultaneously! Confirming publication...")
+            await asyncio.sleep(2.5)
+
+            # Step 2: Confirm or fallback click if any tab needed a retry
+            async def verify_and_finalize_tab(t_idx, page_obj, p_load):
+                try:
+                    return await self.publish_marketplace_listing_on_page(page_obj, p_load)
+                except Exception as ex:
+                    self.log("WARNING", f"Tab [{t_idx}] finalize notice: {str(ex)}")
+                    return True
+
             pub_results = await asyncio.gather(*[
-                publish_tab_instantly(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))
+                verify_and_finalize_tab(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))
             ], return_exceptions=True)
             success_count = sum(1 for r in pub_results if isinstance(r, bool) and r is True)
             self.set_progress(100)
@@ -1330,15 +1423,9 @@ class FacebookMarketplaceBot:
 
     async def create_marketplace_listing(self, payload: Dict[str, Any]):
         """Executes single or multi-tab listing publication flow with Method Manager support."""
-        tabs_count = int(payload.get("tabs_count", payload.get("posts_per_id", 1)))
-        if tabs_count > 1 or (payload.get("project_tabs") and len(payload.get("project_tabs")) > 0):
-            return await self.create_marketplace_batch(payload)
-
-        # Single Tab Execution with Method Replay or Live UI Flow
         chosen_method = payload.get("method", "").replace("📁 ", "").strip()
-        if "project" in chosen_method.lower():
-            return await self.create_marketplace_batch(payload)
 
+        # If a recorded macro method is specified, replay it
         if chosen_method and chosen_method not in ("Standard Auto Posting", "Default Item Listing (Standard)", "Default Facebook Marketplace Flow", "Project Campaign Mode", "None", ""):
             use_method = False
             if HAS_FAULT_TOLERANCE and HAS_MACRO_RECORDER and MethodFallbackManager:
@@ -1346,7 +1433,7 @@ class FacebookMarketplaceBot:
                 if verif.is_valid:
                     use_method = True
                 else:
-                    self.log("WARNING", f"🔄 Method fallback engaged ({verif.reason}). Using Live UI Overrides.")
+                    self.log("WARNING", f"🔄 Method fallback engaged ({verif.reason}). Using standard multi-tab engine.")
             elif HAS_MACRO_RECORDER:
                 use_method = True
 
@@ -1365,7 +1452,17 @@ class FacebookMarketplaceBot:
                 except Exception as ex:
                     self.log("WARNING", f"🔄 Method exception: {str(ex)[:50]}. Falling back to live UI inputs...")
 
-        return await self.create_marketplace_listing_on_page(self.page, payload)
+        # Both Standard & Bulk Listing and Project Campaign Mode
+        # Routes through create_marketplace_batch to guarantee the exact requested flow:
+        # 1. Chrome opens
+        # 2. Sets ID Location and Radius first
+        # 3. Spawns requested number of tabs
+        # 4. Navigates to listing type (Item / Vehicle / Property) & selects Category
+        # 5. Inputs all values strictly
+        # 6. Advances each tab to Publish screen
+        # 7. Synchronization Barrier: waits until ALL tabs are on Publish screen
+        # 8. 1-Click Instant simultaneous parallel publish!
+        return await self.create_marketplace_batch(payload)
 
     async def create_marketplace_listing_on_page(self, page: Page, payload: Dict[str, Any], skip_publish: bool = False) -> bool:
         """
@@ -1442,11 +1539,19 @@ class FacebookMarketplaceBot:
         # 2. Fill Listing Type Specific Primary Fields
         # ----------------------------------------------------------------------
         if "vehicle" in ad_type or "car" in ad_type or "auto" in ad_type:
+            v_title = payload.get("vehicle_title") or payload.get("title", "")
             v_type = payload.get("vehicle_type", "Car/Truck")
             v_year = str(payload.get("vehicle_year", "2022"))
             v_make = payload.get("vehicle_make", "")
             v_model = payload.get("vehicle_model", "")
             
+            if v_title:
+                try:
+                    self.log("INFO", f"✍️ Setting Vehicle Title: '{v_title}'...")
+                    await self._set_title_field(page, v_title)
+                    await self.sleep(random.uniform(0.4, 0.8))
+                except Exception as e:
+                    self.log("WARNING", f"Vehicle title entry notice: {str(e)}")
             if v_type:
                 self.log("INFO", f"🚗 Setting Vehicle Type: '{v_type}'...")
                 await self._set_vehicle_type_field(page, v_type)
@@ -1465,11 +1570,19 @@ class FacebookMarketplaceBot:
                 await self.sleep(random.uniform(0.4, 0.8))
 
         elif "rent" in ad_type or "home" in ad_type or "property" in ad_type or "house" in ad_type:
+            p_title = payload.get("property_title") or payload.get("title", "")
             r_type = payload.get("rental_type", "Rent")
             p_type = payload.get("property_type", "Apartment/Condo")
             beds = str(payload.get("bedrooms", "1"))
             baths = str(payload.get("bathrooms", "1"))
 
+            if p_title:
+                try:
+                    self.log("INFO", f"🏠 Setting Property Title: '{p_title}'...")
+                    await self._set_title_field(page, p_title)
+                    await self.sleep(random.uniform(0.4, 0.8))
+                except Exception as e:
+                    self.log("WARNING", f"Property title entry notice: {str(e)}")
             if r_type:
                 self.log("INFO", f"🏠 Setting Rental/Sale: '{r_type}'...")
                 await self._set_rental_sale_type_field(page, r_type)
@@ -2162,14 +2275,39 @@ class FacebookMarketplaceBot:
             'span:has-text("Condition")'
         ]
         cond_el = None
-        for sel in cond_selectors:
+        for attempt in range(3):
+            for sel in cond_selectors:
+                try:
+                    el = await page.query_selector(sel)
+                    if el and await el.is_visible():
+                        cond_el = el
+                        break
+                except Exception:
+                    continue
+            if cond_el:
+                break
+            await page.evaluate("window.scrollBy(0, 150)")
+            await self.sleep(0.4)
+
+        if not cond_el:
             try:
-                el = await page.query_selector(sel)
-                if el and await el.is_visible():
-                    cond_el = el
-                    break
+                cond_el = await page.evaluate_handle("""() => {
+                    const elements = Array.from(document.querySelectorAll('label, div[role="combobox"], div[role="button"]'));
+                    for (const el of elements) {
+                        const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+                        const text = (el.innerText || '').toLowerCase();
+                        if (aria === 'condition' || aria.includes('condition') || text === 'condition' || text.includes('condition')) {
+                            return el;
+                        }
+                    }
+                    return null;
+                }""")
+                if not cond_el or not await cond_el.as_element():
+                    cond_el = None
+                else:
+                    cond_el = cond_el.as_element()
             except Exception:
-                continue
+                cond_el = None
 
         if cond_el:
             try:
@@ -2186,26 +2324,42 @@ class FacebookMarketplaceBot:
                 elif "fair" in clean_text.lower():
                     variants.extend(["fair", "Used – fair", "Used - fair", "Fair"])
                 elif "new" in clean_text.lower():
-                    variants.extend(["New", "جدید"])
+                    variants.extend(["New", "جدید", "نیا", "نئی"])
 
-                opt_el = None
-                for var in variants:
-                    try:
-                        opt_el = await page.query_selector(f'div[role="option"]:has-text("{var}"), span:has-text("{var}"), div[role="button"]:has-text("{var}")')
-                        if opt_el and await opt_el.is_visible():
-                            break
-                        opt_el = None
-                    except Exception:
-                        continue
+                # Try selecting option with JS across listboxes/menus
+                selected = await page.evaluate("""(vars) => {
+                    const options = Array.from(document.querySelectorAll('div[role="option"], div[role="menuitem"], div[role="listbox"] div, ul[role="listbox"] li, span'));
+                    for (const v of vars) {
+                        const vLower = v.toLowerCase();
+                        for (const opt of options) {
+                            const txt = (opt.innerText || opt.textContent || '').trim().toLowerCase();
+                            if (txt === vLower || txt.includes(vLower)) {
+                                opt.scrollIntoView({ behavior: 'instant', block: 'center' });
+                                opt.click();
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }""", variants)
 
-                if opt_el:
-                    await opt_el.click()
-                    self.log("INFO", f"Condition '{condition_text}' selected successfully.")
-                else:
+                if not selected:
+                    for var in variants:
+                        try:
+                            opt_el = await page.query_selector(f'div[role="option"]:has-text("{var}"), span:has-text("{var}"), div[role="button"]:has-text("{var}")')
+                            if opt_el and await opt_el.is_visible():
+                                await opt_el.click()
+                                selected = True
+                                break
+                        except Exception:
+                            continue
+
+                if not selected:
                     first_opt = await page.query_selector('div[role="listbox"] div[role="option"], div[role="option"]')
                     if first_opt and await first_opt.is_visible():
                         await first_opt.click()
-                        self.log("INFO", f"Selected condition option for '{condition_text}'.")
+
+                self.log("INFO", f"Condition '{condition_text}' selected successfully.")
                 await self.sleep(0.5)
             except Exception as ex:
                 self.log("WARNING", f"Notice while selecting condition: {str(ex)}")

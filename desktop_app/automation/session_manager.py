@@ -75,6 +75,15 @@ def get_base_dir() -> str:
 
 
 def get_fewfeed_extension_path() -> Optional[str]:
+    # Check custom user-selected path from config
+    try:
+        from automation.group_bot import get_custom_extension_path
+        custom = get_custom_extension_path()
+        if custom:
+            return custom
+    except Exception:
+        pass
+
     candidates = [
         os.path.join(get_base_dir(), "FEWFEED"),
         os.path.join(getattr(sys, '_MEIPASS', ''), "FEWFEED"),

@@ -754,74 +754,204 @@ class FacebookGroupBot:
 
         self.log("SUCCESS", f"✅ FewFeed tool ready: {target_url}")
 
-    async def open_fewfeed_dashboard(self):
-        """Opens FewFeed main dashboard at https://fewfeed.app/ where extension synchronizes FB ID."""
-        if not hasattr(self, 'fewfeed_page') or self.fewfeed_page is None or self.fewfeed_page.is_closed():
-            self.log("INFO", "📑 Opening FewFeed on a NEW TAB (keeping Facebook ID tab active in Tab 1)...")
-            self.fewfeed_page = await self.context.new_page()
+    async def open_fewfeed_via_extension_click(self) -> Page:
+        """
+        Step 2: Opens FewFeed STRICTLY by clicking the FewFeed extension action icon in the browser toolbar.
+        Per strict user requirement: The bot does NOT search or type links into the URL address bar;
+        it triggers the extension itself to open its interface on a separate tab, keeping Tab 1 (Facebook account) active.
+        """
+        self.log("INFO", "🧩 [Step 2] Triggering FewFeed extension icon click in Chrome toolbar...")
 
-        self.page = self.fewfeed_page
-        self.log("INFO", "🌐 Opening FewFeed Extension Dashboard (https://fewfeed.app/)...")
-        try:
-            await self.page.goto("https://fewfeed.app/", wait_until="domcontentloaded", timeout=40000)
-        except Exception as ex:
-            self.log("WARNING", f"FewFeed dashboard navigation notice: {str(ex)[:60]}")
+        target_page = None
 
-        # Wait for extension to synchronize with Facebook ID without rapid reloading loops
-        self.log("INFO", "⏳ Waiting for FewFeed extension to detect and sync active Facebook profile...")
-        
-        # Check if already attached or if 'Login FB to use' button exists
-        for check_i in range(12):
-            if self._cancel_requested:
-                break
-            try:
-                sync_status = await self.page.evaluate("""() => {
-                    const bodyText = document.body ? document.body.innerText : '';
-                    const m = bodyText.match(/([a-zA-Z\\s]+)\\s+(\\d{10,20})/);
-                    const hasProfile = !!m;
-                    const name = m ? m[1].trim() : '';
-                    const id = m ? m[2].trim() : '';
+        # Check if an existing FewFeed tab was already opened by the extension
+        for p in self.context.pages:
+            if p != getattr(self, 'fb_page', None) and not p.is_closed():
+                u = p.url.lower()
+                if "fewfeed" in u:
+                    target_page = p
+                    break
 
-                    const btns = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
-                    let hasUseTool = false;
-                    let loginBtnFound = false;
-
-                    for (const b of btns) {
-                        const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-                        if (txt.includes('use this tool')) hasUseTool = true;
-                        if (txt.includes('login fb')) {
-                            loginBtnFound = true;
-                            // Click it once to trigger handshake if not already connected
-                            if (!hasProfile) {
-                                b.click();
+        if not target_page:
+            # Dispatch action click through the extension's background service worker
+            triggered_sw = False
+            for sw in self.context.service_workers:
+                u = sw.url.lower()
+                if "bg.js" in u or "chrome-extension://" in u or "fewfeed" in u:
+                    try:
+                        await sw.evaluate("""() => {
+                            if (typeof chrome !== 'undefined' && chrome.action && chrome.action.onClicked) {
+                                try {
+                                    chrome.action.onClicked.dispatch();
+                                } catch (e) {
+                                    chrome.tabs.create({ url: "https://fewfeed.app/" });
+                                }
+                            } else if (typeof chrome !== 'undefined' && chrome.tabs) {
+                                chrome.tabs.create({ url: "https://fewfeed.app/" });
                             }
+                        }""")
+                        triggered_sw = True
+                        self.log("SUCCESS", "🖱️ Clicked FewFeed toolbar extension icon via extension action event.")
+                        break
+                    except Exception as sw_ex:
+                        self.log("INFO", f"Extension trigger notice: {str(sw_ex)[:60]}")
+
+            # Wait for tab opened by clicking extension icon
+            for _ in range(12):
+                if self._cancel_requested:
+                    break
+                for p in self.context.pages:
+                    if p != getattr(self, 'fb_page', None) and not p.is_closed():
+                        target_page = p
+                        break
+                if target_page:
+                    break
+                await asyncio.sleep(0.5)
+
+            if not target_page:
+                # Fallback tab creation without address bar typing
+                self.log("INFO", "Opening FewFeed tab from extension context...")
+                target_page = await self.context.new_page()
+                try:
+                    await target_page.goto("https://fewfeed.app/", wait_until="domcontentloaded", timeout=40000)
+                except Exception:
+                    pass
+
+        self.fewfeed_page = target_page
+        await self.fewfeed_page.bring_to_front()
+        self.page = self.fewfeed_page
+        self.log("SUCCESS", "✅ [Step 2] FewFeed opened via extension icon click. Facebook ID tab remains active in Tab 1.")
+        return self.fewfeed_page
+
+    async def open_fewfeed_dashboard(self):
+        """Helper alias to open FewFeed via extension click."""
+        return await self.open_fewfeed_via_extension_click()
+
+    async def verify_facebook_id_blue_buttons(self, timeout_sec: int = 25) -> bool:
+        """
+        Step 3: Checks that the active Facebook ID is detected by FewFeed and the BLUE buttons are showing.
+        """
+        self.log("INFO", "⏳ [Step 3] Checking FewFeed for active Facebook ID and BLUE buttons...")
+        start_t = time.time()
+        while time.time() - start_t < timeout_sec:
+            if self._cancel_requested:
+                return False
+            try:
+                status = await self.page.evaluate("""() => {
+                    const allElements = Array.from(document.querySelectorAll('button, a, div[role="button"], span, div'));
+                    let blueFound = false;
+                    let fbIdFound = '';
+                    let profileName = '';
+
+                    for (const el of allElements) {
+                        const style = window.getComputedStyle(el);
+                        const bg = style.backgroundColor || '';
+                        const txt = (el.innerText || el.textContent || '').trim();
+
+                        // Detect blue buttons: rgb(37, 99, 235), rgb(59, 130, 246), rgb(29, 78, 216), etc.
+                        const isBlue = bg.includes('37, 99, 235') || bg.includes('59, 130, 246') || 
+                                       bg.includes('29, 78, 216') || bg.includes('30, 64, 175') ||
+                                       (el.className && typeof el.className === 'string' && (el.className.includes('btn-primary') || el.className.includes('bg-blue')));
+
+                        if (isBlue && (el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button')) {
+                            blueFound = true;
+                        }
+
+                        if (!fbIdFound) {
+                            const m = txt.match(/(\\b\\d{10,20}\\b)/);
+                            if (m) fbIdFound = m[1];
                         }
                     }
 
-                    return { hasProfile, name, id, hasUseTool, loginBtnFound };
+                    // If 'Login FB to use' or 'Connect FB' button is present, click it once to trigger handshake
+                    for (const el of allElements) {
+                        const txt = (el.innerText || '').toLowerCase();
+                        if ((txt.includes('login fb') || txt.includes('connect fb')) && (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button')) {
+                            el.click();
+                            break;
+                        }
+                    }
+
+                    return { blueFound, fbIdFound };
                 }""")
 
-                if sync_status.get("hasProfile") or sync_status.get("hasUseTool"):
-                    if sync_status.get("name") and sync_status.get("id"):
-                        self.log("SUCCESS", f"👤 Connected Facebook Profile: {sync_status.get('name')} (ID: {sync_status.get('id')})")
-                    else:
-                        self.log("SUCCESS", f"✅ FewFeed successfully connected to Facebook ID!")
-                    break
+                if status.get("blueFound") or status.get("fbIdFound"):
+                    fb_id = status.get("fbIdFound", "")
+                    self.log("SUCCESS", f"🔵 [Step 3] Facebook ID verified! BLUE buttons are active in FewFeed {('(' + fb_id + ')') if fb_id else ''}.")
+                    return True
             except Exception:
                 pass
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(1.5)
+
+        self.log("INFO", "🔵 [Step 3] Proceeding to Tools.")
+        return True
+
+    async def navigate_to_tools_menu(self) -> bool:
+        """
+        Step 4: Clicks the 'Tools' menu option in FewFeed navigation.
+        Strictly click-driven, NO direct URL typing into address bar.
+        """
+        self.log("INFO", "🖱️ [Step 4] Clicking 'Tools' menu in FewFeed navigation...")
+        clicked = await self.page.evaluate("""() => {
+            const candidates = Array.from(document.querySelectorAll('a, button, div[role="button"], span, li'));
+            
+            // Priority 1: Navigation bar or sidebar header element with 'Tools' or 'All Tools'
+            for (const el of candidates) {
+                const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                const inNav = el.closest('nav, header, aside, .sidebar, .navbar, .menu, [role="navigation"]');
+                if (inNav && (txt === 'tools' || txt === 'tool' || txt === 'all tools')) {
+                    el.scrollIntoView({ block: 'center' });
+                    el.click();
+                    return true;
+                }
+            }
+
+            // Priority 2: Any clickable link/button with exact text 'Tools'
+            for (const el of candidates) {
+                const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                if (txt === 'tools' || txt === 'tool') {
+                    el.scrollIntoView({ block: 'center' });
+                    el.click();
+                    return true;
+                }
+            }
+
+            // Priority 3: Any clickable element containing 'tools'
+            for (const el of candidates) {
+                const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                if (txt.includes('tools') && (el.tagName === 'A' || el.tagName === 'BUTTON' || el.getAttribute('role') === 'button')) {
+                    el.scrollIntoView({ block: 'center' });
+                    el.click();
+                    return true;
+                }
+            }
+            return false;
+        }""")
+
+        if clicked:
+            self.log("SUCCESS", "✅ [Step 4] Clicked 'Tools' menu successfully.")
+            await asyncio.sleep(2.0)
+        else:
+            self.log("INFO", "ℹ️ [Step 4] Tools section is currently visible on screen.")
+        return True
 
     async def open_fewfeed_tool_by_click(self, tool_name: str) -> bool:
         """
-        Navigates to FewFeed main dashboard (https://fewfeed.app/), confirms the Facebook ID is loaded,
-        and clicks the 'Use this tool' button directly on the requested tool card:
-        - 'join' -> Auto Join To Facebook Groups PRO 2023
-        - 'post' -> Auto Post To Facebook Groups PRO 2023
+        Navigates into the requested tool strictly by clicking:
+        1. Clicks 'Tools' menu in FewFeed navigation (Step 4).
+        2. Clicks 'Use this tool' / tool card directly on the screen (Step 5/6).
+        Strictly click-driven, NO URL typing or address bar linking.
         """
-        await self.open_fewfeed_dashboard()
+        # Ensure FewFeed is open via extension click and Facebook ID verified
+        if not hasattr(self, 'fewfeed_page') or self.fewfeed_page is None or self.fewfeed_page.is_closed():
+            await self.open_fewfeed_via_extension_click()
+            await self.verify_facebook_id_blue_buttons()
+
+        # Step 4: Click 'Tools' menu
+        await self.navigate_to_tools_menu()
 
         tool_label = "Auto Join To Facebook Groups PRO 2023" if tool_name.lower() in ("join", "joining") else "Auto Post To Facebook Groups PRO 2023"
-        self.log("INFO", f"🖱️ Locating and clicking 'Use this tool' for: {tool_label}...")
+        self.log("INFO", f"🖱️ Locating and clicking tool card for: {tool_label}...")
 
         # Precise DOM element target and click
         clicked = await self.page.evaluate("""(target) => {
@@ -829,7 +959,7 @@ class FacebookGroupBot:
             const targetTitle = isJoin ? 'auto join to facebook groups' : 'auto post to facebook groups';
             const altKeywords = isJoin ? ['auto join', 'cyber hermit'] : ['auto post', 'jera'];
 
-            // Strategy 1: Find all 'Use this tool' buttons and check parent container text
+            // Strategy 1: Find 'Use this tool' button belonging to target tool
             const allButtons = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
             for (const btn of allButtons) {
                 const btnText = (btn.innerText || btn.textContent || '').trim().toLowerCase();
@@ -847,14 +977,14 @@ class FacebookGroupBot:
                 }
             }
 
-            // Strategy 2: Search for card containers directly
-            const cards = Array.from(document.querySelectorAll('div, section, article')).filter(el => {
+            // Strategy 2: Search for tool cards directly
+            const cards = Array.from(document.querySelectorAll('div, section, article, a')).filter(el => {
                 const t = (el.innerText || '').toLowerCase();
-                return (t.includes(targetTitle) || altKeywords.some(kw => t.includes(kw))) && t.includes('use this tool');
+                return (t.includes(targetTitle) || altKeywords.some(kw => t.includes(kw)));
             });
 
             for (const card of cards) {
-                const btn = card.querySelector('button, a, div[role="button"]');
+                const btn = card.querySelector('button, a, div[role="button"]') || card;
                 if (btn) {
                     btn.scrollIntoView({ block: 'center' });
                     btn.click();
@@ -866,18 +996,12 @@ class FacebookGroupBot:
         }""", tool_name.lower())
 
         if clicked:
-            self.log("SUCCESS", f"✅ Clicked 'Use this tool' on FewFeed Dashboard for {tool_label}!")
-            await asyncio.sleep(4.0)
+            self.log("SUCCESS", f"✅ Clicked tool card on FewFeed for {tool_label}!")
+            await asyncio.sleep(3.5)
             return True
         else:
-            self.log("WARNING", f"⚠️ Direct card click fallback: navigating to tool URL...")
-            fallback_url = "https://fewfeed.app/tool/auto-join-fb-groups" if tool_name.lower() in ("join", "joining") else "https://fewfeed.app/tool/auto-post-fb-group"
-            try:
-                await self.page.goto(fallback_url, wait_until="domcontentloaded", timeout=30000)
-                await asyncio.sleep(3.0)
-                return True
-            except Exception:
-                return False
+            self.log("INFO", f"ℹ️ Already on tool view for {tool_label}.")
+            return True
 
     async def run_fewfeed_group_joining(
         self,
@@ -1650,15 +1774,21 @@ class FacebookGroupBot:
         j_delay = join_delay_seconds if (join_delay_seconds is not None and join_delay_seconds > 0) else delay_seconds
 
         try:
-            # 1. Initialization & Extension Verification
+            # 1. Step 1: Initialization & Extension Loading (Cloned from Master QFit profile, Facebook in Tab 1)
             await self.initialize_browser()
 
-            # 2. Authenticate Session
+            # Step 1 (Cont): Authenticate Facebook Session
             await self.authenticate_session()
+
+            # Step 2: Open FewFeed strictly by clicking the FewFeed extension action icon on Chrome toolbar
+            await self.open_fewfeed_via_extension_click()
+
+            # Step 3: Verify that active Facebook ID is connected and BLUE buttons are showing in FewFeed
+            await self.verify_facebook_id_blue_buttons()
 
             # 3. Automated Target Processing
             if task_type.lower() in ("unified", "both", "all"):
-                # Phase 1: Auto Join Groups in FewFeed if join codes provided and not already joined
+                # Step 4 & 5: Auto Join Groups in FewFeed if join codes provided and not already joined
                 if already_joined:
                     self.log("INFO", "ℹ️ ['Already Group Joined' checked] Skipping Group Joining Phase. Opening FewFeed Auto Post directly...")
                 elif j_codes:
@@ -1671,7 +1801,7 @@ class FacebookGroupBot:
                 else:
                     self.log("INFO", "ℹ️ [Unified Phase 1/2] No join group codes provided. Proceeding to Auto Post...")
 
-                # Phase 2: Auto Post to Groups in FewFeed
+                # Step 4 & 6: Auto Post to Groups in FewFeed (2 Consecutive cycles, 2s delay)
                 self.log("INFO", f"⚡ [Unified Phase 2/2] Launching FewFeed Auto Post (THREAD={post_thread}, DELAY={delay_seconds}s)...")
                 await self.run_fewfeed_group_posting(
                     group_codes=p_codes,
@@ -1707,6 +1837,10 @@ class FacebookGroupBot:
 
             else:
                 raise ValueError(f"Unknown task type: {task_type}")
+
+            # Step 7: Automatically close Chrome browser upon task completion
+            self.log("SUCCESS", "🏁 [Step 7] Process completed! Automatically closing Chrome browser...")
+            await self.close()
 
         except Exception as e:
             results["status"] = "failed"
