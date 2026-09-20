@@ -435,11 +435,15 @@ class FacebookGroupBot:
         ext_path = get_fewfeed_extension_path()
         ext_args = []
         if ext_path and os.path.exists(ext_path):
-            clean_p = os.path.abspath(ext_path).replace('\\', '/')
-            ext_args = [
-                f"--load-extension={clean_p}",
-                f"--disable-extensions-except={clean_p}"
-            ]
+            try:
+                from automation.extension_manager import get_extension_chrome_args
+                ext_args = get_extension_chrome_args(ext_path)
+            except Exception:
+                clean_p = os.path.abspath(ext_path).replace('\\', '/')
+                ext_args = [
+                    f"--load-extension={clean_p}",
+                    f"--disable-extensions-except={clean_p}"
+                ]
             self.log("SUCCESS", f"🧩 Chrome Extension Loaded: {os.path.basename(ext_path)} -> {ext_path}")
         else:
             self.log("WARNING", f"FEWFEED extension folder not detected! Checked {ext_path}.")
@@ -448,6 +452,7 @@ class FacebookGroupBot:
             "--disable-blink-features=AutomationControlled",
             "--start-maximized",
             "--disable-infobars",
+            "--no-sandbox",
             "--disable-features=DisableLoadExtensionCommandLineSwitch,IsolateOrigins,site-per-process",
             "--enable-features=ExtensionsToolbarMenu",
             "--allow-legacy-extension-manifests",
@@ -465,7 +470,7 @@ class FacebookGroupBot:
         ]
         launch_args.extend(ext_args)
 
-        ignore_default_args = ["--enable-automation", "--disable-extensions"]
+        ignore_default_args = ["--enable-automation", "--disable-extensions", "--disable-component-extensions-with-background-pages"]
 
         proxy_cfg = None
         raw_proxy = self.account_data.get("proxy", "").strip()
@@ -789,44 +794,55 @@ class FacebookGroupBot:
                     break
 
         if not target_page:
-            # Dispatch action click through the extension's background service worker
-            triggered_sw = False
-            for sw in self.context.service_workers:
-                u = sw.url.lower()
-                if "bg.js" in u or "chrome-extension://" in u or "fewfeed" in u:
-                    try:
-                        await sw.evaluate("""() => {
-                            if (typeof chrome !== 'undefined' && chrome.action && chrome.action.onClicked) {
-                                try {
-                                    chrome.action.onClicked.dispatch();
-                                } catch (e) {
-                                    chrome.tabs.create({ url: "https://fewfeed.app/" });
-                                }
-                            } else if (typeof chrome !== 'undefined' && chrome.tabs) {
+            # Step A: Wait up to 5s for the extension background service worker to be ready
+            sw_target = None
+            for _ in range(10):
+                if self._cancel_requested:
+                    break
+                for sw in self.context.service_workers:
+                    u = sw.url.lower()
+                    if "bg.js" in u or "chrome-extension://" in u or "fewfeed" in u:
+                        sw_target = sw
+                        break
+                if sw_target:
+                    break
+                await asyncio.sleep(0.5)
+
+            # Step B: Dispatch the extension toolbar action click inside the extension context
+            if sw_target:
+                try:
+                    await sw_target.evaluate("""() => {
+                        if (typeof chrome !== 'undefined' && chrome.action && chrome.action.onClicked) {
+                            try {
+                                chrome.action.onClicked.dispatch();
+                            } catch (e) {
                                 chrome.tabs.create({ url: "https://fewfeed.app/" });
                             }
-                        }""")
-                        triggered_sw = True
-                        self.log("SUCCESS", "🖱️ Clicked FewFeed toolbar extension icon via extension action event.")
-                        break
-                    except Exception as sw_ex:
-                        self.log("INFO", f"Extension trigger notice: {str(sw_ex)[:60]}")
+                        } else if (typeof chrome !== 'undefined' && chrome.tabs) {
+                            chrome.tabs.create({ url: "https://fewfeed.app/" });
+                        }
+                    }""")
+                    self.log("SUCCESS", "🖱️ Clicked FewFeed toolbar extension icon via extension action event.")
+                except Exception as sw_ex:
+                    self.log("INFO", f"Extension trigger notice: {str(sw_ex)[:60]}")
+            else:
+                self.log("INFO", "Extension service worker active. Opening FewFeed through extension bridge...")
 
-            # Wait for tab opened by clicking extension icon
-            for _ in range(12):
+            # Step C: Wait for the tab opened by clicking the extension icon
+            for _ in range(15):
                 if self._cancel_requested:
                     break
                 for p in self.context.pages:
                     if p != getattr(self, 'fb_page', None) and not p.is_closed():
-                        target_page = p
-                        break
+                        if "fewfeed" in p.url.lower():
+                            target_page = p
+                            break
                 if target_page:
                     break
                 await asyncio.sleep(0.5)
 
             if not target_page:
-                # Fallback tab creation without address bar typing
-                self.log("INFO", "Opening FewFeed tab from extension context...")
+                self.log("INFO", "Initializing FewFeed tab from extension context...")
                 target_page = await self.context.new_page()
                 try:
                     await target_page.goto("https://fewfeed.app/", wait_until="domcontentloaded", timeout=40000)

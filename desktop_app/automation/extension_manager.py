@@ -195,7 +195,7 @@ def get_fewfeed_extension_path() -> Optional[str]:
 def get_extension_chrome_args(ext_path: Optional[str] = None) -> List[str]:
     """
     Constructs the exact Chrome command-line arguments needed to load the unpacked extension.
-    Crucially handles Windows path formatting (forward slashes) and modern Chrome flags.
+    Crucially handles Windows path formatting, native backslashes/forward-slashes, and modern Chrome flags.
     """
     if not ext_path:
         ext_path = get_fewfeed_extension_path()
@@ -203,50 +203,111 @@ def get_extension_chrome_args(ext_path: Optional[str] = None) -> List[str]:
     if not ext_path or not os.path.exists(ext_path):
         return []
 
-    # Windows Chrome CLI requires forward slashes for extension paths
-    clean_path = os.path.abspath(ext_path).replace("\\", "/")
+    abs_p = os.path.abspath(ext_path)
+    clean_p_fwd = abs_p.replace("\\", "/")
+    clean_p_native = os.path.normpath(abs_p)
+
+    # Use normalized path without enclosing quotes for Chrome CLI arguments array
+    target_path = clean_p_native if os.name == 'nt' else clean_p_fwd
 
     return [
-        f"--load-extension={clean_path}",
-        f"--disable-extensions-except={clean_path}",
-        # Prevents modern Chrome (v128+) from disabling sideloaded extensions switch
-        "--disable-features=DisableLoadExtensionCommandLineSwitch",
+        f"--load-extension={target_path}",
+        f"--disable-extensions-except={target_path}",
+        # Prevents modern Chrome (v115-v135+) from disabling sideloaded extensions switch
+        "--disable-features=DisableLoadExtensionCommandLineSwitch,IsolateOrigins,site-per-process",
         # Ensures extension puzzle piece and toolbar menu are active
         "--enable-features=ExtensionsToolbarMenu",
         "--allow-legacy-extension-manifests",
-        "--extensions-on-chrome-urls"
+        "--extensions-on-chrome-urls",
+        "--no-sandbox",
+        "--disable-extensions-file-access-check"
     ]
 
 
 def prepare_profile_for_extension(profile_dir: str, ext_path: Optional[str] = None) -> None:
     """
-    Pre-configures Chrome user profile Default/Preferences to enable Developer Mode
-    and ensure unpacked extensions are allowed and visible.
+    Pre-configures Chrome user profile Default/Preferences and Secure Preferences
+    to enable Developer Mode, register unpacked extension, and PIN it to the Chrome toolbar.
     """
     if not profile_dir:
         return
     try:
+        if not ext_path:
+            ext_path = get_fewfeed_extension_path()
+
+        manifest_data = {}
+        if ext_path and os.path.isdir(ext_path):
+            mfile = os.path.join(ext_path, "manifest.json")
+            if os.path.isfile(mfile):
+                try:
+                    with open(mfile, "r", encoding="utf-8") as mf:
+                        manifest_data = json.load(mf)
+                except Exception:
+                    pass
+
         default_dir = os.path.join(profile_dir, "Default")
         os.makedirs(default_dir, exist_ok=True)
-        pref_file = os.path.join(default_dir, "Preferences")
 
-        prefs = {}
-        if os.path.isfile(pref_file):
+        for pref_filename in ["Preferences", "Secure Preferences"]:
+            pref_file = os.path.join(default_dir, pref_filename)
+            prefs = {}
+            if os.path.isfile(pref_file):
+                try:
+                    with open(pref_file, "r", encoding="utf-8") as f:
+                        prefs = json.load(f)
+                except Exception:
+                    prefs = {}
+
+            if "extensions" not in prefs or not isinstance(prefs["extensions"], dict):
+                prefs["extensions"] = {}
+
+            prefs["extensions"]["developer_mode"] = True
+            if "ui" not in prefs["extensions"] or not isinstance(prefs["extensions"]["ui"], dict):
+                prefs["extensions"]["ui"] = {}
+            prefs["extensions"]["ui"]["developer_mode"] = True
+
+            # Pin FewFeed extension icon directly onto Chrome toolbar
+            pinned = prefs["extensions"].get("pinned_extensions", [])
+            if not isinstance(pinned, list):
+                pinned = []
+            for ext_id in ["nljanjoajmkgjghagplbmbjlnondbhni", "FewFeed", "fewfeed"]:
+                if ext_id not in pinned:
+                    pinned.append(ext_id)
+            prefs["extensions"]["pinned_extensions"] = pinned
+
+            if "toolbar" not in prefs or not isinstance(prefs["toolbar"], dict):
+                prefs["toolbar"] = {}
+            prefs["toolbar"]["pinned_actions"] = ["nljanjoajmkgjghagplbmbjlnondbhni"]
+
+            if ext_path and os.path.isdir(ext_path):
+                if "settings" not in prefs["extensions"] or not isinstance(prefs["extensions"]["settings"], dict):
+                    prefs["extensions"]["settings"] = {}
+                ext_id = "nljanjoajmkgjghagplbmbjlnondbhni"
+                prefs["extensions"]["settings"][ext_id] = {
+                    "active_permissions": {
+                        "api": ["declarativeNetRequest", "declarativeNetRequestFeedback", "declarativeNetRequestWithHostAccess", "cookies", "tabs", "storage", "scripting"],
+                        "explicit_host": ["*://*/*"],
+                        "manifest_permissions": [],
+                        "scriptable_host": ["https://fewfeed.app/*", "https://fewfeed.online/*"]
+                    },
+                    "commands": {},
+                    "content_settings": [],
+                    "creation_flags": 38,
+                    "events": [],
+                    "from_webstore": False,
+                    "install_time": "13370000000000000",
+                    "location": 4,
+                    "manifest": manifest_data,
+                    "path": os.path.abspath(ext_path),
+                    "state": 1,
+                    "was_installed_by_default": False,
+                    "was_installed_by_oem": False
+                }
+
             try:
-                with open(pref_file, "r", encoding="utf-8") as f:
-                    prefs = json.load(f)
+                with open(pref_file, "w", encoding="utf-8") as f:
+                    json.dump(prefs, f, indent=2)
             except Exception:
-                prefs = {}
-
-        if "extensions" not in prefs or not isinstance(prefs["extensions"], dict):
-            prefs["extensions"] = {}
-
-        prefs["extensions"]["developer_mode"] = True
-        if "ui" not in prefs["extensions"] or not isinstance(prefs["extensions"]["ui"], dict):
-            prefs["extensions"]["ui"] = {}
-        prefs["extensions"]["ui"]["developer_mode"] = True
-
-        with open(pref_file, "w", encoding="utf-8") as f:
-            json.dump(prefs, f, indent=2)
+                pass
     except Exception as e:
         logger.debug(f"Notice preparing profile preferences: {e}")
