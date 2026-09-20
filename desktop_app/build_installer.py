@@ -77,6 +77,7 @@ def main():
         "--onedir",
         "--name", "FBAutoBot",
         "--add-data", "assets;assets" if os.name == 'nt' else "assets:assets",
+        "--add-data", "FewFeedV3.9.1;FewFeedV3.9.1" if os.name == 'nt' else "FewFeedV3.9.1:FewFeedV3.9.1",
         "--add-data", "FEWFEED;FEWFEED" if os.name == 'nt' else "FEWFEED:FEWFEED",
         "--add-data", "automation;automation" if os.name == 'nt' else "automation:automation",
         "--add-data", "gui;gui" if os.name == 'nt' else "gui:gui",
@@ -98,16 +99,17 @@ def main():
         print("❌ PyInstaller compilation failed. Please check the logs above.")
         return
 
-    # Ensure FEWFEED folder is directly present at top-level next to FBAutoBot.exe
+    # Ensure FewFeed extension folders are directly present at top-level next to FBAutoBot.exe
     dist_dir = os.path.join(base_dir, "dist", "FBAutoBot")
-    dist_fewfeed = os.path.join(dist_dir, "FEWFEED")
-    src_fewfeed = os.path.join(base_dir, "FEWFEED")
-    if os.path.isdir(src_fewfeed) and not os.path.isdir(dist_fewfeed):
-        try:
-            shutil.copytree(src_fewfeed, dist_fewfeed, dirs_exist_ok=True)
-            print(f"🧩 Bundled FEWFEED extension directly next to executable: {dist_fewfeed}")
-        except Exception as e:
-            print(f"Notice bundling FEWFEED: {e}")
+    for ext_name in ["FewFeedV3.9.1", "FEWFEED"]:
+        dist_ext = os.path.join(dist_dir, ext_name)
+        src_ext = os.path.join(base_dir, ext_name)
+        if os.path.isdir(src_ext) and not os.path.isdir(dist_ext):
+            try:
+                shutil.copytree(src_ext, dist_ext, dirs_exist_ok=True)
+                print(f"🧩 Bundled {ext_name} extension directly next to executable: {dist_ext}")
+            except Exception as e:
+                print(f"Notice bundling {ext_name}: {e}")
 
     # Step 2: Create Portable ZIP
     print("\n[2/3] Generating Portable ZIP package...")

@@ -481,18 +481,25 @@ class MacroRecorderSession:
         async with async_playwright() as p:
             browser = None
             context = None
-            ext_path = os.path.join(get_base_dir(), "FEWFEED")
+            try:
+                from automation.extension_manager import get_fewfeed_extension_path
+                ext_path = get_fewfeed_extension_path()
+            except Exception:
+                ext_path = os.path.join(get_base_dir(), "FewFeedV3.9.1") if os.path.isdir(os.path.join(get_base_dir(), "FewFeedV3.9.1")) else os.path.join(get_base_dir(), "FEWFEED")
             launch_args = [
                 "--disable-blink-features=AutomationControlled",
                 "--start-maximized",
                 "--disable-infobars",
+                "--disable-features=DisableLoadExtensionCommandLineSwitch,IsolateOrigins,site-per-process",
+                "--enable-features=ExtensionsToolbarMenu",
                 "--no-default-browser-check",
                 "--disable-notifications",
                 "--lang=en-US,en"
             ]
-            if os.path.exists(ext_path) and os.path.exists(os.path.join(ext_path, "manifest.json")):
-                launch_args.append(f"--load-extension={ext_path}")
-                launch_args.append(f"--disable-extensions-except={ext_path}")
+            if ext_path and os.path.exists(ext_path) and os.path.exists(os.path.join(ext_path, "manifest.json")):
+                clean_p = os.path.abspath(ext_path).replace('\\', '/')
+                launch_args.append(f"--load-extension={clean_p}")
+                launch_args.append(f"--disable-extensions-except={clean_p}")
 
             # Proxy support if specified in selected account
             proxy_config = None
@@ -836,18 +843,25 @@ class GroupMacroRecorderSession:
         async with async_playwright() as p:
             browser = None
             context = None
-            ext_path = os.path.join(get_base_dir(), "FEWFEED")
+            try:
+                from automation.extension_manager import get_fewfeed_extension_path
+                ext_path = get_fewfeed_extension_path()
+            except Exception:
+                ext_path = os.path.join(get_base_dir(), "FewFeedV3.9.1") if os.path.isdir(os.path.join(get_base_dir(), "FewFeedV3.9.1")) else os.path.join(get_base_dir(), "FEWFEED")
             launch_args = [
                 "--disable-blink-features=AutomationControlled",
                 "--start-maximized",
                 "--disable-infobars",
+                "--disable-features=DisableLoadExtensionCommandLineSwitch,IsolateOrigins,site-per-process",
+                "--enable-features=ExtensionsToolbarMenu",
                 "--no-default-browser-check",
                 "--disable-notifications",
                 "--lang=en-US,en"
             ]
-            if os.path.exists(ext_path) and os.path.exists(os.path.join(ext_path, "manifest.json")):
-                launch_args.append(f"--load-extension={ext_path}")
-                launch_args.append(f"--disable-extensions-except={ext_path}")
+            if ext_path and os.path.exists(ext_path) and os.path.exists(os.path.join(ext_path, "manifest.json")):
+                clean_p = os.path.abspath(ext_path).replace('\\', '/')
+                launch_args.append(f"--load-extension={clean_p}")
+                launch_args.append(f"--disable-extensions-except={clean_p}")
 
             proxy_config = None
             raw_proxy = self.account_data.get("proxy", "")

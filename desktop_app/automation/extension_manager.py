@@ -104,45 +104,82 @@ def get_fewfeed_extension_path() -> Optional[str]:
     # Priority 2: Standard, PyInstaller onedir (_internal), and bundle candidate locations
     candidates = [
         # Base dir candidates
+        os.path.join(base, "FewFeedV3.9.1"),
         os.path.join(base, "FEWFEED"),
+        os.path.join(base, "_internal", "FewFeedV3.9.1"),
         os.path.join(base, "_internal", "FEWFEED"),
+        os.path.join(base, "desktop_app", "FewFeedV3.9.1"),
         os.path.join(base, "desktop_app", "FEWFEED"),
+        os.path.join(base, "extensions", "FewFeedV3.9.1"),
         os.path.join(base, "extensions", "FEWFEED"),
         os.path.join(base, "fewfeed"),
         # Exe dir candidates (critical for PyInstaller on Windows)
+        os.path.join(exe_dir, "FewFeedV3.9.1"),
         os.path.join(exe_dir, "FEWFEED"),
+        os.path.join(exe_dir, "_internal", "FewFeedV3.9.1"),
         os.path.join(exe_dir, "_internal", "FEWFEED"),
+        os.path.join(exe_dir, "desktop_app", "FewFeedV3.9.1"),
         os.path.join(exe_dir, "desktop_app", "FEWFEED"),
         # Parent of base / exe (when running from dist or build subdirectory)
+        os.path.abspath(os.path.join(base, "..", "FewFeedV3.9.1")),
         os.path.abspath(os.path.join(base, "..", "FEWFEED")),
+        os.path.abspath(os.path.join(base, "..", "desktop_app", "FewFeedV3.9.1")),
         os.path.abspath(os.path.join(base, "..", "desktop_app", "FEWFEED")),
+        os.path.abspath(os.path.join(exe_dir, "..", "FewFeedV3.9.1")),
         os.path.abspath(os.path.join(exe_dir, "..", "FEWFEED")),
+        os.path.abspath(os.path.join(exe_dir, "..", "desktop_app", "FewFeedV3.9.1")),
         os.path.abspath(os.path.join(exe_dir, "..", "desktop_app", "FEWFEED")),
+        os.path.abspath(os.path.join(exe_dir, "..", "..", "FewFeedV3.9.1")),
         os.path.abspath(os.path.join(exe_dir, "..", "..", "FEWFEED")),
         # PyInstaller temp unpack (_MEIPASS)
+        os.path.join(meipass, "FewFeedV3.9.1") if meipass else "",
         os.path.join(meipass, "FEWFEED") if meipass else "",
+        os.path.join(meipass, "_internal", "FewFeedV3.9.1") if meipass else "",
         os.path.join(meipass, "_internal", "FEWFEED") if meipass else "",
+        os.path.join(meipass, "desktop_app", "FewFeedV3.9.1") if meipass else "",
         os.path.join(meipass, "desktop_app", "FEWFEED") if meipass else "",
         # Current working directory
+        os.path.abspath("FewFeedV3.9.1"),
         os.path.abspath("FEWFEED"),
+        os.path.abspath("desktop_app/FewFeedV3.9.1"),
         os.path.abspath("desktop_app/FEWFEED"),
+        os.path.abspath("../FewFeedV3.9.1"),
         os.path.abspath("../FEWFEED"),
         # Standard user folders
+        os.path.join(os.path.expanduser("~"), "Desktop", "FewFeedV3.9.1"),
         os.path.join(os.path.expanduser("~"), "Desktop", "FEWFEED"),
+        os.path.join(os.path.expanduser("~"), "Downloads", "FewFeedV3.9.1"),
         os.path.join(os.path.expanduser("~"), "Downloads", "FEWFEED")
     ]
 
     for c in candidates:
         if c and os.path.isdir(c) and os.path.exists(os.path.join(c, "manifest.json")):
             resolved = os.path.abspath(c)
-            # Cache discovered valid path to prevent repeated candidate checks
             try:
                 set_custom_extension_path(resolved)
             except Exception:
                 pass
             return resolved
 
-    # Priority 3: Shallow recursive search from known roots
+    # Priority 3: Dynamic folder matching for any directory containing fewfeed in name
+    search_dirs = [base, exe_dir, os.path.join(base, "desktop_app"), os.path.join(exe_dir, "desktop_app"), os.getcwd()]
+    for sdir in search_dirs:
+        if sdir and os.path.isdir(sdir):
+            try:
+                for entry in os.listdir(sdir):
+                    if "fewfeed" in entry.lower():
+                        full_entry = os.path.join(sdir, entry)
+                        if os.path.isdir(full_entry) and os.path.exists(os.path.join(full_entry, "manifest.json")):
+                            resolved = os.path.abspath(full_entry)
+                            try:
+                                set_custom_extension_path(resolved)
+                            except Exception:
+                                pass
+                            return resolved
+            except Exception:
+                pass
+
+    # Priority 4: Shallow recursive search from known roots
     for root in [base, exe_dir, meipass, os.getcwd()]:
         found = _find_extension_recursive(root, max_depth=3)
         if found:

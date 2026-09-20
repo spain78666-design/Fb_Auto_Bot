@@ -83,14 +83,21 @@ def get_fewfeed_extension_path() -> Optional[str]:
         pass
 
     candidates = [
+        os.path.join(get_base_dir(), "FewFeedV3.9.1"),
         os.path.join(get_base_dir(), "FEWFEED"),
+        os.path.join(get_base_dir(), "_internal", "FewFeedV3.9.1"),
         os.path.join(get_base_dir(), "_internal", "FEWFEED"),
+        os.path.join(getattr(sys, '_MEIPASS', ''), "FewFeedV3.9.1"),
         os.path.join(getattr(sys, '_MEIPASS', ''), "FEWFEED"),
-        os.path.join(getattr(sys, '_MEIPASS', ''), "_internal", "FEWFEED"),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FewFeedV3.9.1")),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FEWFEED")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "FewFeedV3.9.1")),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "FEWFEED")),
+        "/desktop_app/FewFeedV3.9.1",
         "/desktop_app/FEWFEED",
+        os.path.abspath("FewFeedV3.9.1"),
         os.path.abspath("FEWFEED"),
+        os.path.abspath("desktop_app/FewFeedV3.9.1"),
         os.path.abspath("desktop_app/FEWFEED")
     ]
     for c in candidates:
@@ -347,18 +354,20 @@ class SessionManager:
         except Exception:
             ext_args = []
             if ext_path and os.path.exists(ext_path):
-                clean_p = ext_path.replace('\\', '/')
+                clean_p = os.path.abspath(ext_path).replace('\\', '/')
                 ext_args = [
                     f"--load-extension={clean_p}",
-                    f"--disable-extensions-except={clean_p}",
-                    "--disable-features=DisableLoadExtensionCommandLineSwitch",
-                    "--enable-features=ExtensionsToolbarMenu"
+                    f"--disable-extensions-except={clean_p}"
                 ]
 
         launch_flags = [
             "--disable-blink-features=AutomationControlled",
             "--start-maximized",
             "--disable-infobars",
+            "--disable-features=DisableLoadExtensionCommandLineSwitch,IsolateOrigins,site-per-process",
+            "--enable-features=ExtensionsToolbarMenu",
+            "--allow-legacy-extension-manifests",
+            "--extensions-on-chrome-urls",
             "--ignore-certificate-errors",
             "--allow-running-insecure-content",
             "--disable-web-security",
@@ -370,15 +379,14 @@ class SessionManager:
         if ext_path and os.path.exists(ext_path):
             log("SUCCESS", f"🧩 FewFeed Extension Loaded into Master Profile: {ext_path}")
         else:
-            log("WARNING", "⚠️ FEWFEED extension folder not detected! Check 'FewFeed Extension' button in UI.")
+            log("WARNING", f"⚠️ FEWFEED extension folder not detected at {ext_path}! Check extension settings in UI.")
 
         log("INFO", "🔑 Launching Master QFit / FewFeed session setup browser...")
         log("INFO", "Please log into QFit / FewFeed / Gmail in the opened Chrome window. Close window when finished.")
 
         async with async_playwright() as p:
             context = None
-            # Prioritize Playwright Chromium first so extensions work reliably without Google sideload blocks
-            for ch in [None, "chrome", "msedge"]:
+            for ch in ["chrome", "msedge", None]:
                 try:
                     kws = {
                         "user_data_dir": master_dir,

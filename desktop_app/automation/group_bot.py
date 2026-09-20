@@ -433,25 +433,25 @@ class FacebookGroupBot:
         self.playwright = await async_playwright().start()
 
         ext_path = get_fewfeed_extension_path()
-        try:
-            from automation.extension_manager import get_extension_chrome_args, prepare_profile_for_extension
-            ext_args = get_extension_chrome_args(ext_path)
-        except Exception:
-            ext_args = []
-            if ext_path and os.path.exists(ext_path):
-                clean_p = ext_path.replace('\\', '/')
-                ext_args = [
-                    f"--load-extension={clean_p}",
-                    f"--disable-extensions-except={clean_p}",
-                    "--disable-features=DisableLoadExtensionCommandLineSwitch",
-                    "--enable-features=ExtensionsToolbarMenu"
-                ]
+        ext_args = []
+        if ext_path and os.path.exists(ext_path):
+            clean_p = os.path.abspath(ext_path).replace('\\', '/')
+            ext_args = [
+                f"--load-extension={clean_p}",
+                f"--disable-extensions-except={clean_p}"
+            ]
+            self.log("SUCCESS", f"🧩 Chrome Extension Loaded: {os.path.basename(ext_path)} -> {ext_path}")
+        else:
+            self.log("WARNING", f"FEWFEED extension folder not detected! Checked {ext_path}.")
 
         launch_args = [
             "--disable-blink-features=AutomationControlled",
             "--start-maximized",
             "--disable-infobars",
-            "--disable-features=IsolateOrigins,site-per-process",
+            "--disable-features=DisableLoadExtensionCommandLineSwitch,IsolateOrigins,site-per-process",
+            "--enable-features=ExtensionsToolbarMenu",
+            "--allow-legacy-extension-manifests",
+            "--extensions-on-chrome-urls",
             "--no-default-browser-check",
             "--disable-dev-shm-usage",
             "--lang=en-US,en",
@@ -464,11 +464,6 @@ class FacebookGroupBot:
             "--no-service-autorun"
         ]
         launch_args.extend(ext_args)
-
-        if ext_path and os.path.exists(ext_path):
-            self.log("SUCCESS", f"🧩 Chrome Extension Loaded: {os.path.basename(ext_path)} -> {ext_path}")
-        else:
-            self.log("WARNING", f"FEWFEED extension folder not detected at {ext_path}. Proceeding.")
 
         ignore_default_args = ["--enable-automation", "--disable-extensions"]
 
@@ -486,54 +481,47 @@ class FacebookGroupBot:
             if self.account_data.get("proxy_pass"):
                 proxy_cfg["password"] = self.account_data["proxy_pass"]
 
-        # If account has dedicated profile_dir, use launch_persistent_context
+        # Ensure account profile_dir is ALWAYS a valid directory string
         profile_dir = self.account_data.get("profile_dir")
         if not profile_dir and self.account_data.get("id"):
             safe_id = "".join(c for c in str(self.account_data.get("id", "")) if c.isalnum() or c in ("_", "-"))
             profile_dir = os.path.join(get_base_dir(), "profiles", safe_id)
+        if not profile_dir:
+            profile_dir = os.path.join(get_base_dir(), "profiles", "temp_group_profile")
 
-        if profile_dir:
-            os.makedirs(profile_dir, exist_ok=True)
-            self.profile_dir = profile_dir
+        os.makedirs(profile_dir, exist_ok=True)
+        self.profile_dir = profile_dir
 
-            # Pre-configure profile preferences for developer mode and extension toolbar
-            try:
-                from automation.extension_manager import prepare_profile_for_extension
-                prepare_profile_for_extension(profile_dir, ext_path)
-            except Exception:
-                pass
+        # Pre-configure profile preferences for developer mode and extension toolbar
+        try:
+            from automation.extension_manager import prepare_profile_for_extension
+            prepare_profile_for_extension(profile_dir, ext_path)
+        except Exception:
+            pass
 
-            # Check if this profile has FewFeed/Google session data
-            dst_default = os.path.join(profile_dir, "Default")
-            ls_path = os.path.join(dst_default, "Local Storage")
-            net_path = os.path.join(dst_default, "Network", "Cookies")
-            flat_cookie = os.path.join(dst_default, "Cookies")
-            idb_path = os.path.join(dst_default, "IndexedDB")
-
-            # Always synchronize FewFeed extension & master session from master profile template
-            src_master = get_master_fewfeed_source_dir()
-            if src_master and os.path.abspath(src_master) != os.path.abspath(profile_dir):
-                self.log("INFO", f"🔄 Synchronizing FewFeed Extension & Master Session from {os.path.basename(src_master)} into {os.path.basename(profile_dir)}...")
-                copy_fewfeed_session_data(src_master, profile_dir)
-                self.log("SUCCESS", "✅ FewFeed session & extension synced into browser profile.")
+        # Always synchronize FewFeed extension & master session from master profile template
+        src_master = get_master_fewfeed_source_dir()
+        if src_master and os.path.abspath(src_master) != os.path.abspath(profile_dir):
+            self.log("INFO", f"🔄 Synchronizing FewFeed Extension & Master Session from {os.path.basename(src_master)} into {os.path.basename(profile_dir)}...")
+            copy_fewfeed_session_data(src_master, profile_dir)
+            self.log("SUCCESS", "✅ FewFeed session & extension synced into browser profile.")
 
         # Clear profile locks to prevent SingletonLock errors
-        if profile_dir and os.path.exists(profile_dir):
-            for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
-                fpath = os.path.join(profile_dir, fname)
-                if os.path.exists(fpath) or os.path.islink(fpath):
-                    try:
-                        if os.path.islink(fpath) or os.path.isfile(fpath):
-                            os.unlink(fpath)
-                        elif os.path.isdir(fpath):
-                            import shutil
-                            shutil.rmtree(fpath, ignore_errors=True)
-                    except Exception:
-                        pass
+        for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
+            fpath = os.path.join(profile_dir, fname)
+            if os.path.exists(fpath) or os.path.islink(fpath):
+                try:
+                    if os.path.islink(fpath) or os.path.isfile(fpath):
+                        os.unlink(fpath)
+                    elif os.path.isdir(fpath):
+                        import shutil
+                        shutil.rmtree(fpath, ignore_errors=True)
+                except Exception:
+                    pass
 
-        # Launch browser in desktop mode with FEWFEED loaded (Chromium priority ensures reliable extension loading)
+        # Launch browser in desktop mode with FEWFEED loaded (Chrome channel priority)
         self.context = None
-        for ch in [None, "chrome", "msedge"]:
+        for ch in ["chrome", "msedge", None]:
             try:
                 kwargs = {
                     "user_data_dir": profile_dir,
