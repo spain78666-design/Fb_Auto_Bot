@@ -945,7 +945,7 @@ class GroupMacroRecordWorker(QThread):
 class GroupAutomationWorker(QThread):
     """
     Asynchronous background worker that executes multi-threaded Facebook Group Joining & Posting
-    across concurrent Chrome browser instances with strict mobile device emulation and the FEWFEED extension.
+    across concurrent Chrome browser instances with Original Desktop Chrome and the FEWFEED extension.
     """
     log_signal = pyqtSignal(str, str)
     progress_signal = pyqtSignal(int)
@@ -1061,7 +1061,7 @@ class GroupAutomationWorker(QThread):
             acc_name = account.get("name", f"Account_{thread_id}")
             tag = f"[Thread {thread_id}/{total_threads} - {acc_name}]"
             self.log_signal.emit("INFO", f"--------------------------------------------------")
-            self.log_signal.emit("INFO", f"🚀 {tag} Launching mobile Chrome browser instance with FEWFEED...")
+            self.log_signal.emit("INFO", f"🚀 {tag} Launching Desktop Chrome browser instance with FEWFEED...")
 
             def logger(level, msg):
                 self._log_bridge(level, f"{tag} {msg}")
@@ -7682,7 +7682,7 @@ class FBAutoBotMainWindow(QMainWindow):
         ac_layout.setSpacing(10)
 
         # Step Workflow Banner
-        workflow_banner = QLabel("⚡ <b>FEWFEED Automated Sequence:</b> Mobile Chrome opens → Runs <b>Auto Join</b> (Card #2) if group list is provided → Then opens <b>Auto Post</b> (Card #1), injects descriptions/links, selects all groups, and submits post.")
+        workflow_banner = QLabel("⚡ <b>FEWFEED Automated Sequence:</b> Desktop Chrome opens → Runs <b>Auto Join</b> (Card #2) if group list is provided → Then opens <b>Auto Post</b> (Card #1), injects descriptions/links, selects all groups, and submits post.")
         workflow_banner.setStyleSheet("color: #e0e7ff; font-size: 12px; line-height: 1.4;")
         workflow_banner.setWordWrap(True)
         ac_layout.addWidget(workflow_banner)
@@ -7796,7 +7796,7 @@ class FBAutoBotMainWindow(QMainWindow):
         p_layout.addLayout(p_settings_row)
 
         # Extension notice badge
-        ext_status_box = QLabel("🧩 FEWFEED Extension Engine: Auto-loads in mobile emulation for 1-click group posting.")
+        ext_status_box = QLabel("🧩 FEWFEED Extension Engine: Auto-loads in Original Desktop Chrome for 1-click group posting.")
         ext_status_box.setStyleSheet("background-color: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.3); color: #c7d2fe; padding: 6px 10px; border-radius: 6px; font-size: 11px;")
         p_layout.addWidget(ext_status_box)
 

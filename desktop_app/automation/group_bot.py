@@ -32,18 +32,6 @@ DESKTOP_CHROME_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 )
 
-# Kept for backward compatibility
-MOBILE_SMARTPHONE_USER_AGENT = DESKTOP_CHROME_USER_AGENT
-MOBILE_DEVICE_METRICS = {
-    "width": 1280,
-    "height": 800,
-    "pixelRatio": 1.0
-}
-MOBILE_EMULATION_EXPERIMENTAL_OPTIONS = {
-    "deviceMetrics": MOBILE_DEVICE_METRICS,
-    "userAgent": DESKTOP_CHROME_USER_AGENT
-}
-
 def get_base_dir() -> str:
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
@@ -270,26 +258,22 @@ def get_fewfeed_extension_path() -> Optional[str]:
             return os.path.abspath(c)
     return None
 
-def get_chrome_webdriver_mobile_emulation_config(ext_path: Optional[str] = None, user_data_dir: Optional[str] = None) -> Dict[str, Any]:
+def get_chrome_webdriver_desktop_config(ext_path: Optional[str] = None, user_data_dir: Optional[str] = None) -> Dict[str, Any]:
     """
-    Returns Python Chrome WebDriver experimental options dictionary for mobileEmulation.
-    Includes deviceMetrics (width: 430, height: 900, pixelRatio: 1.0) and genuine mobile userAgent.
+    Returns standard Desktop Chrome WebDriver configuration options for FEWFEED.
     """
     config = {
-        "mobileEmulation": MOBILE_EMULATION_EXPERIMENTAL_OPTIONS,
         "args": [
+            "--start-maximized",
+            "--no-default-browser-check",
             "--disable-blink-features=AutomationControlled",
-            "--window-size=440,920",
-            "--enable-viewport",
-            "--force-device-scale-factor=1.0",
-            "--touch-events=enabled",
-            f"--user-agent={MOBILE_SMARTPHONE_USER_AGENT}",
-            "--disable-notifications"
+            f"--user-agent={DESKTOP_CHROME_USER_AGENT}",
+            "--lang=en-US,en"
         ]
     }
     if ext_path and os.path.exists(ext_path):
-        config["args"].append(f"--load-extension={ext_path}")
         config["args"].append(f"--disable-extensions-except={ext_path}")
+        config["args"].append(f"--load-extension={ext_path}")
     if user_data_dir:
         config["args"].append(f"--user-data-dir={user_data_dir}")
     return config
@@ -449,28 +433,14 @@ class FacebookGroupBot:
             self.log("WARNING", f"FEWFEED extension folder not detected! Checked {ext_path}.")
 
         launch_args = [
-            "--disable-blink-features=AutomationControlled",
             "--start-maximized",
-            "--disable-infobars",
-            "--no-sandbox",
-            "--disable-features=DisableLoadExtensionCommandLineSwitch,IsolateOrigins,site-per-process",
-            "--enable-features=ExtensionsToolbarMenu",
-            "--allow-legacy-extension-manifests",
-            "--extensions-on-chrome-urls",
             "--no-default-browser-check",
-            "--disable-dev-shm-usage",
-            "--lang=en-US,en",
-            "--ignore-certificate-errors",
-            "--allow-running-insecure-content",
-            "--disable-web-security",
-            "--disable-notifications",
-            "--password-store=basic",
-            "--no-first-run",
-            "--no-service-autorun"
+            "--disable-blink-features=AutomationControlled",
+            "--lang=en-US,en"
         ]
         launch_args.extend(ext_args)
 
-        ignore_default_args = ["--enable-automation", "--disable-extensions", "--disable-component-extensions-with-background-pages"]
+        ignore_default_args = ["--disable-extensions", "--enable-automation"]
 
         proxy_cfg = None
         raw_proxy = self.account_data.get("proxy", "").strip()
@@ -567,7 +537,7 @@ class FacebookGroupBot:
                 self.browser = await self.playwright.chromium.launch(**launch_kw)
                 self.context = await self.browser.new_context(
                     user_agent=DESKTOP_CHROME_USER_AGENT,
-                    viewport={"width": 1280, "height": 800},
+                    no_viewport=True,
                     locale="en-US",
                     permissions=["geolocation", "notifications"]
                 )
@@ -642,23 +612,35 @@ class FacebookGroupBot:
     # --------------------------------------------------------------------------
     async def open_fewfeed_tool_page(self, target_url: str):
         """Directly navigates to the specific FewFeed tool URL on a NEW TAB, keeping Facebook tab open."""
-        # Check if we need to open FewFeed in a dedicated second tab
-        if not hasattr(self, 'fewfeed_page') or self.fewfeed_page is None or self.fewfeed_page.is_closed():
+        # Check if an existing FewFeed tab was opened by the extension
+        existing_ff = None
+        for p in self.context.pages:
+            if p != getattr(self, 'fb_page', None) and not p.is_closed():
+                if "fewfeed" in p.url.lower():
+                    existing_ff = p
+                    break
+
+        if existing_ff:
+            self.fewfeed_page = existing_ff
+        elif not hasattr(self, 'fewfeed_page') or self.fewfeed_page is None or self.fewfeed_page.is_closed():
             self.log("INFO", "📑 Opening FewFeed on a NEW TAB (keeping Facebook ID tab active in Tab 1)...")
             self.fewfeed_page = await self.context.new_page()
         
         self.page = self.fewfeed_page
-        self.log("INFO", f"🌐 Navigating to FewFeed Tool: {target_url}...")
-        try:
-            await self.page.goto(target_url, wait_until="domcontentloaded", timeout=40000)
-            await asyncio.sleep(3.0)
-        except Exception as e:
-            self.log("WARNING", f"FewFeed tool navigation notice: {str(e)[:80]}. Retrying...")
+        if target_url.rstrip('/') not in self.page.url.lower():
+            self.log("INFO", f"🌐 Navigating to FewFeed Tool: {target_url}...")
             try:
-                await self.page.goto(target_url, wait_until="load", timeout=30000)
+                await self.page.goto(target_url, wait_until="domcontentloaded", timeout=40000)
                 await asyncio.sleep(3.0)
-            except Exception as e2:
-                self.log("ERROR", f"Could not reach {target_url}: {str(e2)[:80]}")
+            except Exception as e:
+                self.log("WARNING", f"FewFeed tool navigation notice: {str(e)[:80]}. Retrying...")
+                try:
+                    await self.page.goto(target_url, wait_until="load", timeout=30000)
+                    await asyncio.sleep(3.0)
+                except Exception as e2:
+                    self.log("ERROR", f"Could not reach {target_url}: {str(e2)[:80]}")
+        else:
+            self.log("INFO", f"🌐 Already on FewFeed Tool page: {self.page.url}")
 
         # Check for CueFeed / FewFeed login form or signin page redirect
         try:
@@ -1786,7 +1768,7 @@ class FacebookGroupBot:
     ) -> Dict[str, Any]:
         """
         Master-level unified single-click execution flow:
-        1. Initialize mobile browser emulation & load FEWFEED extension.
+        1. Initialize Original Desktop Chrome & load FEWFEED extension.
         2. Authenticate Facebook session with injected session cookies.
         3. If unified or joining requested: Automate FewFeed Auto Join tool (skipped if already_joined=True).
         4. If unified or posting requested: Automate FewFeed Auto Post tool.

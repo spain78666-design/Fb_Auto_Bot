@@ -646,7 +646,6 @@ class SessionManager:
                     proxy=proxy_cfg,
                     args=[
                         "--disable-blink-features=AutomationControlled",
-                        "--no-sandbox",
                         "--disable-dev-shm-usage"
                     ],
                     user_agent=(

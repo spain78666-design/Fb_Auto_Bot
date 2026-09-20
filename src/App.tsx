@@ -32,7 +32,8 @@ import {
   ChevronDown,
   ChevronUp,
   Trash2,
-  Plus
+  Plus,
+  Download
 } from 'lucide-react';
 import { browserBotCodeSnippet, appPyCodeSnippet, imageProcessorSnippet, sessionManagerSnippet, aiSpinnerSnippet, requirementsSnippet, landingPageSnippet, installerSetupSnippet, buildInstallerSnippet } from './data/codeSnippets';
 import AdminPanel from './components/AdminPanel';
@@ -283,6 +284,15 @@ export default function App() {
               <span>Admin Key Vault (Private)</span>
             </div>
           )}
+          <a
+            href="https://drive.google.com/file/d/16ZIfVCg7MpBtzGrTHLtpMP6emuZY7ewT/view?usp=sharing"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden lg:flex items-center space-x-1.5 px-3 py-1 rounded-md text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-sm shadow-emerald-600/30 border border-emerald-400/30 transition-all ml-1"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>Download Setup (.exe)</span>
+          </a>
         </div>
       </header>
 
@@ -1226,6 +1236,16 @@ export default function App() {
                       <span>Mobile Preview (390px)</span>
                     </button>
                   </div>
+
+                  <a
+                    href="https://drive.google.com/file/d/16ZIfVCg7MpBtzGrTHLtpMP6emuZY7ewT/view?usp=sharing"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-md shadow-emerald-600/30 border border-emerald-400/30 transition-all"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Download Setup (.exe)</span>
+                  </a>
 
                   <button
                     onClick={() => setIframeKey(k => k + 1)}
