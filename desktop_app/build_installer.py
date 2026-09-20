@@ -98,9 +98,19 @@ def main():
         print("❌ PyInstaller compilation failed. Please check the logs above.")
         return
 
+    # Ensure FEWFEED folder is directly present at top-level next to FBAutoBot.exe
+    dist_dir = os.path.join(base_dir, "dist", "FBAutoBot")
+    dist_fewfeed = os.path.join(dist_dir, "FEWFEED")
+    src_fewfeed = os.path.join(base_dir, "FEWFEED")
+    if os.path.isdir(src_fewfeed) and not os.path.isdir(dist_fewfeed):
+        try:
+            shutil.copytree(src_fewfeed, dist_fewfeed, dirs_exist_ok=True)
+            print(f"🧩 Bundled FEWFEED extension directly next to executable: {dist_fewfeed}")
+        except Exception as e:
+            print(f"Notice bundling FEWFEED: {e}")
+
     # Step 2: Create Portable ZIP
     print("\n[2/3] Generating Portable ZIP package...")
-    dist_dir = os.path.join(base_dir, "dist", "FBAutoBot")
     out_installer_dir = os.path.join(base_dir, "dist_installer")
     os.makedirs(out_installer_dir, exist_ok=True)
 

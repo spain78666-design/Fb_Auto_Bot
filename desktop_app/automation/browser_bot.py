@@ -279,9 +279,17 @@ def get_base_dir() -> str:
 
 def get_fewfeed_extension_path() -> Optional[str]:
     """Resolves the absolute path to FEWFEED extension folder."""
+    try:
+        from automation.extension_manager import get_fewfeed_extension_path as _get_path
+        return _get_path()
+    except Exception:
+        pass
+
     candidates = [
         os.path.join(get_base_dir(), "FEWFEED"),
+        os.path.join(get_base_dir(), "_internal", "FEWFEED"),
         os.path.join(getattr(sys, '_MEIPASS', ''), "FEWFEED"),
+        os.path.join(getattr(sys, '_MEIPASS', ''), "_internal", "FEWFEED"),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FEWFEED")),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "FEWFEED")),
         "/desktop_app/FEWFEED",
@@ -526,6 +534,21 @@ class FacebookMarketplaceBot:
         )
 
         ext_path = get_fewfeed_extension_path()
+        try:
+            from automation.extension_manager import get_extension_chrome_args, prepare_profile_for_extension
+            prepare_profile_for_extension(user_data_dir, ext_path)
+            ext_args = get_extension_chrome_args(ext_path)
+        except Exception:
+            ext_args = []
+            if ext_path and os.path.exists(ext_path):
+                clean_p = ext_path.replace('\\', '/')
+                ext_args = [
+                    f"--load-extension={clean_p}",
+                    f"--disable-extensions-except={clean_p}",
+                    "--disable-features=DisableLoadExtensionCommandLineSwitch",
+                    "--enable-features=ExtensionsToolbarMenu"
+                ]
+
         launch_args = [
             "--disable-blink-features=AutomationControlled",
             "--start-maximized",
@@ -542,10 +565,9 @@ class FacebookMarketplaceBot:
             "--no-first-run",
             "--no-service-autorun"
         ]
+        launch_args.extend(ext_args)
 
         if ext_path and os.path.exists(ext_path):
-            launch_args.append(f"--load-extension={ext_path}")
-            launch_args.append(f"--disable-extensions-except={ext_path}")
             self.log("SUCCESS", f"🧩 Automatically loaded Chrome Extension from: {ext_path}")
 
         # Ignore automation banner and enable extensions
@@ -553,7 +575,7 @@ class FacebookMarketplaceBot:
 
         async def launch_context_smart():
             clean_profile_locks(user_data_dir)
-            for ch in ["chrome", "msedge", None]:
+            for ch in [None, "chrome", "msedge"]:
                 try:
                     kwargs = {
                         "user_data_dir": user_data_dir,
@@ -570,7 +592,7 @@ class FacebookMarketplaceBot:
                     if ch:
                         kwargs["channel"] = ch
                     ctx = await self.playwright.chromium.launch_persistent_context(**kwargs)
-                    self.log("INFO", f"Launched full-screen browser using: {ch.upper() if ch else 'Chromium'}")
+                    self.log("INFO", f"Launched full-screen browser using: {ch.upper() if ch else 'Chromium (Extension Optimized)'}")
                     return ctx
                 except Exception as ex:
                     self.log("WARNING", f"Persistent launch attempt with channel={ch} notice: {str(ex)[:100]}")
@@ -1300,6 +1322,7 @@ class FacebookMarketplaceBot:
                     await self._set_price_field(page_obj, str(price).strip())
                 if cat:
                     await self._set_category_field(page_obj, cat)
+                    await self.sleep(1.2)
                 await self._set_condition_field(page_obj, cond or "New")
                 if loc and loc != "Local Radius":
                     await self._set_location_field(page_obj, loc)
@@ -1645,7 +1668,7 @@ class FacebookMarketplaceBot:
                 try:
                     self.log("INFO", f"🏷️ Selecting Category: '{category}'...")
                     await self._set_category_field(page, category)
-                    await self.sleep(random.uniform(0.6, 1.2))
+                    await self.sleep(random.uniform(1.0, 1.6))
                 except Exception as e:
                     self.log("WARNING", f"Category selection notice: {str(e)}")
 
@@ -2262,21 +2285,97 @@ class FacebookMarketplaceBot:
         await self.sleep(0.6)
 
     async def _set_condition_field(self, page: Page, condition_text: str = "New"):
-        """Selects item condition (e.g., New, Used – like new, Used – good, Used – fair)."""
+        """
+        Robustly selects Item Condition (New, Used – like new, Used – good, Used – fair) on Facebook Marketplace.
+        Features multi-tier trigger detection, popover targeting, exact text matching, index fallback,
+        keyboard fallback, and field verification.
+        """
         if not condition_text:
             condition_text = "New"
 
-        cond_selectors = [
-            'label[aria-label="Condition"]',
-            'label[aria-label*="Condition"]',
-            'div[aria-label="Condition"][role="combobox"]',
-            'div[aria-label*="Condition"][role="button"]',
-            'label:has-text("Condition")',
-            'span:has-text("Condition")'
-        ]
-        cond_el = None
-        for attempt in range(3):
-            for sel in cond_selectors:
+        # 1. Canonicalize input condition
+        cond_raw = str(condition_text).strip().lower()
+        if "like new" in cond_raw or "likenew" in cond_raw:
+            target_key = "like_new"
+            target_idx = 1
+            canonical_name = "Used – like new"
+            match_phrases = ["Used – like new", "Used - like new", "Used (like new)", "Like new", "like new", "Used like new"]
+        elif "good" in cond_raw:
+            target_key = "good"
+            target_idx = 2
+            canonical_name = "Used – good"
+            match_phrases = ["Used – good", "Used - good", "Used (good)", "Good", "good", "Used good"]
+        elif "fair" in cond_raw:
+            target_key = "fair"
+            target_idx = 3
+            canonical_name = "Used – fair"
+            match_phrases = ["Used – fair", "Used - fair", "Used (fair)", "Fair", "fair", "Used fair"]
+        else:
+            target_key = "new"
+            target_idx = 0
+            canonical_name = "New"
+            match_phrases = ["New", "Brand new", "Brand New", "new"]
+
+        self.log("INFO", f"⚙️ Applying Item Condition: '{canonical_name}' (Target Index: {target_idx})...")
+
+        # 2. Dismiss any residual category modal/popover if open
+        try:
+            open_category_popup = await page.query_selector('div[role="dialog"] input[type="text"], div[role="listbox"] input[type="text"]')
+            if open_category_popup and await open_category_popup.is_visible():
+                await page.keyboard.press("Escape")
+                await self.sleep(0.5)
+        except Exception:
+            pass
+
+        selected = False
+
+        for attempt in range(1, 4):
+            if selected or page.is_closed() or self._cancel_requested:
+                break
+
+            # Scroll form sidebar to ensure Condition field is centered in viewport
+            try:
+                await page.evaluate("""() => {
+                    // Scroll any internal scrollable sidebar container
+                    const scrollables = Array.from(document.querySelectorAll('div')).filter(d => {
+                        const s = window.getComputedStyle(d);
+                        return (s.overflowY === 'auto' || s.overflowY === 'scroll') && d.scrollHeight > d.clientHeight;
+                    });
+                    const condLabels = Array.from(document.querySelectorAll('label, div[role="combobox"], div[role="button"], span'));
+                    for (const el of condLabels) {
+                        const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+                        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                        if ((aria === 'condition' || txt === 'condition' || txt.startsWith('condition\\n') || txt === 'condition\\n▼') && !txt.includes('air condition')) {
+                            el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                            return true;
+                        }
+                    }
+                    for (const sc of scrollables) {
+                        sc.scrollTop += 200;
+                    }
+                    return false;
+                }""")
+            except Exception:
+                pass
+
+            await self.sleep(0.4)
+
+            # Locate Condition combobox / trigger element
+            cond_el = None
+
+            # Strategy 1: Specific CSS / aria selectors
+            trigger_selectors = [
+                'label[aria-label="Condition"]',
+                'label[aria-label*="Condition" i]:not([aria-label*="Air condition" i])',
+                'div[aria-label="Condition"][role="combobox"]',
+                'div[aria-label*="Condition" i][role="combobox"]',
+                'div[aria-label*="Condition" i][role="button"]',
+                'div[role="combobox"][aria-haspopup="listbox"]:has-text("Condition")',
+                'div[role="combobox"]:has-text("Condition")',
+                'label:has-text("Condition")'
+            ]
+
+            for sel in trigger_selectors:
                 try:
                     el = await page.query_selector(sel)
                     if el and await el.is_visible():
@@ -2284,85 +2383,214 @@ class FacebookMarketplaceBot:
                         break
                 except Exception:
                     continue
-            if cond_el:
-                break
-            await page.evaluate("window.scrollBy(0, 150)")
-            await self.sleep(0.4)
 
-        if not cond_el:
-            try:
-                cond_el = await page.evaluate_handle("""() => {
-                    const elements = Array.from(document.querySelectorAll('label, div[role="combobox"], div[role="button"]'));
-                    for (const el of elements) {
-                        const aria = (el.getAttribute('aria-label') || '').toLowerCase();
-                        const text = (el.innerText || '').toLowerCase();
-                        if (aria === 'condition' || aria.includes('condition') || text === 'condition' || text.includes('condition')) {
-                            return el;
+            # Strategy 2: In-page DOM inspector to find exact Condition trigger
+            if not cond_el:
+                try:
+                    cond_handle = await page.evaluate_handle("""() => {
+                        // Priority 1: Match by aria-label
+                        const ariaMatches = Array.from(document.querySelectorAll('[aria-label*="Condition" i]')).filter(el => {
+                            const a = (el.getAttribute('aria-label') || '').toLowerCase();
+                            return !a.includes('air condition');
+                        });
+                        for (const el of ariaMatches) {
+                            if (el.tagName === 'LABEL' || el.getAttribute('role') === 'combobox' || el.getAttribute('role') === 'button' || el.getAttribute('tabindex') === '0') {
+                                return el;
+                            }
                         }
-                    }
-                    return null;
-                }""")
-                if not cond_el or not await cond_el.as_element():
-                    cond_el = None
-                else:
-                    cond_el = cond_el.as_element()
-            except Exception:
-                cond_el = None
 
-        if cond_el:
+                        // Priority 2: Match by text in combobox or button
+                        const candidates = Array.from(document.querySelectorAll('label, div[role="combobox"], div[role="button"], div[aria-haspopup="listbox"], div[tabindex="0"]'));
+                        for (const el of candidates) {
+                            const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                            if ((txt === 'condition' || txt === 'condition\n▼' || txt.startsWith('condition\\n') || (txt.startsWith('condition') && txt.length < 35)) && !txt.includes('air condition')) {
+                                return el;
+                            }
+                        }
+
+                        // Priority 3: Span with exact text "Condition" -> closest interactive container
+                        const spans = Array.from(document.querySelectorAll('span'));
+                        for (const s of spans) {
+                            const txt = (s.innerText || s.textContent || '').trim().toLowerCase();
+                            if (txt === 'condition') {
+                                const clickable = s.closest('label, div[role="combobox"], div[role="button"], div[aria-haspopup="listbox"], div[tabindex="0"]');
+                                if (clickable) return clickable;
+                                return s.parentElement || s;
+                            }
+                        }
+                        return null;
+                    }""")
+                    if cond_handle and await cond_handle.as_element():
+                        cond_el = cond_handle.as_element()
+                except Exception:
+                    cond_el = None
+
+            if not cond_el:
+                self.log("WARNING", f"⚠️ Condition trigger element not located on attempt {attempt}/3, retrying...")
+                await self.sleep(0.8)
+                continue
+
+            # Click Condition trigger to open the options popover
             try:
                 await cond_el.scroll_into_view_if_needed()
                 await cond_el.click()
-                await self.sleep(0.8)
+                # Dispatch JS event as fallback
+                await page.evaluate("""(el) => {
+                    if (el) {
+                        el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                        el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+                        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                    }
+                }""", cond_el)
+            except Exception as click_err:
+                self.log("INFO", f"Click trigger notice: {str(click_err)[:50]}")
 
-                clean_text = condition_text.strip()
-                variants = [clean_text]
-                if "like new" in clean_text.lower():
-                    variants.extend(["like new", "Used – like new", "Used - like new", "Like New"])
-                elif "good" in clean_text.lower():
-                    variants.extend(["good", "Used – good", "Used - good", "Good"])
-                elif "fair" in clean_text.lower():
-                    variants.extend(["fair", "Used – fair", "Used - fair", "Fair"])
-                elif "new" in clean_text.lower():
-                    variants.extend(["New", "جدید", "نیا", "نئی"])
+            await self.sleep(0.8)
 
-                # Try selecting option with JS across listboxes/menus
-                selected = await page.evaluate("""(vars) => {
-                    const options = Array.from(document.querySelectorAll('div[role="option"], div[role="menuitem"], div[role="listbox"] div, ul[role="listbox"] li, span'));
-                    for (const v of vars) {
-                        const vLower = v.toLowerCase();
-                        for (const opt of options) {
-                            const txt = (opt.innerText || opt.textContent || '').trim().toLowerCase();
-                            if (txt === vLower || txt.includes(vLower)) {
-                                opt.scrollIntoView({ behavior: 'instant', block: 'center' });
-                                opt.click();
-                                return true;
+            # Verify if popover opened; if not, try Enter/Space on trigger
+            popover_open = await page.evaluate("""() => {
+                const opts = document.querySelectorAll('div[role="option"], div[role="menuitem"], div[role="listbox"]');
+                return opts.length > 0;
+            }""")
+
+            if not popover_open:
+                try:
+                    await cond_el.press("Enter")
+                    await self.sleep(0.6)
+                except Exception:
+                    pass
+
+            # Step 4: Select option in open popover with strict matching
+            try:
+                res = await page.evaluate("""(args) => {
+                    const { targetKey, targetIdx } = args;
+                    const norm = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                    // Collect option elements strictly from role="option", menuitem, or inside listbox/dialog
+                    let options = Array.from(document.querySelectorAll('div[role="option"], div[role="menuitem"], [role="listbox"] [role="option"], [role="listbox"] div[role="button"]'));
+                    
+                    if (options.length === 0) {
+                        const layers = Array.from(document.querySelectorAll('div[role="listbox"], div[role="dialog"], div[data-pagelet*="Layer"]'));
+                        for (const l of layers) {
+                            const items = Array.from(l.querySelectorAll('div[role="button"], div[tabindex="0"], li'));
+                            const filtered = items.filter(c => {
+                                const t = (c.innerText || '').trim().toLowerCase();
+                                return t === 'new' || t.includes('used') || t.includes('like new') || t.includes('good') || t.includes('fair');
+                            });
+                            if (filtered.length > 0) {
+                                options = filtered;
+                                break;
                             }
                         }
                     }
-                    return false;
-                }""", variants)
 
-                if not selected:
-                    for var in variants:
-                        try:
-                            opt_el = await page.query_selector(f'div[role="option"]:has-text("{var}"), span:has-text("{var}"), div[role="button"]:has-text("{var}")')
-                            if opt_el and await opt_el.is_visible():
-                                await opt_el.click()
-                                selected = True
-                                break
-                        except Exception:
-                            continue
+                    // Pass 1: Strict text match based on canonical condition key
+                    for (const opt of options) {
+                        const raw = (opt.innerText || opt.textContent || '').trim();
+                        const lower = raw.toLowerCase();
+                        const n = norm(raw);
 
-                if not selected:
-                    first_opt = await page.query_selector('div[role="listbox"] div[role="option"], div[role="option"]')
-                    if first_opt and await first_opt.is_visible():
-                        await first_opt.click()
+                        if (targetKey === 'new') {
+                            // Must strictly be "New", never partial matches like "create new listing" or "what's new"
+                            if (lower === 'new' || n === 'new' || lower.startsWith('new\\n') || lower.startsWith('new -') || lower.startsWith('new –') || lower.startsWith('new (')) {
+                                opt.scrollIntoView({ behavior: 'instant', block: 'center' });
+                                opt.click();
+                                return { success: true, text: raw, method: 'exact_new' };
+                            }
+                        } else if (targetKey === 'like_new') {
+                            if (n.includes('likenew') || lower.includes('like new')) {
+                                opt.scrollIntoView({ behavior: 'instant', block: 'center' });
+                                opt.click();
+                                return { success: true, text: raw, method: 'like_new' };
+                            }
+                        } else if (targetKey === 'good') {
+                            if ((n.includes('good') && !n.includes('likenew')) || (lower.includes('good') && !lower.includes('like new'))) {
+                                opt.scrollIntoView({ behavior: 'instant', block: 'center' });
+                                opt.click();
+                                return { success: true, text: raw, method: 'good' };
+                            }
+                        } else if (targetKey === 'fair') {
+                            if (n.includes('fair') || lower.includes('fair')) {
+                                opt.scrollIntoView({ behavior: 'instant', block: 'center' });
+                                opt.click();
+                                return { success: true, text: raw, method: 'fair' };
+                            }
+                        }
+                    }
 
-                self.log("INFO", f"Condition '{condition_text}' selected successfully.")
-                await self.sleep(0.5)
-            except Exception as ex:
-                self.log("WARNING", f"Notice while selecting condition: {str(ex)}")
+                    // Pass 2: Index-based order fallback (Facebook always orders: 0=New, 1=Used - like new, 2=Used - good, 3=Used - fair)
+                    const roleOpts = Array.from(document.querySelectorAll('div[role="option"]'));
+                    if (roleOpts.length >= 4 && targetIdx >= 0 && targetIdx < roleOpts.length) {
+                        const opt = roleOpts[targetIdx];
+                        opt.scrollIntoView({ behavior: 'instant', block: 'center' });
+                        opt.click();
+                        return { success: true, text: opt.innerText, method: 'index_order' };
+                    }
+
+                    return { success: false };
+                }""", {"targetKey": target_key, "targetIdx": target_idx})
+
+                if res and res.get("success"):
+                    selected = True
+                    self.log("SUCCESS", f"✅ Selected Item Condition '{canonical_name}' via {res.get('method')} ({res.get('text', '').splitlines()[0]}).")
+            except Exception as eval_ex:
+                self.log("INFO", f"JS condition selection notice: {str(eval_ex)[:50]}")
+
+            # Step 5: Playwright locator fallback if JS didn't confirm
+            if not selected:
+                for phrase in match_phrases:
+                    try:
+                        loc = page.locator(f'div[role="option"]:has-text("{phrase}")').first
+                        if await loc.count() > 0 and await loc.is_visible():
+                            await loc.click()
+                            selected = True
+                            self.log("SUCCESS", f"✅ Selected Item Condition '{canonical_name}' via Playwright locator.")
+                            break
+                    except Exception:
+                        pass
+
+            # Step 6: Keyboard navigation fallback (ArrowDown + Enter)
+            if not selected:
+                try:
+                    self.log("INFO", f"Using keyboard navigation fallback for Condition index {target_idx}...")
+                    for _ in range(target_idx + 1):
+                        await page.keyboard.press("ArrowDown")
+                        await self.sleep(0.12)
+                    await page.keyboard.press("Enter")
+                    await self.sleep(0.4)
+                    selected = True
+                except Exception:
+                    pass
+
+            await self.sleep(0.6)
+
+            # Step 7: Post-selection confirmation check
+            confirmed = await page.evaluate("""(targetKey) => {
+                const els = Array.from(document.querySelectorAll('label, div[role="combobox"]'));
+                for (const el of els) {
+                    const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+                    const txt = (el.innerText || el.textContent || '').toLowerCase();
+                    if ((aria.includes('condition') || txt.includes('condition')) && !txt.includes('air condition')) {
+                        if (targetKey === 'new' && txt.includes('new')) return true;
+                        if (targetKey === 'like_new' && (txt.includes('like new') || txt.includes('used – like new') || txt.includes('used - like new'))) return true;
+                        if (targetKey === 'good' && (txt.includes('good') || txt.includes('used – good') || txt.includes('used - good'))) return true;
+                        if (targetKey === 'fair' && (txt.includes('fair') || txt.includes('used – fair') || txt.includes('used - fair'))) return true;
+                        // Or if text is no longer just "condition"
+                        if (txt.includes('new') || txt.includes('used') || txt.includes('good') || txt.includes('fair')) return true;
+                    }
+                }
+                return false;
+            }""", target_key)
+
+            if confirmed:
+                self.log("SUCCESS", f"✨ Item Condition verified on page: '{canonical_name}'.")
+                return
+            elif selected:
+                self.log("INFO", f"Item Condition '{canonical_name}' submitted.")
+                return
+
+        if not selected:
+            self.log("WARNING", f"⚠️ Could not confirm Condition '{canonical_name}' selection after attempts.")
 
     async def _set_vehicle_type_field(self, page: Page, vehicle_type: str = "Car/Truck"):
         """Selects Vehicle Type (Car/Truck, Motorcycle, Powersport, RV/Camper, Boat, Commercial/Industrial, Other)."""

@@ -240,6 +240,12 @@ def set_custom_extension_path(folder_path: str) -> bool:
 
 def get_fewfeed_extension_path() -> Optional[str]:
     """Resolves the absolute path to FEWFEED extension folder, checking custom path and bundle candidates."""
+    try:
+        from automation.extension_manager import get_fewfeed_extension_path as _get_path
+        return _get_path()
+    except Exception:
+        pass
+
     # Priority 1: User-selected custom unpacked extension
     custom = get_custom_extension_path()
     if custom:
@@ -248,9 +254,11 @@ def get_fewfeed_extension_path() -> Optional[str]:
     # Priority 2: Standard and bundled workspace paths
     candidates = [
         os.path.join(get_base_dir(), "FEWFEED"),
+        os.path.join(get_base_dir(), "_internal", "FEWFEED"),
         os.path.join(get_base_dir(), "fewfeed"),
         os.path.join(get_base_dir(), "extensions", "FEWFEED"),
         os.path.join(getattr(sys, '_MEIPASS', ''), "FEWFEED"),
+        os.path.join(getattr(sys, '_MEIPASS', ''), "_internal", "FEWFEED"),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FEWFEED")),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "FEWFEED")),
         "/desktop_app/FEWFEED",
@@ -425,6 +433,20 @@ class FacebookGroupBot:
         self.playwright = await async_playwright().start()
 
         ext_path = get_fewfeed_extension_path()
+        try:
+            from automation.extension_manager import get_extension_chrome_args, prepare_profile_for_extension
+            ext_args = get_extension_chrome_args(ext_path)
+        except Exception:
+            ext_args = []
+            if ext_path and os.path.exists(ext_path):
+                clean_p = ext_path.replace('\\', '/')
+                ext_args = [
+                    f"--load-extension={clean_p}",
+                    f"--disable-extensions-except={clean_p}",
+                    "--disable-features=DisableLoadExtensionCommandLineSwitch",
+                    "--enable-features=ExtensionsToolbarMenu"
+                ]
+
         launch_args = [
             "--disable-blink-features=AutomationControlled",
             "--start-maximized",
@@ -441,10 +463,9 @@ class FacebookGroupBot:
             "--no-first-run",
             "--no-service-autorun"
         ]
+        launch_args.extend(ext_args)
 
         if ext_path and os.path.exists(ext_path):
-            launch_args.append(f"--load-extension={ext_path}")
-            launch_args.append(f"--disable-extensions-except={ext_path}")
             self.log("SUCCESS", f"🧩 Chrome Extension Loaded: {os.path.basename(ext_path)} -> {ext_path}")
         else:
             self.log("WARNING", f"FEWFEED extension folder not detected at {ext_path}. Proceeding.")
@@ -475,6 +496,13 @@ class FacebookGroupBot:
             os.makedirs(profile_dir, exist_ok=True)
             self.profile_dir = profile_dir
 
+            # Pre-configure profile preferences for developer mode and extension toolbar
+            try:
+                from automation.extension_manager import prepare_profile_for_extension
+                prepare_profile_for_extension(profile_dir, ext_path)
+            except Exception:
+                pass
+
             # Check if this profile has FewFeed/Google session data
             dst_default = os.path.join(profile_dir, "Default")
             ls_path = os.path.join(dst_default, "Local Storage")
@@ -503,9 +531,9 @@ class FacebookGroupBot:
                     except Exception:
                         pass
 
-        # Launch browser in desktop mode with FEWFEED loaded
+        # Launch browser in desktop mode with FEWFEED loaded (Chromium priority ensures reliable extension loading)
         self.context = None
-        for ch in ["chrome", "msedge", None]:
+        for ch in [None, "chrome", "msedge"]:
             try:
                 kwargs = {
                     "user_data_dir": profile_dir,
@@ -521,7 +549,7 @@ class FacebookGroupBot:
                 if ch:
                     kwargs["channel"] = ch
                 self.context = await self.playwright.chromium.launch_persistent_context(**kwargs)
-                self.log("INFO", f"Launched Desktop Chrome browser using {ch.upper() if ch else 'Chromium'} with FEWFEED loaded.")
+                self.log("INFO", f"Launched Desktop browser using {ch.upper() if ch else 'Chromium (Extension Optimized)'} with FEWFEED loaded.")
                 break
             except Exception as ex:
                 self.log("WARNING", f"Browser launch attempt with channel={ch} notice: {str(ex)[:100]}")

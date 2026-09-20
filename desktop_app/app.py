@@ -2954,10 +2954,17 @@ class FBAutoBotMainWindow(QMainWindow):
         self.btn_sync_qfit.setToolTip("Syncs the saved master QFit / FewFeed session to all active account profile directories.")
         self.btn_sync_qfit.clicked.connect(self.sync_qfit_to_all_profiles)
 
+        self.btn_fewfeed_ext = QPushButton("🧩 FewFeed Extension")
+        self.btn_fewfeed_ext.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 11px; padding: 6px 10px; border-radius: 6px;")
+        self.btn_fewfeed_ext.setCursor(Qt.PointingHandCursor)
+        self.btn_fewfeed_ext.setToolTip("View or set the unpacked FewFeed Chrome Extension folder path.")
+        self.btn_fewfeed_ext.clicked.connect(self.setup_fewfeed_extension_folder)
+
         actions_bar.addWidget(self.btn_auto_login_selected)
         actions_bar.addWidget(self.btn_open_browser)
         actions_bar.addWidget(self.btn_master_qfit)
         actions_bar.addWidget(self.btn_sync_qfit)
+        actions_bar.addWidget(self.btn_fewfeed_ext)
         actions_bar.addWidget(self.btn_test_health)
         actions_bar.addWidget(self.btn_audit_all)
         actions_bar.addWidget(self.btn_delete_profile)
@@ -3381,10 +3388,17 @@ class FBAutoBotMainWindow(QMainWindow):
         self.btn_sync_qfit.setToolTip("Syncs the saved master QFit / FewFeed session to all active account profile directories.")
         self.btn_sync_qfit.clicked.connect(self.sync_qfit_to_all_profiles)
 
+        self.btn_fewfeed_ext_2 = QPushButton("🧩 FewFeed Extension")
+        self.btn_fewfeed_ext_2.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 11px; padding: 6px 10px; border-radius: 6px;")
+        self.btn_fewfeed_ext_2.setCursor(Qt.PointingHandCursor)
+        self.btn_fewfeed_ext_2.setToolTip("View or set the unpacked FewFeed Chrome Extension folder path.")
+        self.btn_fewfeed_ext_2.clicked.connect(self.setup_fewfeed_extension_folder)
+
         actions_bar.addWidget(self.btn_auto_login_selected)
         actions_bar.addWidget(self.btn_open_browser)
         actions_bar.addWidget(self.btn_master_qfit)
         actions_bar.addWidget(self.btn_sync_qfit)
+        actions_bar.addWidget(self.btn_fewfeed_ext_2)
         actions_bar.addWidget(self.btn_test_health)
         actions_bar.addWidget(self.btn_audit_all)
         actions_bar.addWidget(self.btn_delete_profile)
@@ -3806,6 +3820,67 @@ class FBAutoBotMainWindow(QMainWindow):
         self.manual_worker.cookies_captured_signal.connect(self.on_cookies_captured)
         self.manual_worker.finished_signal.connect(self.on_manual_login_finished)
         self.manual_worker.start()
+
+    def setup_fewfeed_extension_folder(self):
+        """Displays current FewFeed extension status and allows selecting/changing the extension directory."""
+        try:
+            from automation.extension_manager import get_fewfeed_extension_path, set_custom_extension_path, verify_extension_manifest
+        except Exception:
+            from automation.group_bot import get_fewfeed_extension_path, set_custom_extension_path
+            verify_extension_manifest = None
+
+        current = get_fewfeed_extension_path()
+        if current:
+            status_desc = "Extension Found"
+            if verify_extension_manifest:
+                ok, desc = verify_extension_manifest(current)
+                if ok:
+                    status_desc = desc
+
+            msg = (
+                f"✅ FewFeed Extension is DETECTED and ACTIVE!\n\n"
+                f"📦 Details: {status_desc}\n"
+                f"📁 Folder: {current}\n\n"
+                f"This extension will load automatically in every automated browser and Master QFit session.\n\n"
+                f"Do you want to change the extension folder?"
+            )
+            reply = QMessageBox.question(
+                self,
+                "FewFeed Extension Status",
+                msg,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+        else:
+            QMessageBox.information(
+                self,
+                "FewFeed Extension Setup",
+                "⚠️ FewFeed Extension folder was not automatically detected.\n\n"
+                "Please select the 'FEWFEED' folder containing 'manifest.json'."
+            )
+
+        chosen = QFileDialog.getExistingDirectory(self, "Select FEWFEED Extension Folder", current or os.getcwd())
+        if chosen:
+            manifest_file = os.path.join(chosen, "manifest.json")
+            if not os.path.isfile(manifest_file):
+                QMessageBox.critical(
+                    self,
+                    "Invalid Extension Folder",
+                    "❌ The selected folder does NOT contain a valid 'manifest.json' file.\n"
+                    "Please select the folder where FewFeed extension files (manifest.json, bg.js, etc.) are located."
+                )
+                return
+            success = set_custom_extension_path(chosen)
+            if success:
+                self.log_message("SUCCESS", f"🧩 FewFeed Extension folder successfully set: {chosen}")
+                QMessageBox.information(
+                    self,
+                    "Extension Saved",
+                    f"✅ FewFeed Extension path successfully saved!\n📁 {chosen}\n\n"
+                    "All browsers will now automatically load with this extension."
+                )
 
     def setup_master_qfit_session(self):
         """Launches Master QFit / FewFeed Chrome window to log in once for all profiles."""

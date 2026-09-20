@@ -75,18 +75,18 @@ def get_base_dir() -> str:
 
 
 def get_fewfeed_extension_path() -> Optional[str]:
-    # Check custom user-selected path from config
+    """Resolves the absolute path to FEWFEED extension folder via ExtensionManager."""
     try:
-        from automation.group_bot import get_custom_extension_path
-        custom = get_custom_extension_path()
-        if custom:
-            return custom
+        from automation.extension_manager import get_fewfeed_extension_path as _get_path
+        return _get_path()
     except Exception:
         pass
 
     candidates = [
         os.path.join(get_base_dir(), "FEWFEED"),
+        os.path.join(get_base_dir(), "_internal", "FEWFEED"),
         os.path.join(getattr(sys, '_MEIPASS', ''), "FEWFEED"),
+        os.path.join(getattr(sys, '_MEIPASS', ''), "_internal", "FEWFEED"),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FEWFEED")),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "FEWFEED")),
         "/desktop_app/FEWFEED",
@@ -340,6 +340,21 @@ class SessionManager:
                     pass
 
         ext_path = get_fewfeed_extension_path()
+        try:
+            from automation.extension_manager import get_extension_chrome_args, prepare_profile_for_extension
+            prepare_profile_for_extension(master_dir, ext_path)
+            ext_args = get_extension_chrome_args(ext_path)
+        except Exception:
+            ext_args = []
+            if ext_path and os.path.exists(ext_path):
+                clean_p = ext_path.replace('\\', '/')
+                ext_args = [
+                    f"--load-extension={clean_p}",
+                    f"--disable-extensions-except={clean_p}",
+                    "--disable-features=DisableLoadExtensionCommandLineSwitch",
+                    "--enable-features=ExtensionsToolbarMenu"
+                ]
+
         launch_flags = [
             "--disable-blink-features=AutomationControlled",
             "--start-maximized",
@@ -350,16 +365,20 @@ class SessionManager:
             "--no-first-run",
             "--no-service-autorun"
         ]
+        launch_flags.extend(ext_args)
+
         if ext_path and os.path.exists(ext_path):
-            launch_flags.append(f"--load-extension={ext_path}")
-            launch_flags.append(f"--disable-extensions-except={ext_path}")
+            log("SUCCESS", f"🧩 FewFeed Extension Loaded into Master Profile: {ext_path}")
+        else:
+            log("WARNING", "⚠️ FEWFEED extension folder not detected! Check 'FewFeed Extension' button in UI.")
 
         log("INFO", "🔑 Launching Master QFit / FewFeed session setup browser...")
         log("INFO", "Please log into QFit / FewFeed / Gmail in the opened Chrome window. Close window when finished.")
 
         async with async_playwright() as p:
             context = None
-            for ch in ["chrome", "msedge", None]:
+            # Prioritize Playwright Chromium first so extensions work reliably without Google sideload blocks
+            for ch in [None, "chrome", "msedge"]:
                 try:
                     kws = {
                         "user_data_dir": master_dir,
@@ -371,6 +390,7 @@ class SessionManager:
                     if ch:
                         kws["channel"] = ch
                     context = await p.chromium.launch_persistent_context(**kws)
+                    log("INFO", f"Browser launched with channel: {ch if ch else 'Chromium (Extension Optimized)'}")
                     break
                 except Exception:
                     continue
@@ -378,6 +398,14 @@ class SessionManager:
             if not context:
                 log("ERROR", "Could not launch Chrome/Edge browser for Master QFit setup.")
                 return False
+
+            # Check if extension background service worker is running
+            ext_id = None
+            for sw in context.service_workers:
+                if "chrome-extension://" in sw.url:
+                    ext_id = sw.url.split("/")[2]
+                    log("SUCCESS", f"⚡ FewFeed Extension Hooked! Extension ID: {ext_id}")
+                    break
 
             page = context.pages[0] if context.pages else await context.new_page()
             try:
@@ -801,6 +829,21 @@ class SessionManager:
                 proxy_cfg["password"] = account["proxy_pass"]
 
         ext_path = get_fewfeed_extension_path()
+        try:
+            from automation.extension_manager import get_extension_chrome_args, prepare_profile_for_extension
+            prepare_profile_for_extension(profile_dir, ext_path)
+            ext_args = get_extension_chrome_args(ext_path)
+        except Exception:
+            ext_args = []
+            if ext_path and os.path.exists(ext_path):
+                clean_p = ext_path.replace('\\', '/')
+                ext_args = [
+                    f"--load-extension={clean_p}",
+                    f"--disable-extensions-except={clean_p}",
+                    "--disable-features=DisableLoadExtensionCommandLineSwitch",
+                    "--enable-features=ExtensionsToolbarMenu"
+                ]
+
         launch_flags = [
             "--disable-blink-features=AutomationControlled",
             "--start-maximized",
@@ -811,13 +854,11 @@ class SessionManager:
             "--no-first-run",
             "--no-service-autorun"
         ]
-        if ext_path and os.path.exists(ext_path):
-            launch_flags.append(f"--load-extension={ext_path}")
-            launch_flags.append(f"--disable-extensions-except={ext_path}")
+        launch_flags.extend(ext_args)
 
         async with async_playwright() as p:
             async def launch_smart_ctx(px):
-                for ch in ["chrome", "msedge", None]:
+                for ch in [None, "chrome", "msedge"]:
                     try:
                         kws = {
                             "user_data_dir": profile_dir,
@@ -834,7 +875,7 @@ class SessionManager:
                         if "Executable doesn't exist" in str(ex) or "Channel" in str(ex):
                             continue
                         raise ex
-                raise Exception("Could not find installed Google Chrome or Edge on this PC.")
+                raise Exception("Could not find installed Google Chrome, Chromium, or Edge on this PC.")
 
             try:
                 try:
@@ -997,6 +1038,21 @@ class SessionManager:
                 proxy_cfg["password"] = account["proxy_pass"]
 
         ext_path = get_fewfeed_extension_path()
+        try:
+            from automation.extension_manager import get_extension_chrome_args, prepare_profile_for_extension
+            prepare_profile_for_extension(profile_dir, ext_path)
+            ext_args = get_extension_chrome_args(ext_path)
+        except Exception:
+            ext_args = []
+            if ext_path and os.path.exists(ext_path):
+                clean_p = ext_path.replace('\\', '/')
+                ext_args = [
+                    f"--load-extension={clean_p}",
+                    f"--disable-extensions-except={clean_p}",
+                    "--disable-features=DisableLoadExtensionCommandLineSwitch",
+                    "--enable-features=ExtensionsToolbarMenu"
+                ]
+
         launch_flags = [
             "--disable-blink-features=AutomationControlled",
             "--start-maximized",
@@ -1007,13 +1063,11 @@ class SessionManager:
             "--no-first-run",
             "--no-service-autorun"
         ]
-        if ext_path and os.path.exists(ext_path):
-            launch_flags.append(f"--load-extension={ext_path}")
-            launch_flags.append(f"--disable-extensions-except={ext_path}")
+        launch_flags.extend(ext_args)
 
         async with async_playwright() as p:
             async def launch_smart_ctx(px):
-                for ch in ["chrome", "msedge", None]:
+                for ch in [None, "chrome", "msedge"]:
                     try:
                         kws = {
                             "user_data_dir": profile_dir,
