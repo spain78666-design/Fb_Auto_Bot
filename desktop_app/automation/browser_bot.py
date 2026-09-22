@@ -281,19 +281,30 @@ def get_fewfeed_extension_path() -> Optional[str]:
     """Resolves the absolute path to FEWFEED extension folder."""
     try:
         from automation.extension_manager import get_fewfeed_extension_path as _get_path
-        return _get_path()
+        p = _get_path()
+        if p and os.path.isdir(p) and os.path.exists(os.path.join(p, "manifest.json")):
+            return p
     except Exception:
         pass
 
     candidates = [
+        os.path.join(get_base_dir(), "FewFeedV3.9.1"),
         os.path.join(get_base_dir(), "FEWFEED"),
+        os.path.join(get_base_dir(), "_internal", "FewFeedV3.9.1"),
         os.path.join(get_base_dir(), "_internal", "FEWFEED"),
+        os.path.join(getattr(sys, '_MEIPASS', ''), "FewFeedV3.9.1"),
         os.path.join(getattr(sys, '_MEIPASS', ''), "FEWFEED"),
+        os.path.join(getattr(sys, '_MEIPASS', ''), "_internal", "FewFeedV3.9.1"),
         os.path.join(getattr(sys, '_MEIPASS', ''), "_internal", "FEWFEED"),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FewFeedV3.9.1")),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FEWFEED")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "FewFeedV3.9.1")),
         os.path.abspath(os.path.join(os.path.dirname(__file__), "FEWFEED")),
+        "/desktop_app/FewFeedV3.9.1",
         "/desktop_app/FEWFEED",
+        os.path.abspath("FewFeedV3.9.1"),
         os.path.abspath("FEWFEED"),
+        os.path.abspath("desktop_app/FewFeedV3.9.1"),
         os.path.abspath("desktop_app/FEWFEED")
     ]
     for c in candidates:
@@ -536,25 +547,28 @@ class FacebookMarketplaceBot:
         ext_path = get_fewfeed_extension_path()
         try:
             from automation.extension_manager import get_extension_chrome_args, prepare_profile_for_extension
-            prepare_profile_for_extension(user_data_dir, ext_path)
+            if user_data_dir:
+                prepare_profile_for_extension(user_data_dir, ext_path)
             ext_args = get_extension_chrome_args(ext_path)
         except Exception:
             ext_args = []
             if ext_path and os.path.exists(ext_path):
-                clean_p = ext_path.replace('\\', '/')
+                norm_p = os.path.normpath(os.path.abspath(ext_path))
                 ext_args = [
-                    f"--load-extension={clean_p}",
-                    f"--disable-extensions-except={clean_p}",
-                    "--disable-features=DisableLoadExtensionCommandLineSwitch",
-                    "--enable-features=ExtensionsToolbarMenu"
+                    f"--disable-extensions-except={norm_p}",
+                    f"--load-extension={norm_p}",
+                    "--enable-extensions"
                 ]
 
         launch_args = [
             "--disable-blink-features=AutomationControlled",
-            "--start-maximized",
             "--disable-infobars",
-            "--disable-features=IsolateOrigins,site-per-process",
+            "--start-maximized",
             "--no-default-browser-check",
+            "--no-first-run",
+            "--enable-extensions",
+            "--enable-unsafe-extension-debugging",
+            "--disable-features=IsolateOrigins,site-per-process",
             "--disable-dev-shm-usage",
             "--lang=en-US,en",
             "--ignore-certificate-errors",
@@ -562,7 +576,6 @@ class FacebookMarketplaceBot:
             "--disable-web-security",
             "--disable-notifications",
             "--password-store=basic",
-            "--no-first-run",
             "--no-service-autorun"
         ]
         launch_args.extend(ext_args)
@@ -570,12 +583,29 @@ class FacebookMarketplaceBot:
         if ext_path and os.path.exists(ext_path):
             self.log("SUCCESS", f"🧩 Automatically loaded Chrome Extension from: {ext_path}")
 
-        # Ignore automation banner and enable extensions
-        ignore_default_args = ["--enable-automation", "--disable-extensions"]
+        # Ignore sandbox restrictions and default Playwright extension-blocking flags
+        ignore_default_args = [
+            "--no-sandbox",
+            "--disable-extensions",
+            "--enable-automation",
+            "--disable-component-extensions-with-background-pages"
+        ]
+
+        # Prioritize real system Google Chrome binary if present
+        try:
+            from automation.extension_manager import get_system_chrome_executable
+            chrome_exe = get_system_chrome_executable()
+        except Exception:
+            chrome_exe = None
+
+        channels_to_try = []
+        if chrome_exe and os.path.isfile(chrome_exe):
+            channels_to_try.append(("real_chrome", chrome_exe))
+        channels_to_try.extend([("chrome", None), ("msedge", None), (None, None)])
 
         async def launch_context_smart():
             clean_profile_locks(user_data_dir)
-            for ch in [None, "chrome", "msedge"]:
+            for ch_name, exe_p in channels_to_try:
                 try:
                     kwargs = {
                         "user_data_dir": user_data_dir,
@@ -589,13 +619,23 @@ class FacebookMarketplaceBot:
                         "timezone_id": "America/New_York",
                         "permissions": ["geolocation", "notifications"]
                     }
-                    if ch:
-                        kwargs["channel"] = ch
+                    if exe_p:
+                        kwargs["executable_path"] = exe_p
+                    elif ch_name:
+                        kwargs["channel"] = ch_name
                     ctx = await self.playwright.chromium.launch_persistent_context(**kwargs)
-                    self.log("INFO", f"Launched full-screen browser using: {ch.upper() if ch else 'Chromium (Extension Optimized)'}")
+                    if ext_path and os.path.isdir(ext_path):
+                        try:
+                            fwd_p = os.path.abspath(ext_path).replace('\\', '/')
+                            p0 = ctx.pages[0] if ctx.pages else await ctx.new_page()
+                            cdp = await ctx.new_cdp_session(p0)
+                            await cdp.send("Extensions.loadUnpacked", {"path": fwd_p})
+                        except Exception:
+                            pass
+                    self.log("INFO", f"Launched browser ({exe_p or ch_name or 'Chromium'}) with FewFeed loaded.")
                     return ctx
                 except Exception as ex:
-                    self.log("WARNING", f"Persistent launch attempt with channel={ch} notice: {str(ex)[:100]}")
+                    self.log("WARNING", f"Persistent launch attempt ({ch_name or exe_p}) notice: {str(ex)[:100]}")
                     clean_profile_locks(user_data_dir)
                     continue
 
@@ -612,7 +652,7 @@ class FacebookMarketplaceBot:
             return ctx
 
         async def launch_browser_smart():
-            for ch in ["chrome", "msedge", None]:
+            for ch_name, exe_p in channels_to_try:
                 try:
                     kwargs = {
                         "headless": self.headless,
@@ -620,13 +660,15 @@ class FacebookMarketplaceBot:
                         "ignore_default_args": ignore_default_args,
                         "proxy": proxy_config
                     }
-                    if ch:
-                        kwargs["channel"] = ch
+                    if exe_p:
+                        kwargs["executable_path"] = exe_p
+                    elif ch_name:
+                        kwargs["channel"] = ch_name
                     b = await self.playwright.chromium.launch(**kwargs)
-                    self.log("INFO", f"Launched full-screen browser using: {ch.upper() if ch else 'Chromium'}")
+                    self.log("INFO", f"Launched browser ({exe_p or ch_name or 'Chromium'})")
                     return b
                 except Exception as ex:
-                    self.log("WARNING", f"Browser launch attempt with channel={ch} notice: {str(ex)[:100]}")
+                    self.log("WARNING", f"Browser launch attempt ({ch_name or exe_p}) notice: {str(ex)[:100]}")
                     continue
             # Failsafe: Try launching without extension flags if extension failed
             try:

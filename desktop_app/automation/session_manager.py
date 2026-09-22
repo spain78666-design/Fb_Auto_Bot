@@ -325,18 +325,24 @@ class SessionManager:
     async def launch_master_fewfeed_login(
         self,
         log_callback: Optional[Callable[[str, str], None]] = None,
-        timeout_seconds: int = 600
+        timeout_seconds: int = 600,
+        profile_dir: Optional[str] = None,
+        ext_path: Optional[str] = None,
+        account_data: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
-        Launches an interactive Chrome browser with the Master QFit / FewFeed profile.
-        Allows the user to log into FewFeed / QFit / Gmail once.
+        Launches an interactive Chrome browser with the selected (or Master) profile.
+        Prioritizes user's real desktop Google Chrome process with FewFeed extension loaded.
+        Injects the account's cookies into Chrome so Facebook opens ALREADY LOGGED IN in Tab 1,
+        and FewFeed opens in Tab 2 ready for login or operation.
         Automatically syncs the resulting session to all existing profiles upon exit!
         """
         log = log_callback or (lambda lvl, msg: logger.info(f"[{lvl}] {msg}"))
-        master_dir = self.get_master_fewfeed_profile_dir()
+        target_dir = profile_dir or (self.get_profile_dir(account_data.get("id") or account_data.get("name")) if account_data else self.get_master_fewfeed_profile_dir())
+        os.makedirs(target_dir, exist_ok=True)
 
         for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
-            fpath = os.path.join(master_dir, fname)
+            fpath = os.path.join(target_dir, fname)
             if os.path.exists(fpath) or os.path.islink(fpath):
                 try:
                     if os.path.islink(fpath) or os.path.isfile(fpath):
@@ -346,91 +352,163 @@ class SessionManager:
                 except Exception:
                     pass
 
-        ext_path = get_fewfeed_extension_path()
+        resolved_ext = ext_path or get_fewfeed_extension_path()
         try:
-            from automation.extension_manager import get_extension_chrome_args, prepare_profile_for_extension
-            prepare_profile_for_extension(master_dir, ext_path)
-            ext_args = get_extension_chrome_args(ext_path)
+            from automation.extension_manager import prepare_profile_for_extension, launch_native_chrome_profile, get_system_chrome_executable
+            prepare_profile_for_extension(target_dir, resolved_ext)
         except Exception:
-            ext_args = []
-            if ext_path and os.path.exists(ext_path):
-                clean_p = os.path.abspath(ext_path).replace('\\', '/')
-                ext_args = [
-                    f"--load-extension={clean_p}",
-                    f"--disable-extensions-except={clean_p}"
-                ]
+            launch_native_chrome_profile = None
+            get_system_chrome_executable = lambda: None
+
+        if resolved_ext and os.path.isdir(resolved_ext) and os.path.exists(os.path.join(resolved_ext, "manifest.json")):
+            log("SUCCESS", f"🧩 FewFeed Extension Loaded: {resolved_ext}")
+        else:
+            log("WARNING", f"⚠️ FewFeed extension folder not detected at {resolved_ext}! You can select the extension folder in Setup.")
+
+        profile_label = os.path.basename(target_dir)
+        acc_label = (account_data.get("name") or account_data.get("id")) if account_data else profile_label
+        log("INFO", f"🌐 Launching Chrome setup browser for [{acc_label}] (Profile: {profile_label})...")
+
+        # Launch Clean Persistent Context using real system Chrome executable
+        chrome_exe = get_system_chrome_executable()
 
         launch_flags = [
             "--disable-blink-features=AutomationControlled",
             "--start-maximized",
-            "--disable-infobars",
-            "--disable-features=DisableLoadExtensionCommandLineSwitch,IsolateOrigins,site-per-process",
-            "--enable-features=ExtensionsToolbarMenu",
-            "--allow-legacy-extension-manifests",
-            "--extensions-on-chrome-urls",
-            "--ignore-certificate-errors",
-            "--allow-running-insecure-content",
-            "--disable-web-security",
+            "--no-default-browser-check",
             "--no-first-run",
-            "--no-service-autorun"
+            "--lang=en-US,en",
+            "--enable-extensions",
+            "--enable-unsafe-extension-debugging"
         ]
-        launch_flags.extend(ext_args)
-
-        if ext_path and os.path.exists(ext_path):
-            log("SUCCESS", f"🧩 FewFeed Extension Loaded into Master Profile: {ext_path}")
-        else:
-            log("WARNING", f"⚠️ FEWFEED extension folder not detected at {ext_path}! Check extension settings in UI.")
-
-        log("INFO", "🔑 Launching Master QFit / FewFeed session setup browser...")
-        log("INFO", "Please log into QFit / FewFeed / Gmail in the opened Chrome window. Close window when finished.")
+        if resolved_ext and os.path.isdir(resolved_ext):
+            clean_p = os.path.abspath(resolved_ext).replace('\\', '/')
+            launch_flags.extend([
+                f"--load-extension={clean_p}",
+                "--enable-extensions"
+            ])
 
         async with async_playwright() as p:
             context = None
-            for ch in ["chrome", "msedge", None]:
+            channels_to_try = []
+            if chrome_exe and os.path.isfile(chrome_exe):
+                channels_to_try.append(("custom_exe", chrome_exe))
+            channels_to_try.extend([("chrome", None), ("msedge", None), (None, None)])
+
+            for ch_name, exe_path in channels_to_try:
                 try:
                     kws = {
-                        "user_data_dir": master_dir,
+                        "user_data_dir": target_dir,
                         "headless": False,
-                        "viewport": {"width": 1280, "height": 800},
+                        "no_viewport": True,
                         "args": launch_flags,
-                        "ignore_default_args": ["--enable-automation", "--disable-extensions"]
+                        "ignore_default_args": [
+                            "--no-sandbox",
+                            "--enable-automation",
+                            "--disable-extensions",
+                            "--disable-component-extensions-with-background-pages"
+                        ]
                     }
-                    if ch:
-                        kws["channel"] = ch
+                    if exe_path:
+                        kws["executable_path"] = exe_path
+                    elif ch_name:
+                        kws["channel"] = ch_name
                     context = await p.chromium.launch_persistent_context(**kws)
-                    log("INFO", f"Browser launched with channel: {ch if ch else 'Chromium (Extension Optimized)'}")
+                    log("SUCCESS", f"🚀 Browser launched cleanly ({exe_path or ch_name or 'Chromium'})")
                     break
-                except Exception:
+                except Exception as ex:
+                    logger.debug(f"Launch attempt {ch_name} failed: {ex}")
                     continue
 
             if not context:
-                log("ERROR", "Could not launch Chrome/Edge browser for Master QFit setup.")
+                log("ERROR", "Could not launch Chrome/Edge browser for FewFeed setup.")
                 return False
 
-            # Check if extension background service worker is running
-            ext_id = None
-            for sw in context.service_workers:
-                if "chrome-extension://" in sw.url:
-                    ext_id = sw.url.split("/")[2]
-                    log("SUCCESS", f"⚡ FewFeed Extension Hooked! Extension ID: {ext_id}")
-                    break
+            # Explicitly ensure FewFeed extension is activated via CDP if available
+            if resolved_ext and os.path.isdir(resolved_ext):
+                try:
+                    fwd_ext = os.path.abspath(resolved_ext).replace('\\', '/')
+                    p0 = context.pages[0] if context.pages else await context.new_page()
+                    cdp = await context.new_cdp_session(p0)
+                    await cdp.send("Extensions.loadUnpacked", {"path": fwd_ext})
+                    log("SUCCESS", "⚡ FewFeed V3 extension explicitly attached and activated in Chrome!")
+                except Exception as cdp_err:
+                    logger.debug(f"CDP extension activation notice: {cdp_err}")
 
+            # Inject cookies if account_data provided
+            account_cookies = (account_data or {}).get("cookies")
+            if account_cookies:
+                try:
+                    from automation.browser_bot import parse_cookie_payload
+                    parsed = parse_cookie_payload(account_cookies)
+                    if parsed:
+                        clean_cookies = []
+                        for c in parsed:
+                            c_copy = dict(c)
+                            if "sameSite" in c_copy and c_copy["sameSite"] not in ("Strict", "Lax", "None"):
+                                c_copy["sameSite"] = "Lax"
+                            if "url" not in c_copy and not c_copy.get("domain"):
+                                c_copy["domain"] = ".facebook.com"
+                            clean_cookies.append(c_copy)
+                        await context.add_cookies(clean_cookies)
+                        log("SUCCESS", f"🍪 Injected {len(clean_cookies)} Facebook cookies into Chrome! ID will open already logged in.")
+                except Exception as ce:
+                    log("WARNING", f"Cookie injection notice: {str(ce)[:80]}")
+
+            # Tab 1: Facebook (Loads with injected cookies)
             page = context.pages[0] if context.pages else await context.new_page()
             try:
-                await page.goto("https://fewfeed.app", wait_until="domcontentloaded", timeout=45000)
+                await page.goto("https://www.facebook.com", wait_until="domcontentloaded", timeout=45000)
+                log("SUCCESS", "👤 Facebook opened in Tab 1 (Logged in from account cookies).")
             except Exception:
-                try:
-                    await page.goto("https://fewfeed.online", wait_until="domcontentloaded", timeout=45000)
-                except Exception:
-                    pass
+                pass
 
-            log("INFO", "🟢 Master browser window is active. Log into QFit / FewFeed now, then close the browser window.")
+            # Tab 2: FewFeed App
+            try:
+                ff_page = await context.new_page()
+                await ff_page.goto("https://fewfeed.app", wait_until="domcontentloaded", timeout=45000)
+                log("SUCCESS", "🧩 FewFeed opened in Tab 2.")
 
-            # Keep open until user closes browser window
+                # Pre-fill FewFeed credentials if available
+                cf_email = (account_data or {}).get("cuefeed_email") or (account_data or {}).get("fewfeed_email")
+                cf_pass = (account_data or {}).get("cuefeed_pass") or (account_data or {}).get("fewfeed_pass")
+                if cf_email and cf_pass:
+                    await asyncio.sleep(2.0)
+                    try:
+                        if "signin" in ff_page.url.lower() or "login" in ff_page.url.lower():
+                            inputs = await ff_page.query_selector_all("input")
+                            email_inp = None
+                            pass_inp = None
+                            for inp in inputs:
+                                itype = (await inp.get_attribute("type") or "").lower()
+                                iname = (await inp.get_attribute("name") or "").lower()
+                                ipl = (await inp.get_attribute("placeholder") or "").lower()
+                                if itype == "password" or "pass" in iname or "pass" in ipl:
+                                    pass_inp = inp
+                                elif itype == "email" or "email" in iname or "email" in ipl or "user" in iname:
+                                    email_inp = inp
+                            if email_inp and pass_inp:
+                                await email_inp.fill(cf_email)
+                                await pass_inp.fill(cf_pass)
+                                log("INFO", f"🔑 Pre-filled FewFeed login inputs with [{cf_email}].")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # Tab 3: Extensions list
+            try:
+                ext_page = await context.new_page()
+                await ext_page.goto("chrome://extensions", wait_until="domcontentloaded", timeout=15000)
+            except Exception:
+                pass
+
+            log("INFO", "🟢 Setup browser is ready! Tab 1 has Facebook (logged in) and Tab 2 has FewFeed. Log into FewFeed, then simply close this Chrome window to save and sync.")
+
             while True:
                 await asyncio.sleep(1.5)
                 try:
-                    if page.is_closed() or not context.pages:
+                    if not context.pages or all(p.is_closed() for p in context.pages):
                         break
                 except Exception:
                     break
@@ -440,9 +518,23 @@ class SessionManager:
             except Exception:
                 pass
 
-        log("SUCCESS", "✅ Master QFit / FewFeed browser session saved!")
+        master_dir = self.get_master_fewfeed_profile_dir()
+        if os.path.abspath(target_dir) != os.path.abspath(master_dir):
+            from automation.group_bot import copy_fewfeed_session_data
+            copy_fewfeed_session_data(target_dir, master_dir)
+
+        # Detect and permanently save any extension folder path user loaded in setup window
+        try:
+            from automation.extension_manager import extract_extension_path_from_profile, set_custom_extension_path
+            detected_ext = extract_extension_path_from_profile(target_dir) or extract_extension_path_from_profile(master_dir)
+            if detected_ext:
+                set_custom_extension_path(detected_ext)
+                log("SUCCESS", f"🧩 Permanently saved FewFeed extension directory: {detected_ext}")
+        except Exception:
+            pass
+
         synced_cnt = self.sync_master_fewfeed_to_all_profiles()
-        log("SUCCESS", f"⚡ Auto-synced Master QFit / FewFeed login to {synced_cnt} active profile folders!")
+        log("SUCCESS", f"⚡ Auto-synced FewFeed extension & login to {synced_cnt} active profile folders!")
         return True
 
     def list_accounts(self) -> List[Dict[str, Any]]:

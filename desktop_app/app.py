@@ -705,9 +705,15 @@ class ManualLoginWorker(QThread):
 
 
 class MasterFewFeedWorker(QThread):
-    """Launches the Master QFit / FewFeed session setup browser."""
+    """Launches the Chrome FewFeed & Facebook session setup browser with selected profile."""
     log_signal = pyqtSignal(str, str)
     finished_signal = pyqtSignal(bool)
+
+    def __init__(self, profile_dir: Optional[str] = None, ext_path: Optional[str] = None, account_data: Optional[Dict[str, Any]] = None):
+        super().__init__()
+        self.profile_dir = profile_dir
+        self.ext_path = ext_path
+        self.account_data = account_data or {}
 
     def _log_bridge(self, lvl: str, msg: str):
         self.log_signal.emit(lvl, msg)
@@ -720,14 +726,19 @@ class MasterFewFeedWorker(QThread):
             sm = get_session_manager() if HAS_SESSION_MANAGER else None
             if sm:
                 success = loop.run_until_complete(
-                    sm.launch_master_fewfeed_login(log_callback=self._log_bridge)
+                    sm.launch_master_fewfeed_login(
+                        log_callback=self._log_bridge,
+                        profile_dir=self.profile_dir,
+                        ext_path=self.ext_path,
+                        account_data=self.account_data
+                    )
                 )
                 self.finished_signal.emit(success)
             else:
-                self.log_signal.emit("SUCCESS", "Master QFit session simulated.")
+                self.log_signal.emit("SUCCESS", "FewFeed session setup simulated.")
                 self.finished_signal.emit(True)
         except Exception as e:
-            self.log_signal.emit("ERROR", f"Master QFit setup notice: {str(e)}")
+            self.log_signal.emit("ERROR", f"FewFeed setup notice: {str(e)}")
             self.finished_signal.emit(False)
         finally:
             try:
@@ -1104,7 +1115,8 @@ class GroupAutomationWorker(QThread):
             finally:
                 if bot in self.active_bots:
                     self.active_bots.remove(bot)
-                await bot.close()
+                if not self._is_running:
+                    await bot.close()
 
 
 # ------------------------------------------------------------------------------
@@ -1523,6 +1535,323 @@ class ClientIPWorker(QThread):
                 continue
 
         self.ip_ready.emit(local_ip, public_ip)
+
+
+class FewFeedSetupDialog(QDialog):
+    """
+    Dialog for configuring Chrome profile and FewFeed extension for Facebook Group Automation.
+    Gives the user complete control over which profile to launch (Selected Account, Any Vault Account, Master Profile, or Custom Folder).
+    """
+    def __init__(self, parent=None, default_account=None):
+        super().__init__(parent)
+        self.parent_app = parent
+        self.default_account = default_account
+        self.worker = None
+        self.setWindowTitle("🌐 Chrome FewFeed & Facebook Setup")
+        self.setMinimumWidth(640)
+        self.setModal(True)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #0f172a;
+                color: #f8fafc;
+            }
+            QGroupBox {
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
+                margin-top: 14px;
+                padding-top: 14px;
+                font-weight: 700;
+                color: #38bdf8;
+                font-size: 13px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 14px;
+                padding: 0 6px;
+            }
+            QRadioButton {
+                color: #e2e8f0;
+                font-size: 12px;
+                spacing: 8px;
+            }
+            QRadioButton:checked {
+                color: #38bdf8;
+                font-weight: 700;
+            }
+            QLineEdit, QComboBox {
+                background: #1e293b;
+                border: 1px solid #334155;
+                color: #ffffff;
+                border-radius: 6px;
+                padding: 6px 10px;
+                font-size: 12px;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(16)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Header
+        header = QLabel("🌐 Chrome FewFeed & Facebook Setup")
+        header.setStyleSheet("font-size: 17px; font-weight: 800; color: #38bdf8;")
+        layout.addWidget(header)
+
+        sub_header = QLabel(
+            "Select the Chrome profile you want to open and verify the FewFeed extension.\n"
+            "Chrome will open with FewFeed and Facebook loaded natively on your PC so you can log in once."
+        )
+        sub_header.setStyleSheet("color: #94a3b8; font-size: 12px; line-height: 1.4;")
+        sub_header.setWordWrap(True)
+        layout.addWidget(sub_header)
+
+        # -------------------------------------------------------------
+        # Group 1: Profile Selection
+        # -------------------------------------------------------------
+        profile_group = QGroupBox("1. Choose Chrome Profile to Open")
+        p_layout = QVBoxLayout(profile_group)
+        p_layout.setSpacing(10)
+
+        self.btn_group_profile = QButtonGroup(self)
+
+        # Radio 1: Master Profile (Recommended)
+        self.radio_master = QRadioButton("🔑 Master Setup Profile (Recommended — automatically syncs to ALL accounts)")
+        self.btn_group_profile.addButton(self.radio_master)
+        p_layout.addWidget(self.radio_master)
+
+        # Radio 2: Specific Account Profile
+        acc_text = "👤 Selected Account Profile:"
+        if self.default_account:
+            acc_name = self.default_account.get("name") or self.default_account.get("id", "Account")
+            acc_uid = self.default_account.get("uid", "")
+            acc_text = f"👤 Selected Account: {acc_name} {f'({acc_uid})' if acc_uid else ''}"
+
+        self.radio_account = QRadioButton(acc_text)
+        self.btn_group_profile.addButton(self.radio_account)
+        p_layout.addWidget(self.radio_account)
+
+        # Account Dropdown
+        acc_row = QHBoxLayout()
+        acc_row.setContentsMargins(24, 0, 0, 0)
+        self.acc_combo = QComboBox()
+        self.acc_combo.setFixedHeight(34)
+
+        accounts = []
+        if hasattr(self.parent_app, 'accounts_list') and self.parent_app.accounts_list:
+            accounts = self.parent_app.accounts_list
+        elif hasattr(self.parent_app, 'session_manager'):
+            accounts = self.parent_app.session_manager.list_accounts()
+
+        selected_idx = 0
+        for i, acc in enumerate(accounts):
+            name = acc.get("name", f"Account #{i+1}")
+            uid = acc.get("uid") or acc.get("id", "")
+            self.acc_combo.addItem(f"{name} ({uid})", acc)
+            if self.default_account and (acc.get("id") == self.default_account.get("id") or acc.get("uid") == self.default_account.get("uid")):
+                selected_idx = i
+
+        if accounts:
+            self.acc_combo.setCurrentIndex(selected_idx)
+            if self.default_account:
+                self.radio_account.setChecked(True)
+            else:
+                self.radio_master.setChecked(True)
+        else:
+            self.acc_combo.addItem("No accounts in vault yet")
+            self.acc_combo.setEnabled(False)
+            self.radio_master.setChecked(True)
+
+        acc_row.addWidget(self.acc_combo)
+        p_layout.addLayout(acc_row)
+
+        # Radio 3: Custom Profile Folder on PC
+        self.radio_custom = QRadioButton("💻 Custom Profile Folder on your PC:")
+        self.btn_group_profile.addButton(self.radio_custom)
+        p_layout.addWidget(self.radio_custom)
+
+        custom_row = QHBoxLayout()
+        custom_row.setContentsMargins(24, 0, 0, 0)
+        self.custom_path_input = QLineEdit()
+        self.custom_path_input.setPlaceholderText("e.g. C:\\Users\\Name\\AppData\\Local\\Google\\Chrome\\User Data\\Profile 1")
+        self.btn_browse_custom = QPushButton("Browse...")
+        self.btn_browse_custom.setFixedHeight(34)
+        self.btn_browse_custom.setStyleSheet("background-color: #334155; color: #ffffff; padding: 4px 12px; border-radius: 6px;")
+        self.btn_browse_custom.clicked.connect(self.browse_custom_profile)
+        custom_row.addWidget(self.custom_path_input)
+        custom_row.addWidget(self.btn_browse_custom)
+        p_layout.addLayout(custom_row)
+
+        layout.addWidget(profile_group)
+
+        # -------------------------------------------------------------
+        # Group 2: FewFeed Extension Folder
+        # -------------------------------------------------------------
+        ext_group = QGroupBox("2. FewFeed Extension Folder")
+        e_layout = QVBoxLayout(ext_group)
+        e_layout.setSpacing(8)
+
+        ext_row = QHBoxLayout()
+        self.ext_path_input = QLineEdit()
+        self.ext_path_input.setReadOnly(True)
+        self.btn_browse_ext = QPushButton("📁 Browse Folder...")
+        self.btn_browse_ext.setFixedHeight(34)
+        self.btn_browse_ext.setStyleSheet("background-color: #334155; color: #ffffff; padding: 4px 12px; border-radius: 6px;")
+        self.btn_browse_ext.clicked.connect(self.browse_extension_folder)
+        ext_row.addWidget(self.ext_path_input)
+        ext_row.addWidget(self.btn_browse_ext)
+        e_layout.addLayout(ext_row)
+
+        self.ext_status_lbl = QLabel()
+        self.ext_status_lbl.setStyleSheet("font-size: 11px; font-weight: 600;")
+        e_layout.addWidget(self.ext_status_lbl)
+
+        layout.addWidget(ext_group)
+
+        # Status text
+        self.status_lbl = QLabel("")
+        self.status_lbl.setStyleSheet("color: #38bdf8; font-size: 12px; font-weight: 600;")
+        self.status_lbl.setWordWrap(True)
+        layout.addWidget(self.status_lbl)
+
+        # -------------------------------------------------------------
+        # Action Buttons
+        # -------------------------------------------------------------
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+
+        self.btn_sync_now = QPushButton("🔄 Sync Master Session Now")
+        self.btn_sync_now.setStyleSheet("background-color: #334155; color: #f8fafc; font-weight: 700; padding: 10px 14px; border-radius: 6px;")
+        self.btn_sync_now.setCursor(Qt.PointingHandCursor)
+        self.btn_sync_now.clicked.connect(self.sync_session_directly)
+        btn_row.addWidget(self.btn_sync_now)
+
+        btn_row.addStretch()
+
+        self.btn_close = QPushButton("Cancel")
+        self.btn_close.setStyleSheet("background-color: #475569; color: #ffffff; padding: 10px 16px; border-radius: 6px;")
+        self.btn_close.clicked.connect(self.reject)
+        btn_row.addWidget(self.btn_close)
+
+        self.btn_launch = QPushButton("🚀 Open Chrome Setup Browser")
+        self.btn_launch.setStyleSheet("background-color: #0284c7; color: #ffffff; font-weight: 800; font-size: 13px; padding: 10px 20px; border-radius: 6px;")
+        self.btn_launch.setCursor(Qt.PointingHandCursor)
+        self.btn_launch.clicked.connect(self.launch_setup)
+        btn_row.addWidget(self.btn_launch)
+
+        layout.addLayout(btn_row)
+
+        self.refresh_extension_status()
+
+    def refresh_extension_status(self):
+        try:
+            from automation.extension_manager import get_fewfeed_extension_path, verify_extension_manifest
+        except Exception:
+            get_fewfeed_extension_path = lambda: None
+            verify_extension_manifest = lambda p: (False, "Module unavailable")
+
+        p = get_fewfeed_extension_path()
+        if p and os.path.exists(p):
+            self.ext_path_input.setText(p)
+            valid, msg = verify_extension_manifest(p)
+            if valid:
+                self.ext_status_lbl.setText(f"🟢 {msg} (Ready to inject)")
+                self.ext_status_lbl.setStyleSheet("color: #10b981; font-weight: 700;")
+            else:
+                self.ext_status_lbl.setText(f"⚠️ {msg}")
+                self.ext_status_lbl.setStyleSheet("color: #f59e0b; font-weight: 700;")
+        else:
+            self.ext_path_input.setText("")
+            self.ext_status_lbl.setText("🔴 FewFeed extension folder not found. Please click 'Browse Folder...' to select it.")
+            self.ext_status_lbl.setStyleSheet("color: #ef4444; font-weight: 700;")
+
+    def browse_extension_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Unpacked FewFeed Extension Folder")
+        if folder:
+            try:
+                from automation.extension_manager import set_custom_extension_path, verify_extension_manifest
+                valid, msg = verify_extension_manifest(folder)
+                if not valid:
+                    for sub in os.listdir(folder):
+                        sub_p = os.path.join(folder, sub)
+                        if os.path.isdir(sub_p):
+                            v2, m2 = verify_extension_manifest(sub_p)
+                            if v2:
+                                folder = sub_p
+                                valid, msg = v2, m2
+                                break
+                if not valid:
+                    QMessageBox.warning(self, "Invalid Extension Folder", f"The selected folder does not contain a valid manifest.json.\nDetails: {msg}")
+                    return
+                set_custom_extension_path(folder)
+                self.refresh_extension_status()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", str(e))
+
+    def browse_custom_profile(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Chrome Profile Directory")
+        if folder:
+            self.custom_path_input.setText(folder)
+            self.radio_custom.setChecked(True)
+
+    def get_chosen_profile_dir(self) -> str:
+        sm = self.parent_app.session_manager if hasattr(self.parent_app, 'session_manager') else None
+        if self.radio_custom.isChecked():
+            path = self.custom_path_input.text().strip()
+            if path:
+                return os.path.abspath(path)
+
+        if self.radio_account.isChecked() and self.acc_combo.count() > 0:
+            acc_data = self.acc_combo.currentData()
+            if acc_data and isinstance(acc_data, dict):
+                acc_id = acc_data.get("id") or acc_data.get("name")
+                if sm and acc_id:
+                    return sm.get_profile_dir(acc_id)
+
+        if sm:
+            return sm.get_master_fewfeed_profile_dir()
+
+        base = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(base, "profiles", "master_fewfeed_profile")
+
+    def launch_setup(self):
+        target_dir = self.get_chosen_profile_dir()
+        ext_path = self.ext_path_input.text().strip() or None
+
+        self.btn_launch.setEnabled(False)
+        self.btn_sync_now.setEnabled(False)
+        self.status_lbl.setText("⏳ Opening Chrome... Please log into FewFeed and Facebook in the opened browser, then close Chrome.")
+        self.status_lbl.setStyleSheet("color: #38bdf8; font-weight: 700;")
+
+        self.worker = MasterFewFeedWorker(profile_dir=target_dir, ext_path=ext_path)
+        self.worker.log_signal.connect(self.parent_app.log_message)
+        self.worker.finished_signal.connect(self.on_setup_finished)
+        self.worker.start()
+
+    def on_setup_finished(self, success: bool):
+        self.btn_launch.setEnabled(True)
+        self.btn_sync_now.setEnabled(True)
+        if success:
+            self.status_lbl.setText("🎉 FewFeed & Facebook session saved and synced successfully!")
+            self.status_lbl.setStyleSheet("color: #10b981; font-weight: 800;")
+            QMessageBox.information(
+                self,
+                "Setup Completed",
+                "🎉 Setup Completed Successfully!\n\n"
+                "Your Facebook and FewFeed login session has been saved and synchronized across all profiles.\n"
+                "When you start Group Posting, each browser will open with FewFeed already logged in and ready!"
+            )
+            self.accept()
+        else:
+            self.status_lbl.setText("⚠️ Setup browser closed.")
+            self.status_lbl.setStyleSheet("color: #f59e0b; font-weight: 700;")
+
+    def sync_session_directly(self):
+        sm = self.parent_app.session_manager if hasattr(self.parent_app, 'session_manager') else None
+        if sm:
+            cnt = sm.sync_master_fewfeed_to_all_profiles()
+            QMessageBox.information(self, "Session Synced", f"✅ Master FewFeed session successfully synchronized across {cnt} profile(s)!")
+        else:
+            QMessageBox.information(self, "Session Synced", "Master FewFeed session synchronized.")
 
 
 # ------------------------------------------------------------------------------
@@ -2942,29 +3271,15 @@ class FBAutoBotMainWindow(QMainWindow):
         self.btn_delete_profile.setToolTip("Delete selected account profile.")
         self.btn_delete_profile.clicked.connect(self.delete_selected_account)
 
-        self.btn_master_qfit = QPushButton("🔑 Master QFit Login")
-        self.btn_master_qfit.setStyleSheet("background-color: #7c3aed; color: #ffffff; font-weight: 800; font-size: 11px; padding: 6px 10px; border-radius: 6px;")
-        self.btn_master_qfit.setCursor(Qt.PointingHandCursor)
-        self.btn_master_qfit.setToolTip("Log in ONCE to QFit / FewFeed / Gmail. Session will be shared automatically across ALL Chrome browser profiles!")
-        self.btn_master_qfit.clicked.connect(self.setup_master_qfit_session)
-
-        self.btn_sync_qfit = QPushButton("⚡ Sync QFit Session")
-        self.btn_sync_qfit.setStyleSheet("background-color: #059669; color: #ffffff; font-weight: 700; font-size: 11px; padding: 6px 10px; border-radius: 6px;")
-        self.btn_sync_qfit.setCursor(Qt.PointingHandCursor)
-        self.btn_sync_qfit.setToolTip("Syncs the saved master QFit / FewFeed session to all active account profile directories.")
-        self.btn_sync_qfit.clicked.connect(self.sync_qfit_to_all_profiles)
-
-        self.btn_fewfeed_ext = QPushButton("🧩 FewFeed Extension")
-        self.btn_fewfeed_ext.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 11px; padding: 6px 10px; border-radius: 6px;")
-        self.btn_fewfeed_ext.setCursor(Qt.PointingHandCursor)
-        self.btn_fewfeed_ext.setToolTip("View or set the unpacked FewFeed Chrome Extension folder path.")
-        self.btn_fewfeed_ext.clicked.connect(self.setup_fewfeed_extension_folder)
+        self.btn_open_chrome_setup = QPushButton("🌐 Open Chrome For FewFeed Setup")
+        self.btn_open_chrome_setup.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7c3aed, stop:1 #2563eb); color: #ffffff; font-weight: 800; font-size: 11px; padding: 6px 12px; border-radius: 6px;")
+        self.btn_open_chrome_setup.setCursor(Qt.PointingHandCursor)
+        self.btn_open_chrome_setup.setToolTip("Open Desktop Chrome with FewFeed extension loaded to log into Facebook & FewFeed once. Everything is automatically saved and synced!")
+        self.btn_open_chrome_setup.clicked.connect(self.open_chrome_for_fewfeed_setup)
 
         actions_bar.addWidget(self.btn_auto_login_selected)
         actions_bar.addWidget(self.btn_open_browser)
-        actions_bar.addWidget(self.btn_master_qfit)
-        actions_bar.addWidget(self.btn_sync_qfit)
-        actions_bar.addWidget(self.btn_fewfeed_ext)
+        actions_bar.addWidget(self.btn_open_chrome_setup)
         actions_bar.addWidget(self.btn_test_health)
         actions_bar.addWidget(self.btn_audit_all)
         actions_bar.addWidget(self.btn_delete_profile)
@@ -3376,29 +3691,15 @@ class FBAutoBotMainWindow(QMainWindow):
         self.btn_delete_profile.setToolTip("Delete selected account profile.")
         self.btn_delete_profile.clicked.connect(self.delete_selected_account)
 
-        self.btn_master_qfit = QPushButton("🔑 Master QFit Login")
-        self.btn_master_qfit.setStyleSheet("background-color: #7c3aed; color: #ffffff; font-weight: 800; font-size: 11px; padding: 6px 10px; border-radius: 6px;")
-        self.btn_master_qfit.setCursor(Qt.PointingHandCursor)
-        self.btn_master_qfit.setToolTip("Log in ONCE to QFit / FewFeed / Gmail. Session will be shared automatically across ALL Chrome browser profiles!")
-        self.btn_master_qfit.clicked.connect(self.setup_master_qfit_session)
-
-        self.btn_sync_qfit = QPushButton("⚡ Sync QFit Session")
-        self.btn_sync_qfit.setStyleSheet("background-color: #059669; color: #ffffff; font-weight: 700; font-size: 11px; padding: 6px 10px; border-radius: 6px;")
-        self.btn_sync_qfit.setCursor(Qt.PointingHandCursor)
-        self.btn_sync_qfit.setToolTip("Syncs the saved master QFit / FewFeed session to all active account profile directories.")
-        self.btn_sync_qfit.clicked.connect(self.sync_qfit_to_all_profiles)
-
-        self.btn_fewfeed_ext_2 = QPushButton("🧩 FewFeed Extension")
-        self.btn_fewfeed_ext_2.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 11px; padding: 6px 10px; border-radius: 6px;")
-        self.btn_fewfeed_ext_2.setCursor(Qt.PointingHandCursor)
-        self.btn_fewfeed_ext_2.setToolTip("View or set the unpacked FewFeed Chrome Extension folder path.")
-        self.btn_fewfeed_ext_2.clicked.connect(self.setup_fewfeed_extension_folder)
+        self.btn_open_chrome_setup_2 = QPushButton("🌐 Open Chrome For FewFeed Setup")
+        self.btn_open_chrome_setup_2.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7c3aed, stop:1 #2563eb); color: #ffffff; font-weight: 800; font-size: 11px; padding: 6px 12px; border-radius: 6px;")
+        self.btn_open_chrome_setup_2.setCursor(Qt.PointingHandCursor)
+        self.btn_open_chrome_setup_2.setToolTip("Open Desktop Chrome with FewFeed extension loaded to log into Facebook & FewFeed once. Everything is automatically saved and synced!")
+        self.btn_open_chrome_setup_2.clicked.connect(self.open_chrome_for_fewfeed_setup)
 
         actions_bar.addWidget(self.btn_auto_login_selected)
         actions_bar.addWidget(self.btn_open_browser)
-        actions_bar.addWidget(self.btn_master_qfit)
-        actions_bar.addWidget(self.btn_sync_qfit)
-        actions_bar.addWidget(self.btn_fewfeed_ext_2)
+        actions_bar.addWidget(self.btn_open_chrome_setup_2)
         actions_bar.addWidget(self.btn_test_health)
         actions_bar.addWidget(self.btn_audit_all)
         actions_bar.addWidget(self.btn_delete_profile)
@@ -3882,27 +4183,117 @@ class FBAutoBotMainWindow(QMainWindow):
                     "All browsers will now automatically load with this extension."
                 )
 
-    def setup_master_qfit_session(self):
-        """Launches Master QFit / FewFeed Chrome window to log in once for all profiles."""
-        self.log_message("INFO", "🔑 Launching Master QFit / FewFeed session setup browser...")
-        self.log_message("INFO", "Log into your QFit / FewFeed / Gmail account in the opened Chrome window. When finished, close the browser window.")
+    def open_chrome_for_fewfeed_setup(self):
+        """
+        Directly launches Chrome using the selected (or first available) Facebook account with its cookies.
+        No intermediate setup dialog: seamlessly opens Chrome, injects Facebook cookies so ID is logged in,
+        opens FewFeed in Tab 2 ready for login or operation, and auto-saves/syncs the session when closed.
+        """
+        if not self.session_manager:
+            QMessageBox.warning(self, "Session Manager", "Session manager is not initialized.")
+            return
 
-        self.master_qfit_worker = MasterFewFeedWorker()
-        self.master_qfit_worker.log_signal.connect(self.log_message)
-        self.master_qfit_worker.finished_signal.connect(self.on_master_qfit_finished)
-        self.master_qfit_worker.start()
+        all_accounts = self.session_manager.list_accounts()
+        if not all_accounts and hasattr(self, 'accounts_list'):
+            all_accounts = self.accounts_list
+
+        if not all_accounts:
+            QMessageBox.warning(
+                self,
+                "No Accounts Available",
+                "Please add at least one Facebook account with cookies in the Account Manager first."
+            )
+            return
+
+        # 1. Check for currently selected account in Account Manager table
+        selected_acc = None
+        if hasattr(self, '_get_selected_account'):
+            selected_acc = self._get_selected_account()
+
+        # 2. Check accounts_table current row
+        if not selected_acc and hasattr(self, 'accounts_table') and self.accounts_table.currentRow() >= 0:
+            row = self.accounts_table.currentRow()
+            if hasattr(self, 'accounts_list') and row < len(self.accounts_list):
+                selected_acc = self.accounts_list[row]
+
+        # 3. Check group automation checked account checkboxes
+        if not selected_acc and hasattr(self, 'grp_acc_checkboxes'):
+            for chk in self.grp_acc_checkboxes:
+                if chk.isChecked():
+                    selected_acc = chk.property("account_data")
+                    break
+
+        # 4. Fallback: Find the first account that contains cookies
+        if not selected_acc:
+            for acc in all_accounts:
+                if acc.get("cookies"):
+                    selected_acc = acc
+                    break
+
+        # 5. Ultimate fallback: First account in list
+        if not selected_acc and all_accounts:
+            selected_acc = all_accounts[0]
+
+        if not selected_acc:
+            QMessageBox.warning(
+                self,
+                "No Accounts Available",
+                "Please add at least one Facebook account with cookies in the Account Manager first."
+            )
+            return
+
+        acc_name = selected_acc.get("name") or selected_acc.get("uid") or selected_acc.get("id") or "Facebook_Account"
+        acc_id = selected_acc.get("id") or acc_name
+        profile_dir = self.session_manager.get_profile_dir(acc_id)
+
+        # Retrieve FewFeed / Google credentials from UI or saved config
+        cf_email = ""
+        cf_pass = ""
+        if hasattr(self, 'grp_fewfeed_email_input') and self.grp_fewfeed_email_input.text().strip():
+            cf_email = self.grp_fewfeed_email_input.text().strip()
+        if hasattr(self, 'grp_fewfeed_pass_input') and self.grp_fewfeed_pass_input.text().strip():
+            cf_pass = self.grp_fewfeed_pass_input.text().strip()
+
+        if not cf_email:
+            cf_email = selected_acc.get("cuefeed_email") or selected_acc.get("fewfeed_email") or "codeabm71@gmail.com"
+        if not cf_pass:
+            cf_pass = selected_acc.get("cuefeed_pass") or selected_acc.get("fewfeed_pass") or "Fewfeew"
+
+        acc_payload = dict(selected_acc)
+        acc_payload["cuefeed_email"] = cf_email
+        acc_payload["cuefeed_pass"] = cf_pass
+
+        has_cookies = bool(selected_acc.get("cookies"))
+        cookie_status = "with cookies injected (Logged In)" if has_cookies else "without cookies"
+
+        self.log_message("INFO", f"🌐 Opening Chrome for [{acc_name}] {cookie_status} and FewFeed extension...")
+        self.log_message("INFO", "👉 Tab 1: Facebook (Already logged in from cookies)")
+        self.log_message("INFO", "👉 Tab 2: FewFeed (Ready for Gmail/Password login)")
+        self.log_message("INFO", "👉 Once logged into FewFeed, simply close the Chrome browser window. Everything will be saved and synced automatically!")
+
+        self.master_setup_worker = MasterFewFeedWorker(
+            profile_dir=profile_dir,
+            ext_path=None,
+            account_data=acc_payload
+        )
+        self.master_setup_worker.log_signal.connect(self.log_message)
+        self.master_setup_worker.finished_signal.connect(self.on_master_qfit_finished)
+        self.master_setup_worker.start()
+
+    setup_master_qfit_session = open_chrome_for_fewfeed_setup
 
     def on_master_qfit_finished(self, success: bool):
         if success:
-            self.log_message("SUCCESS", "🎉 Master QFit / FewFeed Login Successfully Saved & Synced!")
+            self.log_message("SUCCESS", "🎉 Chrome FewFeed & Facebook Setup Successfully Saved & Synced!")
             QMessageBox.information(
                 self,
-                "Master QFit Session Saved",
-                "🎉 Master QFit / FewFeed Login Successfully Saved & Synced!\n\n"
-                "All Chrome browser profiles across all Facebook accounts will now automatically load with your QFit / FewFeed account ALREADY LOGGED IN!"
+                "FewFeed Setup Complete",
+                "🎉 FewFeed & Facebook Setup Saved Successfully!\n\n"
+                "Your Facebook and FewFeed login session has been automatically saved and synced to all configured profiles.\n\n"
+                "Now, when you start FB Group Automation, Chrome will open with FewFeed and Facebook already fully logged in and ready!"
             )
         else:
-            self.log_message("WARNING", "Master QFit setup window closed.")
+            self.log_message("WARNING", "Master FewFeed setup window closed.")
 
     def sync_qfit_to_all_profiles(self):
         """Syncs the Master QFit session to all account profile folders."""
@@ -7682,10 +8073,47 @@ class FBAutoBotMainWindow(QMainWindow):
         ac_layout.setSpacing(10)
 
         # Step Workflow Banner
-        workflow_banner = QLabel("⚡ <b>FEWFEED Automated Sequence:</b> Desktop Chrome opens → Runs <b>Auto Join</b> (Card #2) if group list is provided → Then opens <b>Auto Post</b> (Card #1), injects descriptions/links, selects all groups, and submits post.")
+        workflow_banner = QLabel("⚡ <b>FEWFEED Automated Sequence:</b> Desktop Chrome opens with Account Cookies → Logs into FewFeed with user credentials → Runs <b>Auto Join</b> (Card #2) if group list is provided → Then opens <b>Auto Post</b> (Card #1), selects all groups, injects descriptions/links, sets thread & delay, runs 2 posting cycles, and closes Chrome.")
         workflow_banner.setStyleSheet("color: #e0e7ff; font-size: 12px; line-height: 1.4;")
         workflow_banner.setWordWrap(True)
         ac_layout.addWidget(workflow_banner)
+
+        # FewFeed Account Credentials (Gmail & Password)
+        ff_cred_row = QHBoxLayout()
+        ff_cred_row.setSpacing(10)
+        ff_cred_lbl = QLabel("🔑 <b>FewFeed Account:</b>")
+        ff_cred_lbl.setStyleSheet("color: #38bdf8; font-size: 12px;")
+        ff_cred_row.addWidget(ff_cred_lbl)
+
+        ff_cred_row.addWidget(QLabel("Gmail / Email:"))
+        self.grp_fewfeed_email_input = QLineEdit()
+        self.grp_fewfeed_email_input.setPlaceholderText("your-email@gmail.com")
+        self.grp_fewfeed_email_input.setText("codeabm71@gmail.com")
+        self.grp_fewfeed_email_input.setStyleSheet("padding: 7px 10px; background-color: #0f172a; color: #38bdf8; font-weight: 600; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px;")
+        ff_cred_row.addWidget(self.grp_fewfeed_email_input, stretch=2)
+
+        ff_cred_row.addWidget(QLabel("Password:"))
+        self.grp_fewfeed_pass_input = QLineEdit()
+        self.grp_fewfeed_pass_input.setPlaceholderText("FewFeed Password")
+        self.grp_fewfeed_pass_input.setEchoMode(QLineEdit.Password)
+        self.grp_fewfeed_pass_input.setText("Fewfeew")
+        self.grp_fewfeed_pass_input.setStyleSheet("padding: 7px 10px; background-color: #0f172a; color: #f8fafc; font-weight: 600; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px;")
+        ff_cred_row.addWidget(self.grp_fewfeed_pass_input, stretch=2)
+
+        # Load saved credentials from config/group_settings.json if present
+        try:
+            cfg_f = os.path.join(get_base_dir(), "config", "group_settings.json")
+            if os.path.exists(cfg_f):
+                with open(cfg_f, "r", encoding="utf-8") as f:
+                    cfg_data = json.load(f)
+                    if cfg_data.get("cuefeed_email"):
+                        self.grp_fewfeed_email_input.setText(cfg_data["cuefeed_email"])
+                    if cfg_data.get("cuefeed_pass"):
+                        self.grp_fewfeed_pass_input.setText(cfg_data["cuefeed_pass"])
+        except Exception:
+            pass
+
+        ac_layout.addLayout(ff_cred_row)
 
         # Single Unified Start & Stop Buttons + Session Sync
         u_btn_row = QHBoxLayout()
@@ -7698,12 +8126,15 @@ class FBAutoBotMainWindow(QMainWindow):
         self.btn_start_grp_unified.clicked.connect(self.start_unified_group_automation)
         u_btn_row.addWidget(self.btn_start_grp_unified, stretch=3)
 
-        self.btn_sync_fewfeed_session = QPushButton("🔄 Sync Saved Login To All Profiles")
-        self.btn_sync_fewfeed_session.setStyleSheet("background-color: #4338ca; color: #ffffff; font-weight: 700; font-size: 11px; padding: 14px; border-radius: 8px;")
-        self.btn_sync_fewfeed_session.setCursor(Qt.PointingHandCursor)
-        self.btn_sync_fewfeed_session.setToolTip("Copies your active FewFeed and Google login session across all account browser profiles so every browser opens already logged in.")
-        self.btn_sync_fewfeed_session.clicked.connect(self.sync_fewfeed_to_all_profiles)
-        u_btn_row.addWidget(self.btn_sync_fewfeed_session, stretch=2)
+        self.btn_grp_open_chrome_setup = QPushButton("🌐 Open Chrome For FewFeed Setup")
+        self.btn_grp_open_chrome_setup.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7c3aed, stop:1 #2563eb); color: #ffffff; font-weight: 800; font-size: 12px; padding: 14px; border-radius: 8px;")
+        self.btn_grp_open_chrome_setup.setCursor(Qt.PointingHandCursor)
+        self.btn_grp_open_chrome_setup.setToolTip("Open Desktop Chrome with FewFeed loaded to log into Facebook & FewFeed once. Everything is automatically saved and synced!")
+        self.btn_grp_open_chrome_setup.clicked.connect(self.open_chrome_for_fewfeed_setup)
+        u_btn_row.addWidget(self.btn_grp_open_chrome_setup, stretch=2)
+
+        # Compatibility alias
+        self.btn_sync_fewfeed_session = self.btn_grp_open_chrome_setup
 
         self.btn_stop_grp_unified = QPushButton("🛑 STOP")
         self.btn_stop_grp_unified.setProperty("class", "dangerBtn")
@@ -8027,8 +8458,12 @@ class FBAutoBotMainWindow(QMainWindow):
         join_threads = self.grp_join_thread_spin.value() if hasattr(self, 'grp_join_thread_spin') else 1
         join_delay = self.grp_join_delay_spin.value() if hasattr(self, 'grp_join_delay_spin') else 15
 
-        cf_email = "codeabm71@gmail.com"
-        cf_pass = "Fewfeew"
+        cf_email = self.grp_fewfeed_email_input.text().strip() if hasattr(self, 'grp_fewfeed_email_input') and self.grp_fewfeed_email_input.text().strip() else "codeabm71@gmail.com"
+        cf_pass = self.grp_fewfeed_pass_input.text().strip() if hasattr(self, 'grp_fewfeed_pass_input') and self.grp_fewfeed_pass_input.text().strip() else "Fewfeew"
+
+        # If user explicitly entered target groups to join, ensure joining is executed
+        if join_codes:
+            already_joined = False
 
         # Save CueFeed login details globally
         try:

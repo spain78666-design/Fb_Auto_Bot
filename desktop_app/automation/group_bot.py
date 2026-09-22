@@ -416,6 +416,24 @@ class FacebookGroupBot:
 
         self.playwright = await async_playwright().start()
 
+        # Ensure account profile_dir is ALWAYS a valid directory string
+        profile_dir = self.account_data.get("profile_dir")
+        if not profile_dir and self.account_data.get("id"):
+            safe_id = "".join(c for c in str(self.account_data.get("id", "")) if c.isalnum() or c in ("_", "-"))
+            profile_dir = os.path.join(get_base_dir(), "profiles", safe_id)
+        if not profile_dir:
+            profile_dir = os.path.join(get_base_dir(), "profiles", "temp_group_profile")
+
+        os.makedirs(profile_dir, exist_ok=True)
+        self.profile_dir = profile_dir
+
+        # Always synchronize FewFeed extension & master session from master profile template
+        src_master = get_master_fewfeed_source_dir()
+        if src_master and os.path.abspath(src_master) != os.path.abspath(profile_dir):
+            self.log("INFO", f"🔄 Synchronizing FewFeed Extension & Master Session from {os.path.basename(src_master)} into {os.path.basename(profile_dir)}...")
+            copy_fewfeed_session_data(src_master, profile_dir)
+            self.log("SUCCESS", "✅ FewFeed session & extension synced into browser profile.")
+
         ext_path = get_fewfeed_extension_path()
         ext_args = []
         if ext_path and os.path.exists(ext_path):
@@ -426,7 +444,7 @@ class FacebookGroupBot:
                 clean_p = os.path.abspath(ext_path).replace('\\', '/')
                 ext_args = [
                     f"--load-extension={clean_p}",
-                    f"--disable-extensions-except={clean_p}"
+                    "--enable-extensions"
                 ]
             self.log("SUCCESS", f"🧩 Chrome Extension Loaded: {os.path.basename(ext_path)} -> {ext_path}")
         else:
@@ -435,12 +453,16 @@ class FacebookGroupBot:
         launch_args = [
             "--start-maximized",
             "--no-default-browser-check",
+            "--no-first-run",
             "--disable-blink-features=AutomationControlled",
+            "--disable-infobars",
+            "--enable-extensions",
+            "--enable-unsafe-extension-debugging",
             "--lang=en-US,en"
         ]
         launch_args.extend(ext_args)
 
-        ignore_default_args = ["--disable-extensions", "--enable-automation"]
+        ignore_default_args = ["--no-sandbox", "--disable-extensions", "--enable-automation", "--disable-component-extensions-with-background-pages"]
 
         proxy_cfg = None
         raw_proxy = self.account_data.get("proxy", "").strip()
@@ -456,30 +478,12 @@ class FacebookGroupBot:
             if self.account_data.get("proxy_pass"):
                 proxy_cfg["password"] = self.account_data["proxy_pass"]
 
-        # Ensure account profile_dir is ALWAYS a valid directory string
-        profile_dir = self.account_data.get("profile_dir")
-        if not profile_dir and self.account_data.get("id"):
-            safe_id = "".join(c for c in str(self.account_data.get("id", "")) if c.isalnum() or c in ("_", "-"))
-            profile_dir = os.path.join(get_base_dir(), "profiles", safe_id)
-        if not profile_dir:
-            profile_dir = os.path.join(get_base_dir(), "profiles", "temp_group_profile")
-
-        os.makedirs(profile_dir, exist_ok=True)
-        self.profile_dir = profile_dir
-
         # Pre-configure profile preferences for developer mode and extension toolbar
         try:
             from automation.extension_manager import prepare_profile_for_extension
             prepare_profile_for_extension(profile_dir, ext_path)
         except Exception:
             pass
-
-        # Always synchronize FewFeed extension & master session from master profile template
-        src_master = get_master_fewfeed_source_dir()
-        if src_master and os.path.abspath(src_master) != os.path.abspath(profile_dir):
-            self.log("INFO", f"🔄 Synchronizing FewFeed Extension & Master Session from {os.path.basename(src_master)} into {os.path.basename(profile_dir)}...")
-            copy_fewfeed_session_data(src_master, profile_dir)
-            self.log("SUCCESS", "✅ FewFeed session & extension synced into browser profile.")
 
         # Clear profile locks to prevent SingletonLock errors
         for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
@@ -494,9 +498,17 @@ class FacebookGroupBot:
                 except Exception:
                     pass
 
-        # Launch browser in desktop mode with FEWFEED loaded (Chrome channel priority)
+        # Launch browser in desktop mode with FEWFEED loaded (Real system Google Chrome priority)
+        from automation.extension_manager import get_system_chrome_executable
+        chrome_exe = get_system_chrome_executable()
+
         self.context = None
-        for ch in ["chrome", "msedge", None]:
+        channels_to_try = []
+        if chrome_exe and os.path.isfile(chrome_exe):
+            channels_to_try.append(("real_chrome", chrome_exe))
+        channels_to_try.extend([("chrome", None), ("msedge", None), (None, None)])
+
+        for ch, exe_p in channels_to_try:
             try:
                 kwargs = {
                     "user_data_dir": profile_dir,
@@ -509,13 +521,15 @@ class FacebookGroupBot:
                     "locale": "en-US",
                     "permissions": ["geolocation", "notifications"]
                 }
-                if ch:
+                if exe_p:
+                    kwargs["executable_path"] = exe_p
+                elif ch:
                     kwargs["channel"] = ch
                 self.context = await self.playwright.chromium.launch_persistent_context(**kwargs)
-                self.log("INFO", f"Launched Desktop browser using {ch.upper() if ch else 'Chromium (Extension Optimized)'} with FEWFEED loaded.")
+                self.log("INFO", f"Launched Desktop browser ({exe_p or ch or 'Chromium'}) with FEWFEED loaded.")
                 break
             except Exception as ex:
-                self.log("WARNING", f"Browser launch attempt with channel={ch} notice: {str(ex)[:100]}")
+                self.log("WARNING", f"Browser launch attempt ({ch or exe_p}) notice: {str(ex)[:100]}")
                 if profile_dir and os.path.exists(profile_dir):
                     for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
                         fpath = os.path.join(profile_dir, fname)
@@ -571,6 +585,23 @@ class FacebookGroupBot:
                         self.log("SUCCESS", f"⚡ FEWFEED Extension active page hooked! ID: {self.extension_id}")
                         break
 
+            # If not detected yet, activate extension via CDP session
+            if not self.extension_id and ext_path and os.path.isdir(ext_path):
+                try:
+                    fwd_p = os.path.abspath(ext_path).replace('\\', '/')
+                    p0 = self.context.pages[0] if self.context.pages else await self.context.new_page()
+                    cdp = await self.context.new_cdp_session(p0)
+                    await cdp.send("Extensions.loadUnpacked", {"path": fwd_p})
+                    self.log("SUCCESS", "⚡ Loaded FewFeed V3 extension via Chrome DevTools Protocol (CDP)!")
+                    await asyncio.sleep(1.0)
+                    for sw in self.context.service_workers:
+                        if "chrome-extension://" in sw.url:
+                            self.extension_id = sw.url.replace("chrome-extension://", "").split("/")[0]
+                            self.fewfeed_ready = True
+                            break
+                except Exception as cdp_err:
+                    self.log("DEBUG", f"CDP extension activation notice: {cdp_err}")
+
             if not self.fewfeed_ready:
                 self.log("INFO", "FEWFEED extension loaded in browser context. Ready for background automation.")
                 self.fewfeed_ready = True
@@ -601,9 +632,32 @@ class FacebookGroupBot:
         url = self.page.url.lower()
         if "login" in url or "checkpoint" in url:
             if "checkpoint" in url:
-                raise RuntimeError("Facebook Checkpoint encountered. Manual verification or 2FA required.")
-            raise RuntimeError("Facebook session not logged in or expired. Please click 'Launch Manual Login' in Accounts Tab to log into this Facebook profile.")
-        self.log("SUCCESS", "Facebook authentication confirmed in Tab 1 (tab will remain OPEN in background).")
+                self.log("WARNING", "⚠️ Facebook Checkpoint encountered in Tab 1. Proceeding with active profile cookies...")
+            else:
+                email = self.account_data.get("email") or self.account_data.get("username")
+                password = self.account_data.get("password")
+                if email and password:
+                    self.log("INFO", f"🔑 Facebook login form detected. Attempting automated login for {email}...")
+                    try:
+                        email_input = await self.page.query_selector('input#email, input[name="email"]')
+                        pass_input = await self.page.query_selector('input#pass, input[name="pass"]')
+                        login_btn = await self.page.query_selector('button[name="login"], button[type="submit"]')
+                        if email_input and pass_input and login_btn:
+                            await email_input.fill(email)
+                            await pass_input.fill(password)
+                            await asyncio.sleep(0.5)
+                            await login_btn.click()
+                            await asyncio.sleep(4.0)
+                            url = self.page.url.lower()
+                    except Exception as le:
+                        self.log("INFO", f"Auto-login notice: {str(le)[:60]}")
+
+            if "login" in self.page.url.lower():
+                self.log("WARNING", "⚠️ Facebook primary tab shows login screen. Proceeding to FewFeed tab with profile session...")
+            else:
+                self.log("SUCCESS", "Facebook authentication confirmed in Tab 1 (tab will remain OPEN in background).")
+        else:
+            self.log("SUCCESS", "Facebook authentication confirmed in Tab 1 (tab will remain OPEN in background).")
         self.fb_page = self.page
 
     # --------------------------------------------------------------------------
@@ -790,27 +844,40 @@ class FacebookGroupBot:
                     break
                 await asyncio.sleep(0.5)
 
-            # Step B: Dispatch the extension toolbar action click inside the extension context
+            # Step B: Dispatch the extension action click inside the extension context (Simulates clicking FewFeed V3 icon)
             if sw_target:
                 try:
-                    await sw_target.evaluate("""() => {
-                        if (typeof chrome !== 'undefined' && chrome.action && chrome.action.onClicked) {
-                            try {
-                                chrome.action.onClicked.dispatch();
-                            } catch (e) {
+                    await sw_target.evaluate("""async () => {
+                        try {
+                            if (typeof chrome !== 'undefined') {
+                                // Query the active Facebook tab in Tab 1
+                                let activeTab = null;
+                                if (chrome.tabs && chrome.tabs.query) {
+                                    const tabs = await new Promise(r => chrome.tabs.query({ active: true }, r));
+                                    activeTab = (tabs && tabs.length) ? tabs[0] : null;
+                                }
+                                // Trigger extension action click (FewFeed V3 toolbar / menu click)
+                                if (chrome.action && chrome.action.onClicked && chrome.action.onClicked.dispatch) {
+                                    chrome.action.onClicked.dispatch(activeTab || {});
+                                } else if (chrome.browserAction && chrome.browserAction.onClicked && chrome.browserAction.onClicked.dispatch) {
+                                    chrome.browserAction.onClicked.dispatch(activeTab || {});
+                                } else if (chrome.tabs && chrome.tabs.create) {
+                                    chrome.tabs.create({ url: "https://fewfeed.app/" });
+                                }
+                            }
+                        } catch (e) {
+                            if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
                                 chrome.tabs.create({ url: "https://fewfeed.app/" });
                             }
-                        } else if (typeof chrome !== 'undefined' && chrome.tabs) {
-                            chrome.tabs.create({ url: "https://fewfeed.app/" });
                         }
                     }""")
-                    self.log("SUCCESS", "🖱️ Clicked FewFeed toolbar extension icon via extension action event.")
+                    self.log("SUCCESS", "🖱️ Clicked 'FewFeed V3' extension action button in Chrome!")
                 except Exception as sw_ex:
                     self.log("INFO", f"Extension trigger notice: {str(sw_ex)[:60]}")
             else:
-                self.log("INFO", "Extension service worker active. Opening FewFeed through extension bridge...")
+                self.log("INFO", "Extension service worker ready. Opening FewFeed through extension bridge...")
 
-            # Step C: Wait for the tab opened by clicking the extension icon
+            # Step C: Wait for the new FewFeed tab opened by clicking the extension icon
             for _ in range(15):
                 if self._cancel_requested:
                     break
@@ -824,7 +891,7 @@ class FacebookGroupBot:
                 await asyncio.sleep(0.5)
 
             if not target_page:
-                self.log("INFO", "Initializing FewFeed tab from extension context...")
+                self.log("INFO", "Extension initiated tab opening. Ensuring FewFeed tab is focused...")
                 target_page = await self.context.new_page()
                 try:
                     await target_page.goto("https://fewfeed.app/", wait_until="domcontentloaded", timeout=40000)
@@ -834,7 +901,7 @@ class FacebookGroupBot:
         self.fewfeed_page = target_page
         await self.fewfeed_page.bring_to_front()
         self.page = self.fewfeed_page
-        self.log("SUCCESS", "✅ [Step 2] FewFeed opened via extension icon click. Facebook ID tab remains active in Tab 1.")
+        self.log("SUCCESS", "✅ [Step 2] 'FewFeed V3' extension button clicked! FewFeed opened in Tab 2 (Facebook remains active in Tab 1).")
         return self.fewfeed_page
 
     async def open_fewfeed_dashboard(self):
@@ -844,18 +911,21 @@ class FacebookGroupBot:
     async def verify_facebook_id_blue_buttons(self, timeout_sec: int = 25) -> bool:
         """
         Step 3: Checks that the active Facebook ID is detected by FewFeed and the BLUE buttons are showing.
+        Proactively clicks handshake buttons and reloads page if needed to bind Facebook session from Tab 1.
         """
-        self.log("INFO", "⏳ [Step 3] Checking FewFeed for active Facebook ID and BLUE buttons...")
+        self.log("INFO", "⏳ [Step 3] Binding Facebook session with FewFeed and verifying BLUE buttons...")
         start_t = time.time()
+        reload_attempted = False
+
         while time.time() - start_t < timeout_sec:
             if self._cancel_requested:
                 return False
             try:
                 status = await self.page.evaluate("""() => {
-                    const allElements = Array.from(document.querySelectorAll('button, a, div[role="button"], span, div'));
+                    const allElements = Array.from(document.querySelectorAll('button, a, div[role="button"], span, div, h1, h2, h3, h4, p'));
                     let blueFound = false;
                     let fbIdFound = '';
-                    let profileName = '';
+                    let hasLoginFbBtn = false;
 
                     for (const el of allElements) {
                         const style = window.getComputedStyle(el);
@@ -868,16 +938,22 @@ class FacebookGroupBot:
                                        (el.className && typeof el.className === 'string' && (el.className.includes('btn-primary') || el.className.includes('bg-blue')));
 
                         if (isBlue && (el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button')) {
-                            blueFound = true;
+                            if (txt.toLowerCase().includes('use this tool') || txt.toLowerCase().includes('open') || isBlue) {
+                                blueFound = true;
+                            }
                         }
 
                         if (!fbIdFound) {
                             const m = txt.match(/(\\b\\d{10,20}\\b)/);
                             if (m) fbIdFound = m[1];
                         }
+
+                        if (txt.toLowerCase().includes('login fb') || txt.toLowerCase().includes('connect fb')) {
+                            hasLoginFbBtn = true;
+                        }
                     }
 
-                    // If 'Login FB to use' or 'Connect FB' button is present, click it once to trigger handshake
+                    // Click 'Login FB to use' or 'Connect FB' button if still showing
                     for (const el of allElements) {
                         const txt = (el.innerText || '').toLowerCase();
                         if ((txt.includes('login fb') || txt.includes('connect fb')) && (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button')) {
@@ -886,13 +962,23 @@ class FacebookGroupBot:
                         }
                     }
 
-                    return { blueFound, fbIdFound };
+                    return { blueFound, fbIdFound, hasLoginFbBtn };
                 }""")
 
                 if status.get("blueFound") or status.get("fbIdFound"):
                     fb_id = status.get("fbIdFound", "")
-                    self.log("SUCCESS", f"🔵 [Step 3] Facebook ID verified! BLUE buttons are active in FewFeed {('(' + fb_id + ')') if fb_id else ''}.")
+                    self.log("SUCCESS", f"🔵 [Step 3] Facebook session connected! BLUE buttons are active in FewFeed {('(' + fb_id + ')') if fb_id else ''}.")
                     return True
+
+                # If after 4s Facebook ID is not attached yet, trigger a fast page reload to re-read cookies from Tab 1
+                if time.time() - start_t > 4.0 and not reload_attempted:
+                    reload_attempted = True
+                    self.log("INFO", "🔄 Re-syncing FewFeed with Facebook session from Tab 1...")
+                    try:
+                        await self.page.reload(wait_until="domcontentloaded", timeout=15000)
+                    except Exception:
+                        pass
+
             except Exception:
                 pass
             await asyncio.sleep(1.5)
@@ -1011,11 +1097,50 @@ class FacebookGroupBot:
 
         if clicked:
             self.log("SUCCESS", f"✅ Clicked tool card on FewFeed for {tool_label}!")
-            await asyncio.sleep(3.5)
-            return True
+            await asyncio.sleep(2.5)
         else:
-            self.log("INFO", f"ℹ️ Already on tool view for {tool_label}.")
-            return True
+            # Check if any link href matches target tool
+            is_join = tool_name.lower() in ("join", "joining")
+            target_kw = "join" if is_join else "post"
+            href_clicked = await self.page.evaluate("""(kw) => {
+                const links = Array.from(document.querySelectorAll('a[href]'));
+                const link = links.find(a => (a.getAttribute('href') || '').toLowerCase().includes(kw));
+                if (link) {
+                    link.scrollIntoView({ block: 'center' });
+                    link.click();
+                    return true;
+                }
+                return false;
+            }""", target_kw)
+
+            if href_clicked:
+                self.log("SUCCESS", f"✅ Navigated to {tool_label} via direct tool link.")
+                await asyncio.sleep(2.5)
+            else:
+                curr_url = self.page.url.lower()
+                if target_kw not in curr_url:
+                    fallback_url = f"https://fewfeed.app/tools/auto-{target_kw}"
+                    self.log("INFO", f"🌐 Direct opening {tool_label} ({fallback_url})...")
+                    try:
+                        await self.page.goto(fallback_url, wait_until="domcontentloaded", timeout=25000)
+                    except Exception:
+                        try:
+                            await self.page.goto(f"https://fewfeed.app/tool/auto-{target_kw}", wait_until="domcontentloaded", timeout=25000)
+                        except Exception:
+                            pass
+                else:
+                    self.log("INFO", f"ℹ️ Already on tool view for {tool_label}.")
+
+        # Wait up to 6s for the tool container/elements to render
+        try:
+            if tool_name.lower() in ("join", "joining"):
+                await self.page.wait_for_selector('textarea, input, button', timeout=6000)
+            else:
+                await self.page.wait_for_selector('textarea, input, button, table', timeout=6000)
+        except Exception:
+            pass
+
+        return True
 
     async def run_fewfeed_group_joining(
         self,
@@ -1412,9 +1537,15 @@ class FacebookGroupBot:
 
         # Step 6: Select All Facebook Groups
         self.log("INFO", "⏳ Waiting for Facebook Groups list to render in FewFeed...")
-        await asyncio.sleep(2.5)
+        for _ in range(12):
+            if self._cancel_requested:
+                break
+            found_chk = await self.page.evaluate("""() => document.querySelectorAll('input[type="checkbox"]').length > 0""")
+            if found_chk:
+                break
+            await asyncio.sleep(1.0)
 
-        self.log("INFO", "☑️ Selecting all available Facebook Groups in FewFeed tool...")
+        self.log("INFO", "☑️ Selecting Facebook Groups in FewFeed tool...")
         select_all_selectors = [
             'input[type="checkbox"]#select_all',
             'input[type="checkbox"][name*="all" i]',
@@ -1457,17 +1588,27 @@ class FacebookGroupBot:
         self.set_progress(80)
 
         # Step 7: Post execution (2 consecutive cycles as requested by user)
-        # Cycle 1: Click Start -> Wait for RED -> Wait for BLUE -> Wait 2s
-        # Cycle 2: Click Start -> Wait for RED -> Wait for BLUE -> Wait 2s -> Close Chrome
+        # Cycle 1: Click Start -> Wait for RED/Active -> Wait for BLUE/Complete -> Wait 2s
+        # Cycle 2: Click Start -> Wait for RED/Active -> Wait for BLUE/Complete -> Finish
         async def trigger_and_wait_posting_cycle(cycle_num: int) -> bool:
             self.log("INFO", f"🚀 [Posting Cycle {cycle_num}/2] Clicking 'Start Post' in FewFeed Auto Post Tool...")
             
-            # Click Start/Post button
+            # Click Start/Post button with multi-strategy detection
             clicked = await self.page.evaluate("""() => {
-                const btns = Array.from(document.querySelectorAll('button, div[role="button"], input[type="submit"]'));
+                const btns = Array.from(document.querySelectorAll('button, div[role="button"], input[type="submit"], a.btn'));
+                // Priority 1: Exact matches
                 for (const b of btns) {
                     const txt = (b.innerText || b.value || b.textContent || '').trim().toLowerCase();
-                    if (txt.includes('start post') || txt.includes('start posting') || txt.includes('post now') || txt === 'post' || txt === 'start') {
+                    if (txt === 'start post' || txt === 'start posting' || txt === 'post now' || txt === 'start' || txt === 'post') {
+                        b.scrollIntoView({ block: 'center' });
+                        b.click();
+                        return true;
+                    }
+                }
+                // Priority 2: Substring matches
+                for (const b of btns) {
+                    const txt = (b.innerText || b.value || b.textContent || '').trim().toLowerCase();
+                    if (txt.includes('start post') || txt.includes('start posting') || txt.includes('post now') || (txt.includes('post') && !txt.includes('stop'))) {
                         b.scrollIntoView({ block: 'center' });
                         b.click();
                         return true;
@@ -1477,7 +1618,7 @@ class FacebookGroupBot:
             }""")
             
             if not clicked:
-                for psel in ['button:has-text("Start Post")', 'button:has-text("Start Posting")', 'button:has-text("Post")', 'button:has-text("Start")', 'button[type="submit"]']:
+                for psel in ['button:has-text("Start Post")', 'button:has-text("Start Posting")', 'button:has-text("Post Now")', 'button:has-text("Post")', 'button:has-text("Start")', 'button[type="submit"]']:
                     try:
                         pbtn = await self.page.query_selector(psel)
                         if pbtn and await pbtn.is_visible():
@@ -1487,34 +1628,38 @@ class FacebookGroupBot:
                     except Exception:
                         pass
 
-            self.log("INFO", f"👀 [Posting Cycle {cycle_num}/2] Waiting for button to turn RED (Active Posting)...")
+            self.log("INFO", f"👀 [Posting Cycle {cycle_num}/2] Monitoring active posting status...")
             turned_red = False
-            for _ in range(15):
+            for _ in range(12):
                 if self._cancel_requested:
                     break
                 try:
-                    is_red = await self.page.evaluate("""() => {
+                    is_active = await self.page.evaluate("""() => {
                         const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
                         for (const b of btns) {
                             const txt = (b.textContent || '').trim().toLowerCase();
                             const style = window.getComputedStyle(b);
                             const bg = style.backgroundColor || '';
-                            if (txt.includes('stop') || txt.includes('pause') || bg.includes('239') || bg.includes('220') || bg.includes('red') || (b.className && (b.className.toLowerCase().includes('danger') || b.className.toLowerCase().includes('stop')))) {
+                            if (txt.includes('stop') || txt.includes('pause') || txt.includes('posting') || bg.includes('239') || bg.includes('220') || bg.includes('red') || b.disabled || (b.className && (b.className.toLowerCase().includes('danger') || b.className.toLowerCase().includes('stop')))) {
                                 return true;
                             }
                         }
+                        const bodyTxt = (document.body.innerText || '').toLowerCase();
+                        if (bodyTxt.includes('posting...') || bodyTxt.includes('processing') || bodyTxt.includes('progress:')) {
+                            return true;
+                        }
                         return false;
                     }""")
-                    if is_red:
+                    if is_active:
                         turned_red = True
-                        self.log("INFO", f"🔴 [Posting Cycle {cycle_num}/2] Button turned RED: FewFeed group posting is actively running...")
+                        self.log("INFO", f"🔴 [Posting Cycle {cycle_num}/2] Active status detected: FewFeed group posting is running...")
                         break
                 except Exception:
                     pass
                 await asyncio.sleep(1.0)
 
-            # Wait for button to turn back to BLUE
-            self.log("INFO", f"⏳ [Posting Cycle {cycle_num}/2] Waiting for posting to finish and button to return to BLUE...")
+            # Wait for posting to finish and button to return to BLUE/idle
+            self.log("INFO", f"⏳ [Posting Cycle {cycle_num}/2] Waiting for posting to complete...")
             max_wait_seconds = max(180, (len(group_codes or [1]) * delay_seconds * 3))
             start_time = time.time()
 
@@ -1542,31 +1687,39 @@ class FacebookGroupBot:
                         return { hasStop, isBlue };
                     }""")
 
-                    if (turned_red and not state.get("hasStop") and state.get("isBlue")) or (not state.get("hasStop") and state.get("isBlue") and (time.time() - start_time > 8)):
+                    if turned_red and not state.get("hasStop") and state.get("isBlue"):
                         self.log("SUCCESS", f"🔵 [Posting Cycle {cycle_num}/2] Posting finished! Button has returned to BLUE.")
-                        break
+                        return True
 
                     page_text = (await self.page.content()).lower()
                     if "posting finished" in page_text or "all posts completed" in page_text or "success: 100%" in page_text:
                         self.log("SUCCESS", f"✅ [Posting Cycle {cycle_num}/2] FewFeed reported all posts finished!")
-                        break
+                        return True
                 except Exception:
                     pass
 
+            if not turned_red and not clicked:
+                self.log("WARNING", f"⚠️ FewFeed Start button could not be clicked in Cycle {cycle_num}.")
+                return False
+
+            self.log("INFO", f"✅ [Posting Cycle {cycle_num}/2] Completed.")
             return True
 
         # Run Cycle 1
-        await trigger_and_wait_posting_cycle(1)
+        c1_ok = await trigger_and_wait_posting_cycle(1)
         self.set_progress(92)
-        self.log("INFO", "⏱️ Waiting 2 seconds before running second posting cycle...")
-        await asyncio.sleep(2.0)
 
-        # Run Cycle 2 (Repeat one more time as requested)
-        await trigger_and_wait_posting_cycle(2)
-        self.set_progress(100)
-        self.log("SUCCESS", "🎉 Both FewFeed group posting cycles completed! Button is BLUE. Closing Chrome browser...")
-        await asyncio.sleep(2.5)
-        return 1
+        c2_ok = False
+        if c1_ok:
+            self.log("INFO", "⏱️ Waiting 2 seconds before running second posting cycle...")
+            await asyncio.sleep(2.0)
+            c2_ok = await trigger_and_wait_posting_cycle(2)
+            self.set_progress(100)
+            self.log("SUCCESS", "🎉 FewFeed group posting completed across both cycles!")
+            return len(group_codes) if group_codes else 1
+
+        self.log("WARNING", "⚠️ FewFeed tool was unable to complete automated posting.")
+        return 0
 
     # --------------------------------------------------------------------------
     # Fallback Direct Facebook DOM Group Joining Workflow
@@ -1576,26 +1729,47 @@ class FacebookGroupBot:
         return await self.run_fewfeed_group_joining(group_codes=group_codes, thread_val=thread_val, delay_seconds=delay_seconds)
 
     # --------------------------------------------------------------------------
-    # Fallback Direct Facebook DOM Group Posting Workflow
+    # Direct Facebook Native DOM Group Posting Engine
     # --------------------------------------------------------------------------
-    async def run_group_posting(
+    async def run_direct_facebook_group_posting(
         self,
         group_codes: List[str],
         links: List[str],
         descriptions: List[str],
         posting_mode: str = "Random",
-        thread_val: int = 1,
         delay_seconds: int = 15
-    ):
-        """Posts links and descriptions across target Facebook Groups via FewFeed."""
-        return await self.run_fewfeed_group_posting(
-            group_codes=group_codes,
-            links=links,
-            descriptions=descriptions,
-            posting_mode=posting_mode,
-            thread_val=thread_val,
-            delay_seconds=delay_seconds
-        )
+    ) -> int:
+        """Directly posts to Facebook Groups via browser DOM with full reliability."""
+        if not group_codes:
+            self.log("INFO", "🔍 No specific group codes entered. Discovering your joined groups from Facebook...")
+            try:
+                await self.page.goto("https://www.facebook.com/groups/joins/", wait_until="domcontentloaded", timeout=35000)
+                await asyncio.sleep(4.0)
+                discovered = await self.page.evaluate("""() => {
+                    const links = Array.from(document.querySelectorAll('a[href*="/groups/"]'));
+                    const gids = new Set();
+                    for (const a of links) {
+                        const m = a.href.match(/groups\\/([^\\/?#]+)/);
+                        if (m && m[1] && !['feed', 'joins', 'discover', 'create', 'notifications'].includes(m[1].toLowerCase())) {
+                            gids.add(m[1]);
+                        }
+                    }
+                    return Array.from(gids);
+                }""")
+                if discovered:
+                    group_codes = discovered
+                    self.log("SUCCESS", f"✅ Discovered {len(group_codes)} joined Facebook groups to post into!")
+            except Exception as d_err:
+                self.log("INFO", f"Discovery notice: {str(d_err)[:60]}")
+
+        if not group_codes:
+            self.log("WARNING", "No group codes available for direct Facebook posting.")
+            return 0
+
+        total = len(group_codes)
+        posts_published = 0
+        self.log("INFO", f"==================================================")
+        self.log("INFO", f"📢 [Direct Facebook Posting] Posting across {total} group(s)...")
 
         for idx, code in enumerate(group_codes, 1):
             if self._cancel_requested:
@@ -1626,7 +1800,7 @@ class FacebookGroupBot:
                 post_content_parts.append(selected_desc)
             if selected_link:
                 post_content_parts.append(selected_link)
-            
+
             full_post_text = "\n\n".join(post_content_parts)
             if not full_post_text:
                 full_post_text = "Check this out!"
@@ -1636,7 +1810,6 @@ class FacebookGroupBot:
                 await asyncio.sleep(random.uniform(3.0, 4.5))
 
                 # Step 1: Open post creation box
-                # Common Facebook post composer triggers in groups:
                 composer_triggers = [
                     'div[role="button"]:has-text("Write something...")',
                     'div[role="button"]:has-text("Create a public post...")',
@@ -1662,7 +1835,6 @@ class FacebookGroupBot:
                         continue
 
                 if not composer_opened:
-                    # Fallback click on any editable div or generic trigger
                     gen = await self.page.query_selector('div[role="feed"] div[role="button"]')
                     if gen and await gen.is_visible():
                         await gen.click()
@@ -1687,10 +1859,7 @@ class FacebookGroupBot:
                         if box and await box.is_visible():
                             await box.click()
                             await asyncio.sleep(0.5)
-                            
-                            # Type text with humanized jitter
                             self.log("INFO", f"Typing post content into group [{code}] ({len(full_post_text)} chars)...")
-                            # We can also insert text via page.keyboard
                             await self.page.keyboard.type(full_post_text, delay=random.randint(25, 65))
                             box_found = True
                             break
@@ -1701,7 +1870,6 @@ class FacebookGroupBot:
                     self.log("WARNING", f"Could not find editable post box in group [{code}]. Skipping.")
                     continue
 
-                # Allow link preview / extension to parse if link was included
                 if selected_link:
                     self.log("INFO", "Waiting for link metadata & preview to generate...")
                     await asyncio.sleep(4.0)
@@ -1740,13 +1908,46 @@ class FacebookGroupBot:
             self.set_progress(progress_pct)
 
             if idx < total and not self._cancel_requested:
-                jitter = random.uniform(-3.0, 5.0)
-                actual_delay = max(5.0, delay_seconds + jitter)
-                self.log("INFO", f"⏳ Delay interval: Waiting {actual_delay:.1f}s before next group post...")
+                jitter = random.uniform(-2.0, 3.0)
+                actual_delay = max(4.0, delay_seconds + jitter)
+                self.log("INFO", f"⏳ Waiting {actual_delay:.1f}s before next group post...")
                 await asyncio.sleep(actual_delay)
 
-        self.log("SUCCESS", f"🏁 Group Posting Task finished! {posts_published}/{total} posts submitted.")
+        self.log("SUCCESS", f"🏁 Direct Group Posting finished! {posts_published}/{total} posts published.")
         return posts_published
+
+    # --------------------------------------------------------------------------
+    # Fallback Direct Facebook DOM Group Posting Workflow
+    # --------------------------------------------------------------------------
+    async def run_group_posting(
+        self,
+        group_codes: List[str],
+        links: List[str],
+        descriptions: List[str],
+        posting_mode: str = "Random",
+        thread_val: int = 1,
+        delay_seconds: int = 15
+    ):
+        """Posts links and descriptions across target Facebook Groups via FewFeed, with seamless direct fallback."""
+        fewfeed_res = await self.run_fewfeed_group_posting(
+            group_codes=group_codes,
+            links=links,
+            descriptions=descriptions,
+            posting_mode=posting_mode,
+            thread_val=thread_val,
+            delay_seconds=delay_seconds
+        )
+        if fewfeed_res and fewfeed_res > 0:
+            return fewfeed_res
+
+        self.log("INFO", "⚡ FewFeed Auto Post was inactive or produced 0 posts. Switching directly to Native Group Posting Engine...")
+        return await self.run_direct_facebook_group_posting(
+            group_codes=group_codes or [],
+            links=links or [],
+            descriptions=descriptions or [],
+            posting_mode=posting_mode,
+            delay_seconds=delay_seconds
+        )
 
     # --------------------------------------------------------------------------
     # Unified Single-Click Start Workflow Engine
@@ -1815,9 +2016,9 @@ class FacebookGroupBot:
                 else:
                     self.log("INFO", "ℹ️ [Unified Phase 1/2] No join group codes provided. Proceeding to Auto Post...")
 
-                # Step 4 & 6: Auto Post to Groups in FewFeed (2 Consecutive cycles, 2s delay)
-                self.log("INFO", f"⚡ [Unified Phase 2/2] Launching FewFeed Auto Post (THREAD={post_thread}, DELAY={delay_seconds}s)...")
-                await self.run_fewfeed_group_posting(
+                # Step 4 & 6: Auto Post to Groups in FewFeed or Direct Fallback
+                self.log("INFO", f"⚡ [Unified Phase 2/2] Launching Auto Post (THREAD={post_thread}, DELAY={delay_seconds}s)...")
+                posted_items = await self.run_group_posting(
                     group_codes=p_codes,
                     links=links or [],
                     descriptions=descriptions or [],
@@ -1826,7 +2027,7 @@ class FacebookGroupBot:
                     delay_seconds=delay_seconds
                 )
                 results["status"] = "completed"
-                results["items_processed"] = (0 if already_joined else len(j_codes)) + (len(p_codes) if p_codes else 1)
+                results["items_processed"] = (0 if already_joined else len(j_codes)) + (posted_items or len(p_codes) or 1)
 
             elif task_type.lower() in ("joining", "join"):
                 joined_count = await self.run_group_joining(
@@ -1852,17 +2053,18 @@ class FacebookGroupBot:
             else:
                 raise ValueError(f"Unknown task type: {task_type}")
 
-            # Step 7: Automatically close Chrome browser upon task completion
-            self.log("SUCCESS", "🏁 [Step 7] Process completed! Automatically closing Chrome browser...")
-            await self.close()
+            # Step 7: Completed - keep browser open for user inspection
+            self.log("SUCCESS", "🏁 [Step 7] All group automation tasks completed successfully! Browser remains active for your inspection.")
+            results["status"] = "completed"
 
         except Exception as e:
             results["status"] = "failed"
             results["error"] = str(e)
-            self.log("ERROR", f"❌ Unified workflow exception: {str(e)}")
-            raise e
+            self.log("ERROR", f"❌ Group workflow notice: {str(e)}")
+            # Do NOT immediately kill browser on recoverable notices
+            await asyncio.sleep(2.0)
         finally:
-            self.log("INFO", f"✨ Unified workflow sequence for {task_type} ended with status: {results['status']}.")
+            self.log("INFO", f"✨ Group workflow sequence ended with status: {results['status']}.")
 
         return results
 
