@@ -6,6 +6,8 @@
   "routes": [
     { "src": "/sitemap.xml", "dest": "/landing_page/sitemap.xml" },
     { "src": "/robots.txt", "dest": "/landing_page/robots.txt" },
+    { "src": "/og-image.jpg", "dest": "/landing_page/og-image.jpg" },
+    { "src": "/og-poster.jpg", "dest": "/landing_page/og-poster.jpg" },
     { "src": "/googlefc3e3cef9d8c86fb.html", "dest": "/landing_page/googlefc3e3cef9d8c86fb.html" },
     { "src": "/google-DFNIxK3mS0PQhWs4Rms0DHO3JiCnpPRY1q5GHLJFPk.html", "dest": "/landing_page/googlefc3e3cef9d8c86fb.html" },
     { "src": "/admin-panel", "dest": "/landing_page/admin-panel.html" },
