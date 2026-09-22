@@ -2053,9 +2053,11 @@ class FacebookGroupBot:
             else:
                 raise ValueError(f"Unknown task type: {task_type}")
 
-            # Step 7: Completed - keep browser open for user inspection
-            self.log("SUCCESS", "🏁 [Step 7] All group automation tasks completed successfully! Browser remains active for your inspection.")
+            # Step 7: Completed - close browser cleanly upon finishing posting
+            self.log("SUCCESS", "🏁 [Step 7] All group automation tasks completed successfully! Closing browser...")
             results["status"] = "completed"
+            await asyncio.sleep(2.0)
+            await self.close()
 
         except Exception as e:
             results["status"] = "failed"
