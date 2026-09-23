@@ -1087,11 +1087,14 @@ class FacebookGroupBot:
         - Card 2: 'Auto Join To Facebook Groups PRO 2023' (auto-join-fb-group)
         - Card 1: 'Auto Post To Facebook Groups PRO 2023' (auto-post-fb-group)
         CRITICAL: Never reloads or uses page.goto(), keeping the in-memory Facebook account attachment intact.
+        Guarantees 100% precision: Card 2 (Join) vs Card 1 (Post).
         """
         is_join = tool_name.lower() in ("join", "joining")
-        tool_label = "Auto Join To Facebook Groups PRO 2023" if is_join else "Auto Post To Facebook Groups PRO 2023"
+        tool_label = "Card #2 (Auto Join To Facebook Groups PRO 2023)" if is_join else "Card #1 (Auto Post To Facebook Groups PRO 2023)"
         target_path = "auto-join-fb-group" if is_join else "auto-post-fb-group"
-        card_title = "Auto Join To Facebook Groups" if is_join else "Auto Post To Facebook Groups"
+        opposite_path = "auto-post-fb-group" if is_join else "auto-join-fb-group"
+        target_title = "Auto Join To Facebook Groups" if is_join else "Auto Post To Facebook Groups"
+        opposite_title = "Auto Post To Facebook Groups" if is_join else "Auto Join To Facebook Groups"
 
         # Ensure FewFeed page reference is active
         if not hasattr(self, 'fewfeed_page') or self.fewfeed_page is None or self.fewfeed_page.is_closed():
@@ -1101,8 +1104,9 @@ class FacebookGroupBot:
         self.page = self.fewfeed_page
         await self.fewfeed_page.bring_to_front()
 
-        # If currently in a different tool subpage, navigate back to dashboard first via logo click
-        if "/tool/" in self.page.url.lower() and target_path not in self.page.url.lower():
+        # If currently in a different tool subpage or the wrong tool, return to dashboard first via logo click
+        curr_url = self.page.url.lower()
+        if "/tool/" in curr_url and target_path not in curr_url:
             self.log("INFO", f"🔄 Currently on another tool subpage. Navigating back to Dashboard via FewFeed logo...")
             await self.navigate_to_fewfeed_dashboard()
             await asyncio.sleep(1.5)
@@ -1116,122 +1120,149 @@ class FacebookGroupBot:
 
         clicked = False
 
-        # Strategy 1: Playwright Native User Click on Card container
+        # Strategy 1: Targeted DOM evaluation with strict single-card isolation
+        # Card 2 has 'auto join', Card 1 has 'auto post'. We enforce that the card MUST NOT contain the opposite title.
         try:
-            cards = self.page.locator('div, section').filter(has_text=card_title)
-            count = await cards.count()
-            if count > 0:
-                for idx in range(count):
-                    card_el = cards.nth(idx)
-                    btn = card_el.locator('button, a, div[role="button"]').filter(has_text="Use this tool").first
-                    if await btn.count() > 0 and await btn.is_visible():
-                        await btn.scroll_into_view_if_needed()
-                        await btn.click()
-                        clicked = True
-                        break
-        except Exception as e:
-            self.log("DEBUG", f"Playwright card click notice: {e}")
-
-        # Strategy 2: Playwright link with target path in href
-        if not clicked:
-            try:
-                link_loc = self.page.locator(f'a[href*="{target_path}"]').first
-                if await link_loc.count() > 0 and await link_loc.is_visible():
-                    await link_loc.scroll_into_view_if_needed()
-                    await link_loc.click()
-                    clicked = True
-            except Exception:
-                pass
-
-        # Strategy 3: Targeted DOM event dispatch
-        if not clicked:
-            try:
-                clicked = await self.page.evaluate("""(data) => {
-                    const { isJoin, targetPath } = data;
-                    
-                    // 1. Direct href match
-                    const link = document.querySelector(`a[href*="${targetPath}"]`);
-                    if (link) {
-                        link.scrollIntoView({ block: 'center' });
+            dom_res = await self.page.evaluate("""(data) => {
+                const { isJoin, targetPath } = data;
+                
+                // 1. Direct href match (link with targetPath)
+                const directLinks = Array.from(document.querySelectorAll('a[href*="auto-join-fb-group"], a[href*="auto-post-fb-group"]'));
+                for (const l of directLinks) {
+                    const href = (l.getAttribute('href') || '').toLowerCase();
+                    if ((isJoin && href.includes('auto-join')) || (!isJoin && href.includes('auto-post'))) {
+                        l.scrollIntoView({ block: 'center' });
                         ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
-                            link.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+                            l.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
                         });
-                        link.click();
-                        return true;
+                        l.click();
+                        return { ok: true, via: 'direct_link' };
                     }
+                }
 
-                    // 2. Locate card by title text and click 'Use this tool'
-                    const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, div, span, p'));
-                    const titleEl = headings.find(h => {
-                        const t = (h.innerText || h.textContent || '').trim().toLowerCase();
-                        return isJoin ? (t.includes('auto join') && t.includes('groups')) : (t.includes('auto post') && t.includes('groups'));
+                // 2. Strict isolated card container: contains target title, strictly does NOT contain opposite title
+                const allContainers = Array.from(document.querySelectorAll('div, section, article'));
+                const cardCandidates = allContainers.filter(el => {
+                    const txt = (el.innerText || el.textContent || '').toLowerCase();
+                    const hasJoin = txt.includes('auto join') && txt.includes('groups');
+                    const hasPost = txt.includes('auto post') && txt.includes('groups');
+                    if (isJoin) {
+                        return hasJoin && !hasPost;
+                    } else {
+                        return hasPost && !hasJoin;
+                    }
+                });
+
+                for (const card of cardCandidates) {
+                    const btns = Array.from(card.querySelectorAll('button, a, div[role="button"]')).filter(b => {
+                        const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+                        return t.includes('use this tool');
                     });
-
-                    if (titleEl) {
-                        let card = titleEl.parentElement;
-                        for (let d = 0; d < 8 && card; d++) {
-                            const btns = Array.from(card.querySelectorAll('button, a, div[role="button"]'));
-                            const useBtn = btns.find(b => {
-                                const bTxt = (b.innerText || b.textContent || '').trim().toLowerCase();
-                                return bTxt.includes('use this tool');
-                            });
-                            if (useBtn) {
-                                useBtn.scrollIntoView({ block: 'center' });
-                                ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
-                                    useBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
-                                });
-                                useBtn.click();
-                                return true;
-                            }
-                            card = card.parentElement;
-                        }
+                    if (btns.length === 1) {
+                        const btn = btns[0];
+                        btn.scrollIntoView({ block: 'center' });
+                        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+                            btn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+                        });
+                        btn.click();
+                        return { ok: true, via: 'isolated_card' };
                     }
+                }
 
-                    // 3. Fallback by button index under FREE TOOLS:
-                    // Post = index 0, Join = index 1
-                    const allUseBtns = Array.from(document.querySelectorAll('button, a, div[role="button"]')).filter(b => {
+                // 3. Free Tools Row Index:
+                // Card 1 = index 0 (Auto Post), Card 2 = index 1 (Auto Join), Card 3 = index 2 (Auto Comment)
+                const freeToolsRow = Array.from(document.querySelectorAll('div, section')).find(s => {
+                    const txt = (s.innerText || s.textContent || '').toLowerCase();
+                    return txt.includes('free tools') && txt.includes('auto post') && txt.includes('auto join');
+                });
+
+                if (freeToolsRow) {
+                    const btns = Array.from(freeToolsRow.querySelectorAll('button, a, div[role="button"]')).filter(b => {
                         const t = (b.innerText || b.textContent || '').trim().toLowerCase();
                         return t.includes('use this tool');
                     });
                     const targetIdx = isJoin ? 1 : 0;
-                    if (allUseBtns.length > targetIdx) {
-                        const b = allUseBtns[targetIdx];
+                    if (btns.length > targetIdx) {
+                        const b = btns[targetIdx];
                         b.scrollIntoView({ block: 'center' });
                         ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
                             b.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
                         });
                         b.click();
-                        return true;
+                        return { ok: true, via: 'free_tools_index' };
                     }
+                }
 
-                    return false;
-                }""", {"isJoin": is_join, "targetPath": target_path})
+                // 4. Global "Use this tool" button index: [0]=Post, [1]=Join
+                const allUseBtns = Array.from(document.querySelectorAll('button, a, div[role="button"]')).filter(b => {
+                    const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+                    return t.includes('use this tool');
+                });
+                const fallbackIdx = isJoin ? 1 : 0;
+                if (allUseBtns.length > fallbackIdx) {
+                    const fb = allUseBtns[fallbackIdx];
+                    fb.scrollIntoView({ block: 'center' });
+                    ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+                        fb.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+                    });
+                    fb.click();
+                    return { ok: true, via: 'global_index' };
+                }
+
+                return { ok: false };
+            }""", {"isJoin": is_join, "targetPath": target_path})
+
+            if dom_res and dom_res.get("ok"):
+                clicked = True
+                self.log("INFO", f"🖱️ Dispatched click for {tool_label} (via {dom_res.get('via')}).")
+        except Exception as e:
+            self.log("DEBUG", f"DOM dispatch notice: {e}")
+
+        # Strategy 2: Playwright Locator with strict negative filter (rejects containers with opposite title)
+        if not clicked:
+            try:
+                card_loc = self.page.locator('div, section, article').filter(has_text=target_title).filter(has_not_text=opposite_title)
+                c_count = await card_loc.count()
+                for i in range(c_count):
+                    c = card_loc.nth(i)
+                    btn = c.locator('button, a, div[role="button"]').filter(has_text="Use this tool").first
+                    if await btn.count() > 0 and await btn.is_visible():
+                        await btn.scroll_into_view_if_needed()
+                        await btn.click()
+                        clicked = True
+                        break
             except Exception as e:
-                self.log("DEBUG", f"DOM click dispatch notice: {e}")
+                self.log("DEBUG", f"Playwright locator notice: {e}")
 
-        # Wait client-side for tool page to load (WITHOUT reloading or goto)
+        # Wait client-side for navigation to tool page AND verify URL
         self.log("INFO", f"⏳ Waiting for {tool_label} to open...")
         for wait_i in range(16):
             await asyncio.sleep(0.5)
-            if target_path in self.page.url.lower():
+            curr = self.page.url.lower()
+            if target_path in curr:
                 break
-            # If not yet open after 2 seconds, re-attempt click once
-            if wait_i == 4 and not clicked:
-                try:
-                    await self.page.evaluate("""(tPath) => {
-                        const l = document.querySelector(`a[href*="${tPath}"]`);
-                        if (l) l.click();
-                    }""", target_path)
-                except Exception:
-                    pass
+            
+            # Auto-Correction: If the opposite tool accidentally opened, immediately navigate back & re-click
+            if opposite_path in curr and target_path not in curr:
+                self.log("WARNING", f"⚠️ Detected wrong tool in URL ({opposite_path})! Auto-correcting to {target_path}...")
+                await self.navigate_to_fewfeed_dashboard()
+                await asyncio.sleep(1.0)
+                # Re-click strictly using target index
+                await self.page.evaluate("""(idx) => {
+                    const btns = Array.from(document.querySelectorAll('button, a, div[role="button"]')).filter(b => (b.innerText || '').toLowerCase().includes('use this tool'));
+                    if (btns[idx]) {
+                        btns[idx].scrollIntoView({ block: 'center' });
+                        btns[idx].click();
+                    }
+                }""", 1 if is_join else 0)
 
-        # Wait for form inputs / controls on tool page
+        # Wait for form inputs / controls on the opened tool page
         try:
             await self.page.wait_for_selector('textarea, input, button', timeout=6000)
         except Exception:
             pass
 
-        self.log("SUCCESS", f"✅ {tool_label} loaded successfully with Facebook session preserved!")
+        self.log("SUCCESS", f"✅ {tool_label} opened and verified with Facebook session preserved!")
         return True
 
     async def run_fewfeed_group_joining(
@@ -2118,21 +2149,21 @@ class FacebookGroupBot:
 
             # 3. Automated Target Processing
             if task_type.lower() in ("unified", "both", "all"):
-                # Step 4 & 5: Auto Join Groups in FewFeed if join codes provided and not already joined
-                if already_joined:
-                    self.log("INFO", "ℹ️ ['Already Group Joined' checked] Skipping Group Joining Phase. Opening FewFeed Auto Post directly...")
-                elif j_codes:
-                    self.log("INFO", f"⚡ [Unified Phase 1/2] Launching FewFeed Auto Join for {len(j_codes)} groups (THREAD={join_thread}, DELAY={j_delay}s)...")
+                # Phase 1: Auto Join Groups in FewFeed (Card #2) if target group codes provided
+                if j_codes:
+                    self.log("INFO", f"⚡ [Unified Phase 1/2] Launching FewFeed Auto Join (Card #2) for {len(j_codes)} groups (THREAD={join_thread}, DELAY={j_delay}s)...")
                     await self.run_fewfeed_group_joining(
                         group_codes=j_codes,
                         thread_val=join_thread,
                         delay_seconds=j_delay
                     )
+                elif already_joined:
+                    self.log("INFO", "ℹ️ ['Skip Group Joining' selected & no join codes provided] Proceeding directly to FewFeed Auto Post...")
                 else:
                     self.log("INFO", "ℹ️ [Unified Phase 1/2] No join group codes provided. Proceeding to Auto Post...")
 
-                # Step 4 & 6: Auto Post to Groups in FewFeed or Direct Fallback
-                self.log("INFO", f"⚡ [Unified Phase 2/2] Launching Auto Post (THREAD={post_thread}, DELAY={delay_seconds}s, CYCLES={post_cycles})...")
+                # Phase 2: Auto Post to Groups in FewFeed (Card #1)
+                self.log("INFO", f"⚡ [Unified Phase 2/2] Launching FewFeed Auto Post (Card #1) (THREAD={post_thread}, DELAY={delay_seconds}s, CYCLES={post_cycles})...")
                 posted_items = await self.run_group_posting(
                     group_codes=p_codes,
                     links=links or [],

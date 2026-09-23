@@ -183,6 +183,23 @@ except ImportError:
     except ImportError:
         HAS_GROUP_BOT = False
 
+# Phase 8: Facebook Page Creator Engine
+try:
+    from automation.page_creator_bot import (
+        FacebookPageCreatorBot,
+        POPULAR_FB_CATEGORIES
+    )
+    HAS_PAGE_CREATOR_BOT = True
+except ImportError:
+    try:
+        from desktop_app.automation.page_creator_bot import (
+            FacebookPageCreatorBot,
+            POPULAR_FB_CATEGORIES
+        )
+        HAS_PAGE_CREATOR_BOT = True
+    except ImportError:
+        HAS_PAGE_CREATOR_BOT = False
+
 # Licensing Subsystem & Anti-Tamper Protection
 try:
     from utils.licensing import (
@@ -1159,6 +1176,170 @@ class GroupAutomationWorker(QThread):
 
 
 # ------------------------------------------------------------------------------
+# Asynchronous FB Page Creation Worker Thread (Phase 8: Multi-Account & Multi-Tab)
+# ------------------------------------------------------------------------------
+class PageCreationWorker(QThread):
+    """
+    Asynchronous background worker that orchestrates Facebook Page Creation across
+    target accounts with multiple concurrent tabs (e.g. 5 tabs per account) simultaneously.
+    """
+    log_signal = pyqtSignal(str, str)
+    progress_signal = pyqtSignal(int)
+    finished_signal = pyqtSignal(bool, str)
+
+    def __init__(self, payload: Dict[str, Any]):
+        super().__init__()
+        self.payload = payload
+        self.active_bots: List[Any] = []
+        self.loop = None
+        self._is_running = True
+
+    def _log_bridge(self, level: str, message: str):
+        self.log_signal.emit(level, message)
+
+    def _progress_bridge(self, percent: int):
+        self.progress_signal.emit(percent)
+
+    def stop(self):
+        self._is_running = False
+        self.log_signal.emit("WARNING", "🛑 Stop command received for FB Page Creation...")
+        for bot in list(self.active_bots):
+            try:
+                bot.cancel()
+            except Exception:
+                pass
+        self.finished_signal.emit(False, "FB Page Creation stopped by user.")
+
+    def run(self):
+        setup_windows_asyncio()
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        try:
+            self.loop.run_until_complete(self._execute_task())
+        except Exception as e:
+            if self._is_running:
+                self.log_signal.emit("ERROR", f"Page Creation encountered error: {str(e)}")
+                self.finished_signal.emit(False, str(e))
+        finally:
+            try:
+                self.loop.close()
+            except Exception:
+                pass
+
+    async def _execute_task(self):
+        if not HAS_PAGE_CREATOR_BOT:
+            self.log_signal.emit("ERROR", "Facebook Page Creator Engine module not available.")
+            self.finished_signal.emit(False, "Page Creator module missing.")
+            return
+
+        accounts = self.payload.get("accounts", [])
+        if not accounts:
+            self.log_signal.emit("ERROR", "No target Facebook accounts selected.")
+            self.finished_signal.emit(False, "No accounts selected.")
+            return
+
+        all_page_names = self.payload.get("page_names", [])
+        if not all_page_names:
+            self.log_signal.emit("ERROR", "No page names provided.")
+            self.finished_signal.emit(False, "Page names required.")
+            return
+
+        category = self.payload.get("category", "Digital Creator").strip() or "Digital Creator"
+        bios = self.payload.get("bios", [])
+        default_bio = self.payload.get("default_bio", "")
+        pages_per_acc = max(1, int(self.payload.get("pages_per_account", 5)))
+        concurrent_browsers = max(1, int(self.payload.get("concurrent_browsers", 2)))
+        delay = float(self.payload.get("delay", 2.0))
+
+        self.log_signal.emit("INFO", "==================================================")
+        self.log_signal.emit("INFO", "🚀 Launching Facebook Page Creation Workflow...")
+        self.log_signal.emit("INFO", f"👥 Accounts: {len(accounts)} | 📄 Total Page Names Pool: {len(all_page_names)}")
+        self.log_signal.emit("INFO", f"📑 Pages Per Account: {pages_per_acc} concurrent tab(s) | 🏷️ Category: '{category}'")
+        self.log_signal.emit("INFO", f"🌐 Concurrent Browsers: {concurrent_browsers} | ⏳ Action Delay: {delay}s")
+
+        total_accs = len(accounts)
+        effective_browsers = min(concurrent_browsers, total_accs)
+        semaphore = asyncio.Semaphore(effective_browsers)
+
+        name_pointer = 0
+        total_created = 0
+
+        async def _process_account(acc, acc_idx):
+            nonlocal name_pointer, total_created
+            if not self._is_running:
+                return
+
+            async with semaphore:
+                if not self._is_running:
+                    return
+
+                tag = f"[{acc.get('name', 'Account')}]"
+                self.log_signal.emit("INFO", f"▶️ {tag} Launching Desktop Chrome for Page Creation...")
+
+                # Assign page configs for this account
+                acc_page_configs = []
+                for i in range(pages_per_acc):
+                    if all_page_names:
+                        p_name = all_page_names[(name_pointer + i) % len(all_page_names)]
+                    else:
+                        p_name = f"Page {i + 1}"
+
+                    p_bio = ""
+                    if bios:
+                        p_bio = bios[(name_pointer + i) % len(bios)]
+                    elif default_bio:
+                        p_bio = default_bio
+
+                    acc_page_configs.append({
+                        "name": p_name,
+                        "category": category,
+                        "bio": p_bio,
+                        "contact": self.payload.get("contact", {}),
+                        "location": self.payload.get("location", {}),
+                        "hours_mode": self.payload.get("hours_mode", "always_open"),
+                        "profile_photo_path": self.payload.get("profile_photo_path", ""),
+                        "cover_photo_path": self.payload.get("cover_photo_path", "")
+                    })
+
+                name_pointer += pages_per_acc
+
+                bot = FacebookPageCreatorBot(
+                    account_data=acc,
+                    log_callback=self._log_bridge,
+                    progress_callback=self._progress_bridge
+                )
+                self.active_bots.append(bot)
+
+                try:
+                    res = await bot.create_pages_workflow(
+                        page_configs=acc_page_configs,
+                        delay_seconds=delay
+                    )
+                    created_count = sum(1 for r in res if r.get("status") == "Created")
+                    total_created += created_count
+                except Exception as ex:
+                    self.log_signal.emit("ERROR", f"{tag} Creation error: {str(ex)}")
+                finally:
+                    if bot in self.active_bots:
+                        self.active_bots.remove(bot)
+                    if not self._is_running:
+                        await bot.close()
+
+                # Progress update
+                done_percent = int(((acc_idx + 1) / total_accs) * 100)
+                self.progress_signal.emit(done_percent)
+
+        tasks = [_process_account(acc, idx) for idx, acc in enumerate(accounts)]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        if self._is_running:
+            msg = f"🎉 Facebook Page Creation finished! Created {total_created} pages across {len(accounts)} accounts."
+            self.log_signal.emit("SUCCESS", msg)
+            self.progress_signal.emit(100)
+            self.finished_signal.emit(True, msg)
+
+
+# ------------------------------------------------------------------------------
 # Asynchronous Automation Worker Thread (Phase 2: Playwright Engine)
 # ------------------------------------------------------------------------------
 class AutomationWorker(QThread):
@@ -1930,6 +2111,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.selected_images = []
         self.worker = None
         self.group_worker = None
+        self.page_creation_worker = None
         self.health_worker = None
         self.manual_worker = None
         self.ai_worker = None
@@ -2035,6 +2217,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.page_automation = self.create_automation_page()
         self.page_project_listing = self.create_project_listing_page()
         self.page_group_posting = self.create_group_automation_page()
+        self.page_create_fb_page = self.create_page_creation_page()
         self.page_ai = self.create_ai_page()
         self.page_settings = self.create_settings_page()
         self.page_profile = self.create_profile_page()
@@ -2044,9 +2227,10 @@ class FBAutoBotMainWindow(QMainWindow):
         self.pages_stack.addWidget(self.page_automation)      # Index 2 (Standard Listing Marketplace)
         self.pages_stack.addWidget(self.page_project_listing) # Index 3 (Project Listing Marketplace)
         self.pages_stack.addWidget(self.page_group_posting)   # Index 4 (FB Group Posting)
-        self.pages_stack.addWidget(self.page_ai)              # Index 5 (AI Content Spinner)
-        self.pages_stack.addWidget(self.page_settings)        # Index 6 (Settings & Stealth)
-        self.pages_stack.addWidget(self.page_profile)         # Index 7 (User Profile & Activity Logs)
+        self.pages_stack.addWidget(self.page_create_fb_page)  # Index 5 (Create FB Page)
+        self.pages_stack.addWidget(self.page_ai)              # Index 6 (AI Content Spinner)
+        self.pages_stack.addWidget(self.page_settings)        # Index 7 (Settings & Stealth)
+        self.pages_stack.addWidget(self.page_profile)         # Index 8 (User Profile & Activity Logs)
 
         content_layout.addWidget(self.pages_stack, stretch=7)
 
@@ -2119,7 +2303,7 @@ class FBAutoBotMainWindow(QMainWindow):
             font-weight: 700;
             padding: 4px 10px;
         """)
-        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(7)
+        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(8)
         right_layout.addWidget(self.header_countdown_pill)
 
         # User Profile Chip
@@ -2143,7 +2327,7 @@ class FBAutoBotMainWindow(QMainWindow):
                 border: 1px solid rgba(255, 255, 255, 0.25);
             }
         """)
-        self.header_user_chip.clicked.connect(lambda: self.switch_tab(7))
+        self.header_user_chip.clicked.connect(lambda: self.switch_tab(8))
         right_layout.addWidget(self.header_user_chip)
 
         # Quick Key Button
@@ -2232,7 +2416,7 @@ class FBAutoBotMainWindow(QMainWindow):
         version_lbl.setStyleSheet("font-size: 10px; font-weight: 700; color: #6366f1; letter-spacing: 1px; margin-bottom: 16px;")
         layout.addWidget(version_lbl)
 
-        # Navigation Buttons (8 Tabs)
+        # Navigation Buttons (9 Tabs)
         self.nav_buttons = []
         nav_items = [
             ("📊 Dashboard", 0),
@@ -2240,9 +2424,10 @@ class FBAutoBotMainWindow(QMainWindow):
             ("⚡ Standard & Bulk Listing", 2),
             ("📁 Project Listing", 3),
             ("📢 FB Group Posting", 4),
-            ("🧠 AI Content Spinner", 5),
-            ("⚙️ Settings & Stealth", 6),
-            ("👤 User Profile & Logs", 7),
+            ("📄 Create FB Page", 5),
+            ("🧠 AI Content Spinner", 6),
+            ("⚙️ Settings & Stealth", 7),
+            ("👤 User Profile & Logs", 8),
         ]
 
         for text, index in nav_items:
@@ -2288,6 +2473,7 @@ class FBAutoBotMainWindow(QMainWindow):
             "Standard & Bulk Listing Marketplace",
             "Project Listing Marketplace",
             "Facebook Group Automation",
+            "Create FB Page",
             "AI Content Spinner & Intelligence",
             "Settings & Stealth Parameters",
             "User Profile & Activity Logs"
@@ -2296,7 +2482,7 @@ class FBAutoBotMainWindow(QMainWindow):
             self.header_page_title.setText(tab_names[index])
 
         # If switching to profile page, ensure data is fresh
-        if index == 7 and hasattr(self, 'update_profile_page_data'):
+        if index == 8 and hasattr(self, 'update_profile_page_data'):
             self.update_profile_page_data()
 
     # --------------------------------------------------------------------------
@@ -2546,20 +2732,30 @@ class FBAutoBotMainWindow(QMainWindow):
         b1.setProperty("class", "primaryBtn")
         b1.clicked.connect(lambda: self.switch_tab(2))
 
-        b2 = QPushButton("👥 Import New Account Session")
+        b2 = QPushButton("👥 Accounts")
         b2.setProperty("class", "secondaryBtn")
         b2.clicked.connect(lambda: self.switch_tab(1))
 
-        b3 = QPushButton("🧠 Spin Description with AI")
-        b3.setProperty("class", "secondaryBtn")
-        b3.clicked.connect(lambda: self.switch_tab(5))
+        b_grp = QPushButton("📢 FB Group Posting")
+        b_grp.setProperty("class", "secondaryBtn")
+        b_grp.clicked.connect(lambda: self.switch_tab(4))
 
-        b4 = QPushButton("👤 User Profile & Logs")
+        b_page = QPushButton("📄 Create FB Page")
+        b_page.setProperty("class", "secondaryBtn")
+        b_page.clicked.connect(lambda: self.switch_tab(5))
+
+        b3 = QPushButton("🧠 AI Spinner")
+        b3.setProperty("class", "secondaryBtn")
+        b3.clicked.connect(lambda: self.switch_tab(6))
+
+        b4 = QPushButton("👤 Profile")
         b4.setProperty("class", "secondaryBtn")
-        b4.clicked.connect(lambda: self.switch_tab(7))
+        b4.clicked.connect(lambda: self.switch_tab(8))
 
         btn_row.addWidget(b1)
         btn_row.addWidget(b2)
+        btn_row.addWidget(b_grp)
+        btn_row.addWidget(b_page)
         btn_row.addWidget(b3)
         btn_row.addWidget(b4)
         btn_row.addStretch()
@@ -5733,6 +5929,7 @@ class FBAutoBotMainWindow(QMainWindow):
     def update_account_dropdown(self):
         self.populate_accounts_checklist()
         self.populate_group_accounts_checklist()
+        self.populate_page_creation_accounts_checklist()
         self.refresh_project_accounts_checklist()
         if hasattr(self, 'target_acc_select'):
             self.target_acc_select.clear()
@@ -8222,10 +8419,10 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Top Options: Already Group Joined & Post Repetitions Per Account
         p_top_opts = QHBoxLayout()
-        self.grp_already_joined_chk = QCheckBox("☑️ Already Group Joined (Post Directly to All Joined Groups)")
-        self.grp_already_joined_chk.setChecked(True)
-        self.grp_already_joined_chk.setStyleSheet("font-size: 13px; font-weight: 700; color: #10b981; padding: 4px 0;")
-        self.grp_already_joined_chk.setToolTip("When checked, skips group joining and posts directly to all groups already joined in the Facebook account via FewFeed tool.")
+        self.grp_already_joined_chk = QCheckBox("⏩ Skip Group Joining (Post Directly to Joined Groups)")
+        self.grp_already_joined_chk.setChecked(False)
+        self.grp_already_joined_chk.setStyleSheet("font-size: 12px; font-weight: 700; color: #94a3b8; padding: 4px 0;")
+        self.grp_already_joined_chk.setToolTip("Default is OFF (joins groups first, then posts). Only check this if you intentionally want to bypass the group joining step and post directly.")
         p_top_opts.addWidget(self.grp_already_joined_chk)
         p_top_opts.addStretch()
 
@@ -8672,6 +8869,894 @@ class FBAutoBotMainWindow(QMainWindow):
             QMessageBox.information(self, "Group Task Complete", f"Facebook Group FewFeed automation finished!\n\n{message}")
         else:
             QMessageBox.warning(self, "Group Task Notice", f"Facebook Group execution notice:\n\n{message}")
+
+    # --------------------------------------------------------------------------
+    # Tab 5: Create FB Page (Multi-Account & Multi-Tab Page Creation Engine)
+    # --------------------------------------------------------------------------
+    def create_page_creation_page(self):
+        page = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        # Header Title
+        title_box = QVBoxLayout()
+        title = QLabel("Facebook Page Creation Engine")
+        title.setProperty("class", "pageTitle")
+        sub = QLabel("Automate Facebook Page creation across multiple accounts with simultaneous browser tabs, public page selection, category matching, and descriptions.")
+        sub.setProperty("class", "pageSubtitle")
+        title_box.addWidget(title)
+        title_box.addWidget(sub)
+        layout.addLayout(title_box)
+
+        # ----------------------------------------------------------------------
+        # Target Accounts Selection Panel
+        # ----------------------------------------------------------------------
+        acc_card = QFrame()
+        acc_card.setProperty("class", "glassCard")
+        acc_card_layout = QVBoxLayout(acc_card)
+        acc_card_layout.setSpacing(8)
+
+        page_acc_hdr = QHBoxLayout()
+        page_acc_hdr.addWidget(QLabel("👥 Target Accounts for FB Page Creation:"))
+        page_acc_hdr.addStretch()
+
+        self.btn_page_refresh_acc = QPushButton("🔄 Refresh")
+        self.btn_page_refresh_acc.setStyleSheet("background-color: #059669; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
+        self.btn_page_refresh_acc.setCursor(Qt.PointingHandCursor)
+        self.btn_page_refresh_acc.setToolTip("Reload active accounts from Accounts Manager")
+        self.btn_page_refresh_acc.clicked.connect(self.reload_accounts_from_manager)
+        page_acc_hdr.addWidget(self.btn_page_refresh_acc)
+
+        self.btn_page_select_all = QPushButton("⚡ Select All")
+        self.btn_page_select_all.setStyleSheet("background-color: #3b82f6; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
+        self.btn_page_select_all.setCursor(Qt.PointingHandCursor)
+        self.btn_page_select_all.clicked.connect(self.select_all_page_accounts)
+        page_acc_hdr.addWidget(self.btn_page_select_all)
+
+        self.btn_page_clear_acc = QPushButton("❌ Clear")
+        self.btn_page_clear_acc.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
+        self.btn_page_clear_acc.setCursor(Qt.PointingHandCursor)
+        self.btn_page_clear_acc.clicked.connect(self.clear_all_page_accounts)
+        page_acc_hdr.addWidget(self.btn_page_clear_acc)
+        acc_card_layout.addLayout(page_acc_hdr)
+
+        # Accounts checklist scroll
+        self.page_acc_scroll = QScrollArea()
+        self.page_acc_scroll.setFixedHeight(105)
+        self.page_acc_scroll.setWidgetResizable(True)
+        self.page_acc_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.05); background: rgba(15, 23, 42, 0.6); border-radius: 6px; }")
+
+        self.page_acc_widget = QWidget()
+        self.page_acc_layout = QVBoxLayout(self.page_acc_widget)
+        self.page_acc_layout.setContentsMargins(8, 6, 8, 6)
+        self.page_acc_layout.setSpacing(6)
+        self.page_acc_scroll.setWidget(self.page_acc_widget)
+        acc_card_layout.addWidget(self.page_acc_scroll)
+
+        # Account parameters row
+        acc_bottom_row = QHBoxLayout()
+        acc_bottom_row.setSpacing(12)
+        self.page_acc_summary_lbl = QLabel("🎯 0 Accounts Selected")
+        self.page_acc_summary_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        acc_bottom_row.addWidget(self.page_acc_summary_lbl)
+        acc_bottom_row.addStretch()
+
+        # Concurrent Chrome browsers (accounts at once)
+        browsers_lbl = QLabel("🌐 Concurrent Browsers (Accounts):")
+        browsers_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        acc_bottom_row.addWidget(browsers_lbl)
+
+        self.page_max_concurrent_browsers = QSpinBox()
+        self.page_max_concurrent_browsers.setRange(1, 20)
+        self.page_max_concurrent_browsers.setValue(2)
+        self.page_max_concurrent_browsers.setSuffix(" browser(s)")
+        self.page_max_concurrent_browsers.setFixedWidth(115)
+        self.page_max_concurrent_browsers.setStyleSheet("font-weight: 800; color: #10b981; background: #0f172a; border: 1px solid #38bdf8; border-radius: 4px; padding: 2px 4px;")
+        acc_bottom_row.addWidget(self.page_max_concurrent_browsers)
+
+        # Pages to create per account
+        pages_acc_lbl = QLabel("📑 Pages to Create Per Account:")
+        pages_acc_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        acc_bottom_row.addWidget(pages_acc_lbl)
+
+        self.page_count_per_account = QSpinBox()
+        self.page_count_per_account.setRange(1, 50)
+        self.page_count_per_account.setValue(5)
+        self.page_count_per_account.setSuffix(" pages")
+        self.page_count_per_account.setFixedWidth(105)
+        self.page_count_per_account.setStyleSheet("font-weight: 800; color: #f59e0b; background: #0f172a; border: 1px solid #f59e0b; border-radius: 4px; padding: 2px 4px;")
+        self.page_count_per_account.setToolTip("Example: Set to 5. The bot opens 5 tabs simultaneously in the browser and creates 5 pages concurrently.")
+        acc_bottom_row.addWidget(self.page_count_per_account)
+
+        # Delay
+        delay_lbl = QLabel("⏳ Action Delay:")
+        delay_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        acc_bottom_row.addWidget(delay_lbl)
+
+        self.page_delay_spin = QSpinBox()
+        self.page_delay_spin.setRange(1, 20)
+        self.page_delay_spin.setValue(2)
+        self.page_delay_spin.setSuffix("s")
+        self.page_delay_spin.setFixedWidth(75)
+        self.page_delay_spin.setStyleSheet("font-weight: 800; color: #e2e8f0; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 4px;")
+        acc_bottom_row.addWidget(self.page_delay_spin)
+
+        acc_card_layout.addLayout(acc_bottom_row)
+        layout.addWidget(acc_card)
+
+        # ----------------------------------------------------------------------
+        # Unified Action Bar & Workflow Banner
+        # ----------------------------------------------------------------------
+        action_card = QFrame()
+        action_card.setProperty("class", "glassCard")
+        action_card.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(15, 23, 42, 0.95), stop:1 rgba(30, 41, 59, 0.95)); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; padding: 14px;")
+        ac_layout = QVBoxLayout(action_card)
+        ac_layout.setSpacing(10)
+
+        workflow_banner = QLabel("⚡ <b>FB Page Creation Sequence:</b> Opens Desktop Chrome with Account Cookies → Opens requested number of parallel tabs (e.g. 5 tabs) → Selects 'Public Page' & clicks 'Next' in the modal dialog → Concurrently fills Page Name, Category (selects Facebook auto-suggestion) & Bio across all tabs → Concurrently triggers 'Create Page' across all tabs.")
+        workflow_banner.setStyleSheet("color: #e0e7ff; font-size: 12px; line-height: 1.4;")
+        workflow_banner.setWordWrap(True)
+        ac_layout.addWidget(workflow_banner)
+
+        # Action Buttons Row
+        action_btn_row = QHBoxLayout()
+        action_btn_row.setSpacing(12)
+
+        self.btn_start_create_pages = QPushButton("🚀 Start Creating FB Pages")
+        self.btn_start_create_pages.setCursor(Qt.PointingHandCursor)
+        self.btn_start_create_pages.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10b981);
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: 800;
+                padding: 10px 24px;
+                border-radius: 8px;
+                border: 1px solid #34d399;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #047857, stop:1 #059669);
+            }
+            QPushButton:disabled {
+                background: #334155;
+                color: #94a3b8;
+                border: 1px solid #475569;
+            }
+        """)
+        self.btn_start_create_pages.clicked.connect(self.start_page_creation)
+        action_btn_row.addWidget(self.btn_start_create_pages, stretch=2)
+
+        self.btn_stop_create_pages = QPushButton("⏹️ Stop Creation")
+        self.btn_stop_create_pages.setCursor(Qt.PointingHandCursor)
+        self.btn_stop_create_pages.setEnabled(False)
+        self.btn_stop_create_pages.setStyleSheet("""
+            QPushButton {
+                background-color: #dc2626;
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 700;
+                padding: 10px 20px;
+                border-radius: 8px;
+                border: 1px solid #ef4444;
+            }
+            QPushButton:hover { background-color: #b91c1c; }
+            QPushButton:disabled { background-color: #334155; color: #64748b; border: 1px solid #475569; }
+        """)
+        self.btn_stop_create_pages.clicked.connect(self.stop_page_creation)
+        action_btn_row.addWidget(self.btn_stop_create_pages, stretch=1)
+
+        ac_layout.addLayout(action_btn_row)
+
+        # Status & Progress Row
+        status_prog_row = QHBoxLayout()
+        self.page_creation_status_lbl = QLabel("● READY TO CREATE PAGES")
+        self.page_creation_status_lbl.setStyleSheet("color: #10b981; font-weight: 700; font-size: 11px;")
+        status_prog_row.addWidget(self.page_creation_status_lbl)
+
+        self.page_creation_progress = QProgressBar()
+        self.page_creation_progress.setFixedHeight(8)
+        self.page_creation_progress.setRange(0, 100)
+        self.page_creation_progress.setValue(0)
+        self.page_creation_progress.setTextVisible(False)
+        self.page_creation_progress.setStyleSheet("""
+            QProgressBar { background-color: rgba(255, 255, 255, 0.05); border-radius: 4px; }
+            QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #10b981, stop:1 #38bdf8); border-radius: 4px; }
+        """)
+        status_prog_row.addWidget(self.page_creation_progress, stretch=1)
+        ac_layout.addLayout(status_prog_row)
+
+        layout.addWidget(action_card)
+
+        # ----------------------------------------------------------------------
+        # 3 Dedicated Columns: Page Names, Category, and Bio/Description
+        # ----------------------------------------------------------------------
+        cols_container = QHBoxLayout()
+        cols_container.setSpacing(14)
+
+        # Column 1: Page Names (Bulk Input)
+        col1_card = QFrame()
+        col1_card.setProperty("class", "glassCard")
+        c1_layout = QVBoxLayout(col1_card)
+        c1_layout.setSpacing(8)
+
+        c1_hdr = QLabel("📝 Page Names (Bulk / 1 Per Line)")
+        c1_hdr.setStyleSheet("font-size: 13px; font-weight: 700; color: #38bdf8; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;")
+        c1_layout.addWidget(c1_hdr)
+
+        c1_sub = QLabel("Enter one page name per line. If 5 pages are requested per account, the bot picks 5 names per account.")
+        c1_sub.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        c1_sub.setWordWrap(True)
+        c1_layout.addWidget(c1_sub)
+
+        self.page_names_bulk_input = QTextEdit()
+        self.page_names_bulk_input.setPlaceholderText("Modern Real Estate Hub\nDigital Marketing Pro\nNexus Tech Solutions\nElite Car Detailing\nUrban Fashion Store\nPrime Fitness Studio\nSkyline Properties\nCreative Design Studio\nGlobal Logistics Hub\nNextGen Innovations")
+        self.page_names_bulk_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-family: monospace; font-size: 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 8px;")
+        self.page_names_bulk_input.textChanged.connect(self.update_page_names_count)
+        c1_layout.addWidget(self.page_names_bulk_input, stretch=1)
+
+        c1_btn_row = QHBoxLayout()
+        self.page_names_count_lbl = QLabel("📊 Total Names: 0")
+        self.page_names_count_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
+        c1_btn_row.addWidget(self.page_names_count_lbl)
+        c1_btn_row.addStretch()
+
+        btn_sample_names = QPushButton("⚡ Load Sample Names")
+        btn_sample_names.setStyleSheet("background-color: #3b82f6; color: white; font-size: 11px; font-weight: 600; padding: 4px 8px; border-radius: 4px;")
+        btn_sample_names.setCursor(Qt.PointingHandCursor)
+        btn_sample_names.clicked.connect(self.load_sample_page_names)
+        c1_btn_row.addWidget(btn_sample_names)
+
+        btn_clear_names = QPushButton("❌ Clear")
+        btn_clear_names.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 4px 8px; border-radius: 4px;")
+        btn_clear_names.setCursor(Qt.PointingHandCursor)
+        btn_clear_names.clicked.connect(self.clear_page_names)
+        c1_btn_row.addWidget(btn_clear_names)
+        c1_layout.addLayout(c1_btn_row)
+
+        cols_container.addWidget(col1_card, stretch=1)
+
+        # Column 2: Category (Required)
+        col2_card = QFrame()
+        col2_card.setProperty("class", "glassCard")
+        c2_layout = QVBoxLayout(col2_card)
+        c2_layout.setSpacing(8)
+
+        c2_hdr = QLabel("🏷️ Category (Required)")
+        c2_hdr.setStyleSheet("font-size: 13px; font-weight: 700; color: #f59e0b; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;")
+        c2_layout.addWidget(c2_hdr)
+
+        c2_sub = QLabel("Select or type the category. Facebook requires matching its suggestion dropdown; the bot types this and picks the suggestion.")
+        c2_sub.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        c2_sub.setWordWrap(True)
+        c2_layout.addWidget(c2_sub)
+
+        # Editable ComboBox
+        self.page_category_combo = QComboBox()
+        self.page_category_combo.setEditable(True)
+        categories = [
+            "Digital Creator",
+            "Real Estate Agency",
+            "Marketing Agency",
+            "Advertising/Marketing",
+            "E-commerce Website",
+            "Entrepreneur",
+            "Business Service",
+            "Product/service",
+            "Shopping & retail",
+            "Consulting Agency",
+            "Information Technology Company",
+            "Community",
+            "Health/beauty",
+            "Restaurant",
+            "Photographer"
+        ]
+        self.page_category_combo.addItems(categories)
+        self.page_category_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #0f172a;
+                color: #f8fafc;
+                font-size: 13px;
+                font-weight: 700;
+                padding: 8px 10px;
+                border: 1px solid #f59e0b;
+                border-radius: 6px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #0f172a;
+                color: #f8fafc;
+                selection-background-color: #f59e0b;
+                selection-color: #000000;
+            }
+        """)
+        c2_layout.addWidget(self.page_category_combo)
+
+        # Quick preset buttons
+        c2_presets_title = QLabel("Popular Quick Categories (Click to Apply):")
+        c2_presets_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #e2e8f0; margin-top: 6px;")
+        c2_layout.addWidget(c2_presets_title)
+
+        quick_cats_grid = QGridLayout()
+        quick_cats_grid.setSpacing(6)
+        preset_tags = [
+            ("Digital Creator", 0, 0),
+            ("Real Estate Agency", 0, 1),
+            ("Marketing Agency", 1, 0),
+            ("E-commerce Website", 1, 1),
+            ("Business Service", 2, 0),
+            ("Entrepreneur", 2, 1),
+            ("Community", 3, 0),
+            ("Product/service", 3, 1),
+        ]
+        for name, r, c in preset_tags:
+            btn = QPushButton(name)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(245, 158, 11, 0.12);
+                    color: #fcd34d;
+                    border: 1px solid rgba(245, 158, 11, 0.3);
+                    border-radius: 5px;
+                    font-size: 10px;
+                    font-weight: 600;
+                    padding: 5px 6px;
+                }
+                QPushButton:hover {
+                    background-color: #f59e0b;
+                    color: #000000;
+                }
+            """)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda checked, val=name: self.page_category_combo.setCurrentText(val))
+            quick_cats_grid.addWidget(btn, r, c)
+
+        c2_layout.addLayout(quick_cats_grid)
+        c2_layout.addStretch()
+        cols_container.addWidget(col2_card, stretch=1)
+
+        # Column 3: Bio / Description (Optional / Required)
+        col3_card = QFrame()
+        col3_card.setProperty("class", "glassCard")
+        c3_layout = QVBoxLayout(col3_card)
+        c3_layout.setSpacing(8)
+
+        c3_hdr = QLabel("📄 Bio & Description")
+        c3_hdr.setStyleSheet("font-size: 13px; font-weight: 700; color: #a855f7; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;")
+        c3_layout.addWidget(c3_hdr)
+
+        c3_sub = QLabel("Enter default page bio description. If multiple lines are provided, pages will rotate through them.")
+        c3_sub.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        c3_sub.setWordWrap(True)
+        c3_layout.addWidget(c3_sub)
+
+        self.page_bios_bulk_input = QTextEdit()
+        self.page_bios_bulk_input.setPlaceholderText("Welcome to our official Facebook page! Connecting you with premium quality services, solutions, and daily updates.\n\nLeading provider of innovative customer services. Follow us for the latest offers and insights!\n\nYour trusted business destination for excellence and support. We are here to help you succeed.")
+        self.page_bios_bulk_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 8px;")
+        c3_layout.addWidget(self.page_bios_bulk_input, stretch=1)
+
+        c3_btn_row = QHBoxLayout()
+        btn_sample_bio = QPushButton("⚡ Insert Sample Bio")
+        btn_sample_bio.setStyleSheet("background-color: #9333ea; color: white; font-size: 11px; font-weight: 600; padding: 4px 8px; border-radius: 4px;")
+        btn_sample_bio.setCursor(Qt.PointingHandCursor)
+        btn_sample_bio.clicked.connect(self.insert_sample_bio)
+        c3_btn_row.addWidget(btn_sample_bio)
+
+        btn_clear_bio = QPushButton("❌ Clear")
+        btn_clear_bio.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 4px 8px; border-radius: 4px;")
+        btn_clear_bio.setCursor(Qt.PointingHandCursor)
+        btn_clear_bio.clicked.connect(lambda: self.page_bios_bulk_input.clear())
+        c3_btn_row.addWidget(btn_clear_bio)
+        c3_btn_row.addStretch()
+        c3_layout.addLayout(c3_btn_row)
+
+        cols_container.addWidget(col3_card, stretch=1)
+        layout.addLayout(cols_container)
+
+        # ----------------------------------------------------------------------
+        # Step 1: Finish setting up your Page (Contact, Location, Hours) - (Screenshot 1)
+        # ----------------------------------------------------------------------
+        step1_card = QFrame()
+        step1_card.setProperty("class", "glassCard")
+        step1_card.setStyleSheet("background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 10px; padding: 14px;")
+        s1_vbox = QVBoxLayout(step1_card)
+        s1_vbox.setSpacing(10)
+
+        s1_hdr_box = QHBoxLayout()
+        s1_title = QLabel("🌐 Step 1 of 5: Finish Setting Up Your Page (Contact, Location & Hours)")
+        s1_title.setStyleSheet("font-size: 14px; font-weight: 800; color: #38bdf8;")
+        s1_hdr_box.addWidget(s1_title)
+        s1_hdr_box.addStretch()
+        s1_skip_note = QLabel("ℹ️ All fields optional: filled items will be entered; empty items will be skipped")
+        s1_skip_note.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic;")
+        s1_hdr_box.addWidget(s1_skip_note)
+        s1_vbox.addLayout(s1_hdr_box)
+
+        s1_cols_row = QHBoxLayout()
+        s1_cols_row.setSpacing(14)
+
+        # Step 1 - Column 1: Contact
+        c_contact_card = QFrame()
+        c_contact_card.setStyleSheet("background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 10px;")
+        cc_layout = QVBoxLayout(c_contact_card)
+        cc_layout.setSpacing(6)
+
+        cc_title = QLabel("📞 Contact Information")
+        cc_title.setStyleSheet("font-size: 12px; font-weight: 700; color: #38bdf8; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05);")
+        cc_layout.addWidget(cc_title)
+
+        cc_layout.addWidget(QLabel("Website:"))
+        self.page_website_input = QLineEdit()
+        self.page_website_input.setPlaceholderText("https://yourwebsite.com")
+        self.page_website_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; padding: 6px;")
+        cc_layout.addWidget(self.page_website_input)
+
+        cc_layout.addWidget(QLabel("Phone Number (Number):"))
+        self.page_phone_input = QLineEdit()
+        self.page_phone_input.setPlaceholderText("+1 555-0199 or 03001234567")
+        self.page_phone_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; padding: 6px;")
+        cc_layout.addWidget(self.page_phone_input)
+
+        cc_layout.addWidget(QLabel("Email:"))
+        self.page_email_input = QLineEdit()
+        self.page_email_input.setPlaceholderText("contact@business.com")
+        self.page_email_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; padding: 6px;")
+        cc_layout.addWidget(self.page_email_input)
+        cc_layout.addStretch()
+
+        s1_cols_row.addWidget(c_contact_card, stretch=1)
+
+        # Step 1 - Column 2: Location
+        c_location_card = QFrame()
+        c_location_card.setStyleSheet("background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 10px;")
+        cl_layout = QVBoxLayout(c_location_card)
+        cl_layout.setSpacing(6)
+
+        cl_title = QLabel("📍 Location Details")
+        cl_title.setStyleSheet("font-size: 12px; font-weight: 700; color: #f59e0b; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05);")
+        cl_layout.addWidget(cl_title)
+
+        cl_layout.addWidget(QLabel("Address:"))
+        self.page_address_input = QLineEdit()
+        self.page_address_input.setPlaceholderText("123 Business Avenue, Suite 400")
+        self.page_address_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; padding: 6px;")
+        cl_layout.addWidget(self.page_address_input)
+
+        cl_layout.addWidget(QLabel("City/Town:"))
+        self.page_city_input = QLineEdit()
+        self.page_city_input.setPlaceholderText("e.g. New York, NY or Lahore")
+        self.page_city_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; padding: 6px;")
+        cl_layout.addWidget(self.page_city_input)
+
+        cl_layout.addWidget(QLabel("ZIP Code:"))
+        self.page_zip_input = QLineEdit()
+        self.page_zip_input.setPlaceholderText("10001 or 54000")
+        self.page_zip_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; padding: 6px;")
+        cl_layout.addWidget(self.page_zip_input)
+        cl_layout.addStretch()
+
+        s1_cols_row.addWidget(c_location_card, stretch=1)
+
+        # Step 1 - Column 3: Hours
+        c_hours_card = QFrame()
+        c_hours_card.setStyleSheet("background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 10px;")
+        ch_layout = QVBoxLayout(c_hours_card)
+        ch_layout.setSpacing(8)
+
+        ch_title = QLabel("⏰ Business Hours")
+        ch_title.setStyleSheet("font-size: 12px; font-weight: 700; color: #10b981; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05);")
+        ch_layout.addWidget(ch_title)
+
+        ch_desc = QLabel("Let people know your location's hours:")
+        ch_desc.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        ch_layout.addWidget(ch_desc)
+
+        self.hours_group = QButtonGroup(self)
+
+        # Always open (Default)
+        self.page_hours_always = QRadioButton("Always open")
+        self.page_hours_always.setChecked(True)
+        self.page_hours_always.setStyleSheet("font-weight: 700; font-size: 12px; color: #f8fafc;")
+        self.hours_group.addButton(self.page_hours_always)
+        ch_layout.addWidget(self.page_hours_always)
+
+        lbl_always_sub = QLabel("   You're open 24 hours every day.")
+        lbl_always_sub.setStyleSheet("font-size: 11px; color: #64748b; margin-bottom: 6px;")
+        ch_layout.addWidget(lbl_always_sub)
+
+        # Open at select hours
+        self.page_hours_selected = QRadioButton("Open at select hours")
+        self.page_hours_selected.setStyleSheet("font-weight: 700; font-size: 12px; color: #f8fafc;")
+        self.hours_group.addButton(self.page_hours_selected)
+        ch_layout.addWidget(self.page_hours_selected)
+
+        lbl_sel_sub = QLabel("   Enter your specific hours.")
+        lbl_sel_sub.setStyleSheet("font-size: 11px; color: #64748b; margin-bottom: 6px;")
+        ch_layout.addWidget(lbl_sel_sub)
+
+        # No hours available
+        self.page_hours_none = QRadioButton("No hours available")
+        self.page_hours_none.setStyleSheet("font-weight: 700; font-size: 12px; color: #f8fafc;")
+        self.hours_group.addButton(self.page_hours_none)
+        ch_layout.addWidget(self.page_hours_none)
+
+        lbl_none_sub = QLabel("   Don't show any hours.")
+        lbl_none_sub.setStyleSheet("font-size: 11px; color: #64748b;")
+        ch_layout.addWidget(lbl_none_sub)
+        ch_layout.addStretch()
+
+        s1_cols_row.addWidget(c_hours_card, stretch=1)
+        s1_vbox.addLayout(s1_cols_row)
+        layout.addWidget(step1_card)
+
+        # ----------------------------------------------------------------------
+        # Step 2: Customize your Page (Add Profile & Add Cover Photo) - (Screenshot 2)
+        # ----------------------------------------------------------------------
+        step2_card = QFrame()
+        step2_card.setProperty("class", "glassCard")
+        step2_card.setStyleSheet("background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 10px; padding: 14px;")
+        s2_vbox = QVBoxLayout(step2_card)
+        s2_vbox.setSpacing(10)
+
+        s2_hdr_box = QHBoxLayout()
+        s2_title = QLabel("🖼️ Step 2 of 5: Customize Your Page (Add Profile & Cover Photos)")
+        s2_title.setStyleSheet("font-size: 14px; font-weight: 800; color: #c084fc;")
+        s2_hdr_box.addWidget(s2_title)
+        s2_hdr_box.addStretch()
+        s2_note = QLabel("ℹ️ The bot uploads selected photos, clicks 'Next', and completes setup wizard")
+        s2_note.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic;")
+        s2_hdr_box.addWidget(s2_note)
+        s2_vbox.addLayout(s2_hdr_box)
+
+        s2_cols_row = QHBoxLayout()
+        s2_cols_row.setSpacing(14)
+
+        # Column 1: Add profile picture
+        c_profile_card = QFrame()
+        c_profile_card.setStyleSheet("background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 12px;")
+        cp_layout = QVBoxLayout(c_profile_card)
+        cp_layout.setSpacing(8)
+
+        cp_hdr = QLabel("👤 Add Profile Picture")
+        cp_hdr.setStyleSheet("font-size: 13px; font-weight: 700; color: #c084fc; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05);")
+        cp_layout.addWidget(cp_hdr)
+
+        cp_sub = QLabel("Select profile picture file (e.g. logo or avatar). Bot will upload it to Facebook.")
+        cp_sub.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        cp_layout.addWidget(cp_sub)
+
+        self.page_profile_photo_input = QLineEdit()
+        self.page_profile_photo_input.setPlaceholderText("No profile image chosen (Optional)")
+        self.page_profile_photo_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; padding: 6px;")
+        cp_layout.addWidget(self.page_profile_photo_input)
+
+        cp_btns = QHBoxLayout()
+        btn_browse_p = QPushButton("📁 Browse Profile Picture")
+        btn_browse_p.setStyleSheet("background-color: #9333ea; color: white; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 5px;")
+        btn_browse_p.setCursor(Qt.PointingHandCursor)
+        btn_browse_p.clicked.connect(self.browse_profile_photo)
+        cp_btns.addWidget(btn_browse_p)
+
+        btn_clear_p = QPushButton("❌ Clear")
+        btn_clear_p.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 6px 10px; border-radius: 5px;")
+        btn_clear_p.setCursor(Qt.PointingHandCursor)
+        btn_clear_p.clicked.connect(self.clear_profile_photo)
+        cp_btns.addWidget(btn_clear_p)
+        cp_layout.addLayout(cp_btns)
+
+        self.page_profile_lbl = QLabel("Status: No profile photo selected (will skip)")
+        self.page_profile_lbl.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic;")
+        cp_layout.addWidget(self.page_profile_lbl)
+        cp_layout.addStretch()
+
+        s2_cols_row.addWidget(c_profile_card, stretch=1)
+
+        # Column 2: Add cover photo
+        c_cover_card = QFrame()
+        c_cover_card.setStyleSheet("background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 12px;")
+        ccover_layout = QVBoxLayout(c_cover_card)
+        ccover_layout.setSpacing(8)
+
+        ccover_hdr = QLabel("🌄 Add Cover Photo")
+        ccover_hdr.setStyleSheet("font-size: 13px; font-weight: 700; color: #38bdf8; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05);")
+        ccover_layout.addWidget(ccover_hdr)
+
+        ccover_sub = QLabel("Select cover banner image file. Bot will upload it to Facebook.")
+        ccover_sub.setStyleSheet("font-size: 11px; color: #94a3b8;")
+        ccover_layout.addWidget(ccover_sub)
+
+        self.page_cover_photo_input = QLineEdit()
+        self.page_cover_photo_input.setPlaceholderText("No cover image chosen (Optional)")
+        self.page_cover_photo_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; padding: 6px;")
+        ccover_layout.addWidget(self.page_cover_photo_input)
+
+        ccover_btns = QHBoxLayout()
+        btn_browse_c = QPushButton("📁 Browse Cover Photo")
+        btn_browse_c.setStyleSheet("background-color: #0284c7; color: white; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 5px;")
+        btn_browse_c.setCursor(Qt.PointingHandCursor)
+        btn_browse_c.clicked.connect(self.browse_cover_photo)
+        ccover_btns.addWidget(btn_browse_c)
+
+        btn_clear_c = QPushButton("❌ Clear")
+        btn_clear_c.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 6px 10px; border-radius: 5px;")
+        btn_clear_c.setCursor(Qt.PointingHandCursor)
+        btn_clear_c.clicked.connect(self.clear_cover_photo)
+        ccover_btns.addWidget(btn_clear_c)
+        ccover_layout.addLayout(ccover_btns)
+
+        self.page_cover_lbl = QLabel("Status: No cover photo selected (will skip)")
+        self.page_cover_lbl.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic;")
+        ccover_layout.addWidget(self.page_cover_lbl)
+        ccover_layout.addStretch()
+
+        s2_cols_row.addWidget(c_cover_card, stretch=1)
+        s2_vbox.addLayout(s2_cols_row)
+        layout.addWidget(step2_card)
+
+        scroll.setWidget(container)
+        outer_layout = QVBoxLayout(page)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(scroll)
+
+        # Initial population of accounts and sample names
+        self.populate_page_creation_accounts_checklist()
+        self.load_sample_page_names()
+        self.insert_sample_bio()
+
+        return page
+
+    # --------------------------------------------------------------------------
+    # FB Page Creation Account Selection & Helpers
+    # --------------------------------------------------------------------------
+    def populate_page_creation_accounts_checklist(self):
+        """Populates the multi-account checkbox list for FB Page Creation with active accounts."""
+        if not hasattr(self, 'page_acc_layout'):
+            return
+
+        while self.page_acc_layout.count():
+            item = self.page_acc_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self.page_acc_checkboxes = []
+        active_accounts = self.get_active_accounts()
+
+        if not active_accounts:
+            lbl = QLabel("⚠️ No Active Facebook accounts available. (Add or log in accounts in Accounts Manager)")
+            lbl.setStyleSheet("color: #94a3b8; font-style: italic; font-size: 11px;")
+            self.page_acc_layout.addWidget(lbl)
+            self.update_page_account_selection_summary()
+            return
+
+        for idx, acc in enumerate(active_accounts, start=1):
+            name = acc.get("name", "Account")
+            status = acc.get("status", "Healthy")
+            proxy = acc.get("proxy", "Direct")
+            icon = "🟢" if status in ("Healthy", "Active", "Ready", "Logged in") else "🟡"
+
+            chk = QCheckBox(f"#{idx}  {icon} {name}  [{status}]  •  Proxy: {proxy}")
+            chk.setStyleSheet("font-size: 12px; color: #f8fafc; padding: 2px 0;")
+            chk.setProperty("account_data", acc)
+            chk.setChecked(True)
+            chk.stateChanged.connect(self.update_page_account_selection_summary)
+
+            self.page_acc_layout.addWidget(chk)
+            self.page_acc_checkboxes.append(chk)
+
+        self.page_acc_layout.addStretch()
+        self.update_page_account_selection_summary()
+
+    def select_all_page_accounts(self):
+        if hasattr(self, 'page_acc_checkboxes'):
+            for chk in self.page_acc_checkboxes:
+                chk.setChecked(True)
+            self.update_page_account_selection_summary()
+
+    def clear_all_page_accounts(self):
+        if hasattr(self, 'page_acc_checkboxes'):
+            for chk in self.page_acc_checkboxes:
+                chk.setChecked(False)
+            self.update_page_account_selection_summary()
+
+    def update_page_account_selection_summary(self):
+        if not hasattr(self, 'page_acc_summary_lbl'):
+            return
+        selected = self.get_selected_page_accounts()
+        count = len(selected)
+        total_pages = count * (self.page_count_per_account.value() if hasattr(self, 'page_count_per_account') else 5)
+        self.page_acc_summary_lbl.setText(f"🎯 {count} Account(s) Selected  •  Will Create ~{total_pages} Pages Total")
+
+    def get_selected_page_accounts(self) -> List[Dict[str, Any]]:
+        selected = []
+        if hasattr(self, 'page_acc_checkboxes'):
+            for chk in self.page_acc_checkboxes:
+                if chk.isChecked():
+                    data = chk.property("account_data")
+                    if data:
+                        selected.append(data)
+        return selected
+
+    def load_sample_page_names(self):
+        sample_names = [
+            "Modern Real Estate Hub",
+            "Digital Marketing Pro",
+            "Nexus Tech Solutions",
+            "Elite Car Detailing",
+            "Urban Fashion Store",
+            "Prime Fitness Studio",
+            "Skyline Properties",
+            "Creative Design Studio",
+            "Global Logistics Hub",
+            "NextGen Innovations"
+        ]
+        if hasattr(self, 'page_names_bulk_input'):
+            self.page_names_bulk_input.setPlainText("\n".join(sample_names))
+            self.update_page_names_count()
+
+    def clear_page_names(self):
+        if hasattr(self, 'page_names_bulk_input'):
+            self.page_names_bulk_input.clear()
+            self.update_page_names_count()
+
+    def update_page_names_count(self):
+        if not hasattr(self, 'page_names_count_lbl') or not hasattr(self, 'page_names_bulk_input'):
+            return
+        text = self.page_names_bulk_input.toPlainText()
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        self.page_names_count_lbl.setText(f"📊 Total Names: {len(lines)}")
+
+    def insert_sample_bio(self):
+        sample_bios = [
+            "Welcome to our official Facebook page! Connecting you with top-notch services, solutions, and daily updates.",
+            "Leading provider of premium quality products and dedicated customer care. Follow us for offers and news!",
+            "Your trusted business partner for excellence. Tailored solutions designed to elevate your everyday experience."
+        ]
+        if hasattr(self, 'page_bios_bulk_input'):
+            self.page_bios_bulk_input.setPlainText("\n\n".join(sample_bios))
+
+    def browse_profile_photo(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Profile Picture", "", "Image Files (*.png *.jpg *.jpeg *.webp *.bmp)"
+        )
+        if path:
+            if hasattr(self, 'page_profile_photo_input'):
+                self.page_profile_photo_input.setText(path)
+            if hasattr(self, 'page_profile_lbl'):
+                self.page_profile_lbl.setText(f"✅ Selected: {os.path.basename(path)}")
+                self.page_profile_lbl.setStyleSheet("color: #10b981; font-weight: 700; font-size: 11px;")
+
+    def clear_profile_photo(self):
+        if hasattr(self, 'page_profile_photo_input'):
+            self.page_profile_photo_input.clear()
+        if hasattr(self, 'page_profile_lbl'):
+            self.page_profile_lbl.setText("Status: No profile photo selected (will skip)")
+            self.page_profile_lbl.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic;")
+
+    def browse_cover_photo(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Cover Photo", "", "Image Files (*.png *.jpg *.jpeg *.webp *.bmp)"
+        )
+        if path:
+            if hasattr(self, 'page_cover_photo_input'):
+                self.page_cover_photo_input.setText(path)
+            if hasattr(self, 'page_cover_lbl'):
+                self.page_cover_lbl.setText(f"✅ Selected: {os.path.basename(path)}")
+                self.page_cover_lbl.setStyleSheet("color: #10b981; font-weight: 700; font-size: 11px;")
+
+    def clear_cover_photo(self):
+        if hasattr(self, 'page_cover_photo_input'):
+            self.page_cover_photo_input.clear()
+        if hasattr(self, 'page_cover_lbl'):
+            self.page_cover_lbl.setText("Status: No cover photo selected (will skip)")
+            self.page_cover_lbl.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic;")
+
+    def start_page_creation(self):
+        """Validates inputs and dispatches PageCreationWorker to create Facebook Pages across accounts and tabs."""
+        accounts = self.get_selected_page_accounts()
+        if not accounts:
+            QMessageBox.warning(self, "No Accounts Selected", "Please select at least one Facebook account profile above.")
+            return
+
+        raw_names = self.page_names_bulk_input.toPlainText().strip() if hasattr(self, 'page_names_bulk_input') else ""
+        page_names = [line.strip() for line in raw_names.splitlines() if line.strip()]
+        if not page_names:
+            QMessageBox.warning(self, "Page Names Required", "Please enter at least one Page Name in the Page Names column.")
+            return
+
+        category = self.page_category_combo.currentText().strip() if hasattr(self, 'page_category_combo') else "Digital Creator"
+        if not category:
+            category = "Digital Creator"
+
+        raw_bios = self.page_bios_bulk_input.toPlainText().strip() if hasattr(self, 'page_bios_bulk_input') else ""
+        bios = [line.strip() for line in raw_bios.splitlines() if line.strip()]
+
+        pages_per_acc = self.page_count_per_account.value() if hasattr(self, 'page_count_per_account') else 5
+        concurrent_browsers = self.page_max_concurrent_browsers.value() if hasattr(self, 'page_max_concurrent_browsers') else 2
+        delay = self.page_delay_spin.value() if hasattr(self, 'page_delay_spin') else 2
+
+        # Step 1 setup: Contact
+        contact_data = {
+            "website": self.page_website_input.text().strip() if hasattr(self, 'page_website_input') else "",
+            "phone": self.page_phone_input.text().strip() if hasattr(self, 'page_phone_input') else "",
+            "email": self.page_email_input.text().strip() if hasattr(self, 'page_email_input') else "",
+        }
+
+        # Step 1 setup: Location
+        location_data = {
+            "address": self.page_address_input.text().strip() if hasattr(self, 'page_address_input') else "",
+            "city": self.page_city_input.text().strip() if hasattr(self, 'page_city_input') else "",
+            "zip_code": self.page_zip_input.text().strip() if hasattr(self, 'page_zip_input') else "",
+        }
+
+        # Step 1 setup: Hours
+        hours_mode = "always_open"
+        if hasattr(self, 'page_hours_selected') and self.page_hours_selected.isChecked():
+            hours_mode = "selected_hours"
+        elif hasattr(self, 'page_hours_none') and self.page_hours_none.isChecked():
+            hours_mode = "no_hours"
+
+        # Step 2 setup: Photos
+        profile_photo = self.page_profile_photo_input.text().strip() if hasattr(self, 'page_profile_photo_input') else ""
+        cover_photo = self.page_cover_photo_input.text().strip() if hasattr(self, 'page_cover_photo_input') else ""
+
+        payload = {
+            "accounts": accounts,
+            "page_names": page_names,
+            "category": category,
+            "bios": bios,
+            "default_bio": bios[0] if bios else "",
+            "pages_per_account": pages_per_acc,
+            "concurrent_browsers": concurrent_browsers,
+            "delay": delay,
+            "contact": contact_data,
+            "location": location_data,
+            "hours_mode": hours_mode,
+            "profile_photo_path": profile_photo,
+            "cover_photo_path": cover_photo
+        }
+
+        self.btn_start_create_pages.setEnabled(False)
+        self.btn_stop_create_pages.setEnabled(True)
+        self.page_creation_status_lbl.setText("● CREATING FB PAGES IN PROGRESS")
+        self.page_creation_status_lbl.setStyleSheet("color: #38bdf8; font-weight: 700; font-size: 11px;")
+        self.engine_status_lbl.setText("● FB PAGE CREATION ACTIVE")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #38bdf8;")
+        self.page_creation_progress.setValue(0)
+
+        self.page_creation_worker = PageCreationWorker(payload=payload)
+        self.page_creation_worker.log_signal.connect(self.log_message)
+        self.page_creation_worker.progress_signal.connect(self.update_page_creation_progress)
+        self.page_creation_worker.finished_signal.connect(self.on_page_creation_finished)
+        self.page_creation_worker.start()
+
+    def stop_page_creation(self):
+        if self.page_creation_worker:
+            self.page_creation_worker.stop()
+            self.btn_stop_create_pages.setEnabled(False)
+
+    def update_page_creation_progress(self, percent: int):
+        if hasattr(self, 'page_creation_progress'):
+            self.page_creation_progress.setValue(percent)
+        self.update_progress(percent)
+
+    def on_page_creation_finished(self, success: bool, message: str):
+        self.btn_start_create_pages.setEnabled(True)
+        self.btn_stop_create_pages.setEnabled(False)
+        self.engine_status_lbl.setText("● READY FOR TASKS")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
+        if hasattr(self, 'page_creation_status_lbl'):
+            self.page_creation_status_lbl.setText("● READY TO CREATE PAGES")
+            self.page_creation_status_lbl.setStyleSheet("color: #10b981; font-weight: 700; font-size: 11px;")
+
+        if success:
+            if hasattr(self, 'page_creation_progress'):
+                self.page_creation_progress.setValue(100)
+            QMessageBox.information(self, "Page Creation Complete", f"Facebook Page Creation finished!\n\n{message}")
+        else:
+            QMessageBox.warning(self, "Page Creation Notice", f"Facebook Page Creation notice:\n\n{message}")
 
     # --------------------------------------------------------------------------
     # Tab 4: AI Content Spinner & Title/Description Generator (Phase 5)
