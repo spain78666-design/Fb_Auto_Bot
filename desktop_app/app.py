@@ -1036,13 +1036,24 @@ class GroupAutomationWorker(QThread):
         tasks = []
         semaphore = asyncio.Semaphore(effective_threads)
 
+        join_per_acc = max(1, int(self.payload.get("join_per_account", 40)))
+        post_cycles = max(1, int(self.payload.get("post_cycles", 1)))
+
+        self.log_signal.emit("INFO", f"⚙️ Batch Configuration: {join_per_acc} group(s)/account quota | {post_cycles} post cycle(s)/account")
+
         for thread_idx, acc in enumerate(accounts, 1):
+            # Compute partitioned slice of group URLs specifically for this account
+            acc_join_codes = self._slice_groups_for_account(
+                all_codes=join_group_codes,
+                acc_idx=thread_idx - 1,
+                per_acc=join_per_acc
+            )
             tasks.append(self._run_single_browser_instance(
                 thread_id=thread_idx,
                 total_threads=total_accs,
                 account=acc,
                 group_codes=group_codes,
-                join_group_codes=join_group_codes,
+                join_group_codes=acc_join_codes,
                 post_group_codes=post_group_codes,
                 delay=delay,
                 semaphore=semaphore
@@ -1053,6 +1064,29 @@ class GroupAutomationWorker(QThread):
         if self._is_running:
             self.log_signal.emit("SUCCESS", f"🏁 Multi-Threaded FB Group {self.task_type.title()} pipeline completed across all instances!")
             self.finished_signal.emit(True, f"Group {self.task_type.title()} tasks completed successfully.")
+
+    @staticmethod
+    def _slice_groups_for_account(all_codes: List[str], acc_idx: int, per_acc: int) -> List[str]:
+        """
+        Partitions target group URLs across accounts so each account receives up to 'per_acc' groups.
+        If total groups list runs out or wraps around, cycles smoothly through the list so every
+        account gets its quota of groups without omitting remaining links.
+        """
+        if not all_codes:
+            return []
+        if per_acc <= 0:
+            return list(all_codes)
+        
+        total = len(all_codes)
+        if total <= per_acc:
+            return list(all_codes)
+
+        start = (acc_idx * per_acc) % total
+        end = start + per_acc
+        if end <= total:
+            return all_codes[start:end]
+        else:
+            return all_codes[start:] + all_codes[:end % total]
 
     async def _run_single_browser_instance(
         self,
@@ -1094,6 +1128,10 @@ class GroupAutomationWorker(QThread):
                 post_thread = self.payload.get("post_thread", 1)
                 join_thread = self.payload.get("join_thread", 1)
                 join_delay = self.payload.get("join_delay", delay)
+                post_cycles = max(1, int(self.payload.get("post_cycles", 1)))
+
+                if join_group_codes:
+                    self.log_signal.emit("INFO", f"📋 {tag} Assigned {len(join_group_codes)} target groups to join (batch quota: {self.payload.get('join_per_account', 40)}/account).")
 
                 await bot.run_workflow(
                     task_type=self.task_type,
@@ -1107,7 +1145,8 @@ class GroupAutomationWorker(QThread):
                     delay_seconds=delay,
                     join_delay_seconds=join_delay,
                     post_thread=post_thread,
-                    join_thread=join_thread
+                    join_thread=join_thread,
+                    post_cycles=post_cycles
                 )
 
             except Exception as ex:
@@ -3222,16 +3261,18 @@ class FBAutoBotMainWindow(QMainWindow):
         table_header_layout.addWidget(self.vault_stats_lbl)
         table_layout.addLayout(table_header_layout)
 
-        # 7 Columns: Select, Profile/Alias, UID/Email, Auth Mode, Status, Assigned Proxy, Last Audit
-        self.accounts_table = QTableWidget(len(self.accounts_list), 7)
+        # 8 Columns: Select, #, Profile / Alias, UID / Email, Auth Mode, Status, Assigned Proxy, Last Audit
+        self.accounts_table = QTableWidget(len(self.accounts_list), 8)
         self.accounts_table.setHorizontalHeaderLabels([
-            "Select", "Profile / Alias", "UID / Email", "Auth Mode", "Status", "Assigned Proxy", "Last Audit"
+            "Select", "#", "Profile / Alias", "UID / Email", "Auth Mode", "Status", "Assigned Proxy", "Last Audit"
         ])
         self.accounts_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.accounts_table.setSelectionMode(QTableWidget.ExtendedSelection)
         self.accounts_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.accounts_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
-        self.accounts_table.setColumnWidth(0, 60)
+        self.accounts_table.setColumnWidth(0, 55)
+        self.accounts_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
+        self.accounts_table.setColumnWidth(1, 45)
         self.accounts_table.verticalHeader().setVisible(False)
         self.accounts_table.itemSelectionChanged.connect(self.populate_form_from_selected_account)
         self.refresh_accounts_table()
@@ -3642,16 +3683,18 @@ class FBAutoBotMainWindow(QMainWindow):
         table_header_layout.addWidget(self.vault_stats_lbl)
         table_layout.addLayout(table_header_layout)
 
-        # 7 Columns: Select, Profile/Alias, UID/Email, Auth Mode, Status, Assigned Proxy, Last Audit
-        self.accounts_table = QTableWidget(len(self.accounts_list), 7)
+        # 8 Columns: Select, #, Profile / Alias, UID / Email, Auth Mode, Status, Assigned Proxy, Last Audit
+        self.accounts_table = QTableWidget(len(self.accounts_list), 8)
         self.accounts_table.setHorizontalHeaderLabels([
-            "Select", "Profile / Alias", "UID / Email", "Auth Mode", "Status", "Assigned Proxy", "Last Audit"
+            "Select", "#", "Profile / Alias", "UID / Email", "Auth Mode", "Status", "Assigned Proxy", "Last Audit"
         ])
         self.accounts_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.accounts_table.setSelectionMode(QTableWidget.ExtendedSelection)
         self.accounts_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.accounts_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
-        self.accounts_table.setColumnWidth(0, 60)
+        self.accounts_table.setColumnWidth(0, 55)
+        self.accounts_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
+        self.accounts_table.setColumnWidth(1, 45)
         self.accounts_table.verticalHeader().setVisible(False)
         self.accounts_table.itemSelectionChanged.connect(self.populate_form_from_selected_account)
         self.refresh_accounts_table()
@@ -3846,7 +3889,7 @@ class FBAutoBotMainWindow(QMainWindow):
             if hasattr(self, 'accounts_table'):
                 for r in range(self.accounts_table.rowCount()):
                     chk = self.accounts_table.item(r, 0)
-                    name_itm = self.accounts_table.item(r, 1)
+                    name_itm = self.accounts_table.item(r, 2)
                     if chk and chk.checkState() == Qt.Checked and name_itm:
                         previously_checked.add(name_itm.data(Qt.UserRole))
 
@@ -3887,6 +3930,13 @@ class FBAutoBotMainWindow(QMainWindow):
                 select_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                 select_item.setCheckState(Qt.Checked if acc_id in previously_checked else Qt.Unchecked)
 
+                num_item = QTableWidgetItem(f"{row + 1}")
+                num_item.setTextAlignment(Qt.AlignCenter)
+                num_item.setForeground(QColor("#38bdf8"))
+                num_font = QFont()
+                num_font.setBold(True)
+                num_item.setFont(num_font)
+
                 name_item = QTableWidgetItem(name)
                 name_item.setData(Qt.UserRole, acc_id)
 
@@ -3912,12 +3962,13 @@ class FBAutoBotMainWindow(QMainWindow):
                 time_item = QTableWidgetItem(last_checked)
 
                 self.accounts_table.setItem(row, 0, select_item)
-                self.accounts_table.setItem(row, 1, name_item)
-                self.accounts_table.setItem(row, 2, uid_item)
-                self.accounts_table.setItem(row, 3, auth_item)
-                self.accounts_table.setItem(row, 4, status_item)
-                self.accounts_table.setItem(row, 5, proxy_item)
-                self.accounts_table.setItem(row, 6, time_item)
+                self.accounts_table.setItem(row, 1, num_item)
+                self.accounts_table.setItem(row, 2, name_item)
+                self.accounts_table.setItem(row, 3, uid_item)
+                self.accounts_table.setItem(row, 4, auth_item)
+                self.accounts_table.setItem(row, 5, status_item)
+                self.accounts_table.setItem(row, 6, proxy_item)
+                self.accounts_table.setItem(row, 7, time_item)
         finally:
             self.accounts_table.blockSignals(False)
             self._suppress_form_autofill = False
@@ -4002,11 +4053,11 @@ class FBAutoBotMainWindow(QMainWindow):
             self.log_message("INFO", f"🔑 Auto-Login: Authenticating [{acc.get('name')}] with UID/Email {uid}...")
 
             for r in range(self.accounts_table.rowCount()):
-                name_itm = self.accounts_table.item(r, 1)
+                name_itm = self.accounts_table.item(r, 2)
                 if name_itm and name_itm.data(Qt.UserRole) == acc_id:
                     status_item = QTableWidgetItem("● Logging in...")
                     status_item.setForeground(QColor("#3b82f6"))
-                    self.accounts_table.setItem(r, 4, status_item)
+                    self.accounts_table.setItem(r, 5, status_item)
                     break
 
             self.cred_worker = CredentialLoginWorker(acc_id, headless=False)
@@ -4088,7 +4139,7 @@ class FBAutoBotMainWindow(QMainWindow):
         if row >= 0:
             status_item = QTableWidgetItem("● Testing...")
             status_item.setForeground(QColor("#3b82f6"))
-            self.accounts_table.setItem(row, 3, status_item)
+            self.accounts_table.setItem(row, 5, status_item)
 
         self.health_worker = SessionHealthWorker(acc_id)
         self.health_worker.log_signal.connect(self.log_message)
@@ -5630,13 +5681,13 @@ class FBAutoBotMainWindow(QMainWindow):
             self.update_account_selection_summary()
             return
 
-        for acc in active_accounts:
+        for idx, acc in enumerate(active_accounts, start=1):
             name = acc.get("name", "Account")
             status = acc.get("status", "Healthy")
             proxy = acc.get("proxy", "Direct")
 
             icon = "🟢" if status in ("Healthy", "Active", "Ready", "Logged in") else "🟡"
-            chk = QCheckBox(f"{icon} {name}  [{status}]  •  Proxy: {proxy}")
+            chk = QCheckBox(f"#{idx}  {icon} {name}  [{status}]  •  Proxy: {proxy}")
             chk.setStyleSheet("font-size: 12px; color: #f8fafc; padding: 2px 0;")
             chk.setProperty("account_data", acc)
             chk.setChecked(True)
@@ -5690,12 +5741,12 @@ class FBAutoBotMainWindow(QMainWindow):
                 self.target_acc_select.addItem("No active accounts configured (Add in Accounts tab)")
                 return
 
-            for acc in active_accounts:
+            for idx, acc in enumerate(active_accounts, start=1):
                 status = acc.get("status", "Healthy")
                 proxy = acc.get("proxy", "Direct")
                 name = acc.get("name", "Account")
                 icon = "🟢" if status in ("Healthy", "Active") else "🟡"
-                self.target_acc_select.addItem(f"{icon} {name} [{status}] ({proxy})")
+                self.target_acc_select.addItem(f"#{idx}  {icon} {name} [{status}] ({proxy})")
 
     # --------------------------------------------------------------------------
     # Tab 4: Project Listing Marketplace (Multi-Project & Multi-Tab Campaign Engine)
@@ -7456,12 +7507,12 @@ class FBAutoBotMainWindow(QMainWindow):
             self.proj_acc_checklist_layout.addWidget(lbl)
             return
 
-        for acc in active_accounts:
+        for idx, acc in enumerate(active_accounts, start=1):
             name = acc.get("name", "Account")
             status = acc.get("status", "Healthy")
             proxy = acc.get("proxy", "Direct")
             icon = "🟢" if status in ("Healthy", "Active", "Ready", "Logged in") else "🟡"
-            chk = QCheckBox(f"{icon} {name} [{status}] (Proxy: {proxy})")
+            chk = QCheckBox(f"#{idx}  {icon} {name} [{status}] (Proxy: {proxy})")
             chk.setChecked(True)
             chk.setProperty("account_data", acc)
             chk.setStyleSheet("font-size: 12px; font-weight: 600; color: #f1f5f9;")
@@ -8169,12 +8220,29 @@ class FBAutoBotMainWindow(QMainWindow):
         p_header.setStyleSheet("font-size: 15px; font-weight: 700; color: #38bdf8; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;")
         p_layout.addWidget(p_header)
 
-        # Checkpoint: Already Group Joined
+        # Top Options: Already Group Joined & Post Repetitions Per Account
+        p_top_opts = QHBoxLayout()
         self.grp_already_joined_chk = QCheckBox("☑️ Already Group Joined (Post Directly to All Joined Groups)")
         self.grp_already_joined_chk.setChecked(True)
-        self.grp_already_joined_chk.setStyleSheet("font-size: 13px; font-weight: 700; color: #10b981; padding: 6px 0;")
+        self.grp_already_joined_chk.setStyleSheet("font-size: 13px; font-weight: 700; color: #10b981; padding: 4px 0;")
         self.grp_already_joined_chk.setToolTip("When checked, skips group joining and posts directly to all groups already joined in the Facebook account via FewFeed tool.")
-        p_layout.addWidget(self.grp_already_joined_chk)
+        p_top_opts.addWidget(self.grp_already_joined_chk)
+        p_top_opts.addStretch()
+
+        post_cycles_lbl = QLabel("🔁 Post Repetitions Per Account:")
+        post_cycles_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #38bdf8;")
+        p_top_opts.addWidget(post_cycles_lbl)
+
+        self.grp_post_cycles_spin = QSpinBox()
+        self.grp_post_cycles_spin.setRange(1, 100)
+        self.grp_post_cycles_spin.setValue(1)
+        self.grp_post_cycles_spin.setSuffix(" time(s)")
+        self.grp_post_cycles_spin.setFixedWidth(105)
+        self.grp_post_cycles_spin.setStyleSheet("font-weight: 700; color: #38bdf8; font-size: 12px; background-color: #0b1120; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; padding: 2px 4px;")
+        self.grp_post_cycles_spin.setToolTip("How many times to post per account (1 = single post; 2+ = wait 2s after 1st post button returns to blue, re-click Post, wait until complete before closing browser).")
+        p_top_opts.addWidget(self.grp_post_cycles_spin)
+
+        p_layout.addLayout(p_top_opts)
 
         # Compatibility reference for legacy code
         self.grp_post_codes_input = None
@@ -8245,8 +8313,26 @@ class FBAutoBotMainWindow(QMainWindow):
         j_header.setStyleSheet("font-size: 15px; font-weight: 700; color: #10b981; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;")
         j_layout.addWidget(j_header)
 
-        # Input: Group Codes for Joining
-        j_layout.addWidget(QLabel("📋 Target Group Codes / URLs to Join (1 per line):"))
+        # Input: Group Codes for Joining with Groups to Join Per Account column
+        j_codes_hdr = QHBoxLayout()
+        j_codes_hdr.addWidget(QLabel("📋 Target Group Codes / URLs to Join (1 per line):"))
+        j_codes_hdr.addStretch()
+
+        join_per_acc_lbl = QLabel("🔢 Groups to Join Per Account:")
+        join_per_acc_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
+        j_codes_hdr.addWidget(join_per_acc_lbl)
+
+        self.grp_join_per_acc_spin = QSpinBox()
+        self.grp_join_per_acc_spin.setRange(1, 99999)
+        self.grp_join_per_acc_spin.setValue(40)
+        self.grp_join_per_acc_spin.setSuffix(" groups")
+        self.grp_join_per_acc_spin.setFixedWidth(115)
+        self.grp_join_per_acc_spin.setStyleSheet("font-weight: 700; color: #10b981; font-size: 12px; background-color: #0b1120; border: 1px solid rgba(16,185,129,0.3); border-radius: 4px; padding: 2px 4px;")
+        self.grp_join_per_acc_spin.setToolTip("Target number of group URLs to join per Facebook account. The bot slices total groups evenly across accounts so each account gets this batch size.")
+        j_codes_hdr.addWidget(self.grp_join_per_acc_spin)
+
+        j_layout.addLayout(j_codes_hdr)
+
         self.grp_join_codes_input = QTextEdit()
         self.grp_join_codes_input.setPlaceholderText("e.g.\nhttps://www.facebook.com/groups/112233445566/\nfacebook.com/groups/auto_parts_marketplace\n554433221100998")
         self.grp_join_codes_input.setFixedHeight(75)
@@ -8322,13 +8408,13 @@ class FBAutoBotMainWindow(QMainWindow):
             self.update_group_account_selection_summary()
             return
 
-        for acc in active_accounts:
+        for idx, acc in enumerate(active_accounts, start=1):
             name = acc.get("name", "Account")
             status = acc.get("status", "Healthy")
             proxy = acc.get("proxy", "Direct")
             icon = "🟢" if status in ("Healthy", "Active", "Ready", "Logged in") else "🟡"
 
-            chk = QCheckBox(f"{icon} {name}  [{status}]  •  Proxy: {proxy}")
+            chk = QCheckBox(f"#{idx}  {icon} {name}  [{status}]  •  Proxy: {proxy}")
             chk.setStyleSheet("font-size: 12px; color: #f8fafc; padding: 2px 0;")
             chk.setProperty("account_data", acc)
             chk.setChecked(True)
@@ -8457,6 +8543,8 @@ class FBAutoBotMainWindow(QMainWindow):
         post_delay = self.grp_post_delay_spin.value() if hasattr(self, 'grp_post_delay_spin') else 15
         join_threads = self.grp_join_thread_spin.value() if hasattr(self, 'grp_join_thread_spin') else 1
         join_delay = self.grp_join_delay_spin.value() if hasattr(self, 'grp_join_delay_spin') else 15
+        join_per_acc = self.grp_join_per_acc_spin.value() if hasattr(self, 'grp_join_per_acc_spin') else 40
+        post_cycles = self.grp_post_cycles_spin.value() if hasattr(self, 'grp_post_cycles_spin') else 1
 
         cf_email = self.grp_fewfeed_email_input.text().strip() if hasattr(self, 'grp_fewfeed_email_input') and self.grp_fewfeed_email_input.text().strip() else "codeabm71@gmail.com"
         cf_pass = self.grp_fewfeed_pass_input.text().strip() if hasattr(self, 'grp_fewfeed_pass_input') and self.grp_fewfeed_pass_input.text().strip() else "Fewfeew"
@@ -8488,6 +8576,8 @@ class FBAutoBotMainWindow(QMainWindow):
             "group_codes": post_codes or join_codes,
             "join_group_codes": [] if already_joined else join_codes,
             "post_group_codes": post_codes,
+            "join_per_account": join_per_acc,
+            "post_cycles": post_cycles,
             "links": links,
             "descriptions": descriptions,
             "mode": mode,

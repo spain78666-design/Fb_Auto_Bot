@@ -408,8 +408,8 @@ export default function App() {
                               id="input-sim-account"
                               className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
                             >
-                              <option>🟢 ShopUSA_MainProfile [Healthy] (185.199.229.15:8080)</option>
-                              <option>🟢 Backup_Store_UK [Healthy] (Direct Residential)</option>
+                              <option>#1 🟢 ShopUSA_MainProfile [Healthy] (185.199.229.15:8080)</option>
+                              <option>#2 🟢 Backup_Store_UK [Healthy] (Direct Residential)</option>
                               <option>⚡ All Healthy Accounts (Sequential Multi-Post Batch)</option>
                             </select>
                           </div>
@@ -732,6 +732,7 @@ export default function App() {
                             <table className="w-full text-left text-xs">
                               <thead>
                                 <tr className="border-b border-slate-800 text-slate-400">
+                                  <th className="pb-2 font-semibold w-8 text-center">#</th>
                                   <th className="pb-2 font-semibold">Account / Profile Dir</th>
                                   <th className="pb-2 font-semibold">Assigned Proxy</th>
                                   <th className="pb-2 font-semibold">Status</th>
@@ -740,6 +741,7 @@ export default function App() {
                               </thead>
                               <tbody className="divide-y divide-slate-800/60 text-slate-300">
                                 <tr>
+                                  <td className="py-2.5 text-center font-bold text-sky-400">1</td>
                                   <td className="py-2.5">
                                     <div className="font-medium text-white">ShopUSA_MainProfile</div>
                                     <div className="text-[10px] text-slate-500 font-mono">profiles/acc_shop_usa/</div>
@@ -780,6 +782,7 @@ export default function App() {
                                   </td>
                                 </tr>
                                 <tr>
+                                  <td className="py-2.5 text-center font-bold text-sky-400">2</td>
                                   <td className="py-2.5">
                                     <div className="font-medium text-white">Backup_Store_UK</div>
                                     <div className="text-[10px] text-slate-500 font-mono">profiles/acc_backup_uk/</div>

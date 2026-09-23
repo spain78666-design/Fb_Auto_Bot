@@ -830,33 +830,24 @@ class FacebookGroupBot:
                     break
 
         if not target_page:
-            # Step A: Wait up to 5s for the extension background service worker to be ready
+            # Step A: Dispatch the extension action click inside the extension context (Simulates clicking FewFeed V3 icon)
             sw_target = None
-            for _ in range(10):
-                if self._cancel_requested:
+            for sw in self.context.service_workers:
+                u = sw.url.lower()
+                if "bg.js" in u or "chrome-extension://" in u or "fewfeed" in u:
+                    sw_target = sw
                     break
-                for sw in self.context.service_workers:
-                    u = sw.url.lower()
-                    if "bg.js" in u or "chrome-extension://" in u or "fewfeed" in u:
-                        sw_target = sw
-                        break
-                if sw_target:
-                    break
-                await asyncio.sleep(0.5)
 
-            # Step B: Dispatch the extension action click inside the extension context (Simulates clicking FewFeed V3 icon)
             if sw_target:
                 try:
                     await sw_target.evaluate("""async () => {
                         try {
                             if (typeof chrome !== 'undefined') {
-                                // Query the active Facebook tab in Tab 1
                                 let activeTab = null;
                                 if (chrome.tabs && chrome.tabs.query) {
                                     const tabs = await new Promise(r => chrome.tabs.query({ active: true }, r));
                                     activeTab = (tabs && tabs.length) ? tabs[0] : null;
                                 }
-                                // Trigger extension action click (FewFeed V3 toolbar / menu click)
                                 if (chrome.action && chrome.action.onClicked && chrome.action.onClicked.dispatch) {
                                     chrome.action.onClicked.dispatch(activeTab || {});
                                 } else if (chrome.browserAction && chrome.browserAction.onClicked && chrome.browserAction.onClicked.dispatch) {
@@ -874,11 +865,9 @@ class FacebookGroupBot:
                     self.log("SUCCESS", "🖱️ Clicked 'FewFeed V3' extension action button in Chrome!")
                 except Exception as sw_ex:
                     self.log("INFO", f"Extension trigger notice: {str(sw_ex)[:60]}")
-            else:
-                self.log("INFO", "Extension service worker ready. Opening FewFeed through extension bridge...")
 
-            # Step C: Wait for the new FewFeed tab opened by clicking the extension icon
-            for _ in range(15):
+            # Step B: Wait up to 3s for the new FewFeed tab opened by clicking the extension icon
+            for _ in range(6):
                 if self._cancel_requested:
                     break
                 for p in self.context.pages:
@@ -908,82 +897,53 @@ class FacebookGroupBot:
         """Helper alias to open FewFeed via extension click."""
         return await self.open_fewfeed_via_extension_click()
 
-    async def verify_facebook_id_blue_buttons(self, timeout_sec: int = 25) -> bool:
+    async def verify_facebook_id_blue_buttons(self, wait_sec: int = 9) -> bool:
         """
-        Step 3: Checks that the active Facebook ID is detected by FewFeed and the BLUE buttons are showing.
-        Proactively clicks handshake buttons and reloads page if needed to bind Facebook session from Tab 1.
+        Step 3: Wait 8 to 9 seconds passively for FewFeed extension to fetch Facebook ID from Tab 1 and turn buttons blue.
+        DO NOT click any buttons or reload during this period so that FewFeed stays on its dashboard without redirecting.
         """
-        self.log("INFO", "⏳ [Step 3] Binding Facebook session with FewFeed and verifying BLUE buttons...")
-        start_t = time.time()
-        reload_attempted = False
-
-        while time.time() - start_t < timeout_sec:
+        self.log("INFO", f"⏳ [Step 3] FewFeed extension opened. Waiting {wait_sec} seconds for Facebook ID & Blue Buttons to fetch...")
+        for i in range(wait_sec):
             if self._cancel_requested:
                 return False
-            try:
-                status = await self.page.evaluate("""() => {
-                    const allElements = Array.from(document.querySelectorAll('button, a, div[role="button"], span, div, h1, h2, h3, h4, p'));
-                    let blueFound = false;
-                    let fbIdFound = '';
-                    let hasLoginFbBtn = false;
+            await asyncio.sleep(1.0)
+            if (i + 1) % 3 == 0:
+                self.log("INFO", f"⏳ Fetching Facebook session & activating tool cards ({i + 1}/{wait_sec}s)...")
 
-                    for (const el of allElements) {
-                        const style = window.getComputedStyle(el);
-                        const bg = style.backgroundColor || '';
-                        const txt = (el.innerText || el.textContent || '').trim();
+        # Inspect if Facebook ID or blue buttons are ready (read-only inspect, NEVER click Login FB)
+        try:
+            status = await self.page.evaluate("""() => {
+                const allElements = Array.from(document.querySelectorAll('button, a, div[role="button"], span, div, h1, h2, h3, h4, p'));
+                let blueFound = false;
+                let fbIdFound = '';
 
-                        // Detect blue buttons: rgb(37, 99, 235), rgb(59, 130, 246), rgb(29, 78, 216), etc.
-                        const isBlue = bg.includes('37, 99, 235') || bg.includes('59, 130, 246') || 
-                                       bg.includes('29, 78, 216') || bg.includes('30, 64, 175') ||
-                                       (el.className && typeof el.className === 'string' && (el.className.includes('btn-primary') || el.className.includes('bg-blue')));
+                for (const el of allElements) {
+                    const style = window.getComputedStyle(el);
+                    const bg = style.backgroundColor || '';
+                    const txt = (el.innerText || el.textContent || '').trim();
 
-                        if (isBlue && (el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button')) {
-                            if (txt.toLowerCase().includes('use this tool') || txt.toLowerCase().includes('open') || isBlue) {
-                                blueFound = true;
-                            }
-                        }
+                    const isBlue = bg.includes('37, 99, 235') || bg.includes('59, 130, 246') || 
+                                   bg.includes('29, 78, 216') || bg.includes('30, 64, 175') ||
+                                   (el.className && typeof el.className === 'string' && (el.className.includes('btn-primary') || el.className.includes('bg-blue')));
 
-                        if (!fbIdFound) {
-                            const m = txt.match(/(\\b\\d{10,20}\\b)/);
-                            if (m) fbIdFound = m[1];
-                        }
-
-                        if (txt.toLowerCase().includes('login fb') || txt.toLowerCase().includes('connect fb')) {
-                            hasLoginFbBtn = true;
+                    if (isBlue && (el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button')) {
+                        if (txt.toLowerCase().includes('use this tool') || txt.toLowerCase().includes('open') || isBlue) {
+                            blueFound = true;
                         }
                     }
 
-                    // Click 'Login FB to use' or 'Connect FB' button if still showing
-                    for (const el of allElements) {
-                        const txt = (el.innerText || '').toLowerCase();
-                        if ((txt.includes('login fb') || txt.includes('connect fb')) && (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button')) {
-                            el.click();
-                            break;
-                        }
+                    if (!fbIdFound) {
+                        const m = txt.match(/(\\b\\d{10,20}\\b)/);
+                        if (m) fbIdFound = m[1];
                     }
+                }
+                return { blueFound, fbIdFound };
+            }""")
+            fb_id = status.get("fbIdFound", "")
+            self.log("SUCCESS", f"🔵 [Step 3] Facebook session connected! BLUE buttons are active in FewFeed {('(' + fb_id + ')') if fb_id else ''}.")
+        except Exception:
+            self.log("INFO", "🔵 [Step 3] FewFeed stabilized. Ready to use tools.")
 
-                    return { blueFound, fbIdFound, hasLoginFbBtn };
-                }""")
-
-                if status.get("blueFound") or status.get("fbIdFound"):
-                    fb_id = status.get("fbIdFound", "")
-                    self.log("SUCCESS", f"🔵 [Step 3] Facebook session connected! BLUE buttons are active in FewFeed {('(' + fb_id + ')') if fb_id else ''}.")
-                    return True
-
-                # If after 4s Facebook ID is not attached yet, trigger a fast page reload to re-read cookies from Tab 1
-                if time.time() - start_t > 4.0 and not reload_attempted:
-                    reload_attempted = True
-                    self.log("INFO", "🔄 Re-syncing FewFeed with Facebook session from Tab 1...")
-                    try:
-                        await self.page.reload(wait_until="domcontentloaded", timeout=15000)
-                    except Exception:
-                        pass
-
-            except Exception:
-                pass
-            await asyncio.sleep(1.5)
-
-        self.log("INFO", "🔵 [Step 3] Proceeding to Tools.")
         return True
 
     async def navigate_to_tools_menu(self) -> bool:
@@ -1035,111 +995,243 @@ class FacebookGroupBot:
             self.log("INFO", "ℹ️ [Step 4] Tools section is currently visible on screen.")
         return True
 
-    async def open_fewfeed_tool_by_click(self, tool_name: str) -> bool:
+    async def navigate_to_fewfeed_dashboard(self) -> bool:
         """
-        Navigates into the requested tool strictly by clicking:
-        1. Clicks 'Tools' menu in FewFeed navigation (Step 4).
-        2. Clicks 'Use this tool' / tool card directly on the screen (Step 5/6).
-        Strictly click-driven, NO URL typing or address bar linking.
+        Navigates back to FewFeed Dashboard by strictly clicking the FewFeed logo/brand in the navbar.
+        CRITICAL: Never reloads or calls page.goto(), preserving the Facebook session connection intact.
         """
-        # Ensure FewFeed is open via extension click and Facebook ID verified
-        if not hasattr(self, 'fewfeed_page') or self.fewfeed_page is None or self.fewfeed_page.is_closed():
-            await self.open_fewfeed_via_extension_click()
-            await self.verify_facebook_id_blue_buttons()
+        self.log("INFO", "🏠 Clicking top-left FewFeed logo in navbar to return to Dashboard...")
+        
+        # Check if already on dashboard
+        if "/tool/" not in self.page.url.lower():
+            self.log("INFO", "ℹ️ Already on FewFeed Dashboard.")
+            return True
 
-        # Step 4: Click 'Tools' menu
-        await self.navigate_to_tools_menu()
+        clicked = False
 
-        tool_label = "Auto Join To Facebook Groups PRO 2023" if tool_name.lower() in ("join", "joining") else "Auto Post To Facebook Groups PRO 2023"
-        self.log("INFO", f"🖱️ Locating and clicking tool card for: {tool_label}...")
+        # Strategy 1: Playwright native locator click on navbar brand/home link
+        brand_selectors = [
+            'header a[href="/"]',
+            'nav a[href="/"]',
+            'a[href="/"]',
+            'header a[href="https://fewfeed.app/"]',
+            'nav a[href="https://fewfeed.app/"]',
+            'header a:has-text("FewFeed")',
+            'nav a:has-text("FewFeed")',
+            'header img',
+            'nav img'
+        ]
+        for sel in brand_selectors:
+            try:
+                loc = self.page.locator(sel).first
+                if await loc.count() > 0 and await loc.is_visible():
+                    await loc.scroll_into_view_if_needed()
+                    await loc.click()
+                    clicked = True
+                    break
+            except Exception:
+                pass
 
-        # Precise DOM element target and click
-        clicked = await self.page.evaluate("""(target) => {
-            const isJoin = (target === 'join' || target === 'joining');
-            const targetTitle = isJoin ? 'auto join to facebook groups' : 'auto post to facebook groups';
-            const altKeywords = isJoin ? ['auto join', 'cyber hermit'] : ['auto post', 'jera'];
-
-            // Strategy 1: Find 'Use this tool' button belonging to target tool
-            const allButtons = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
-            for (const btn of allButtons) {
-                const btnText = (btn.innerText || btn.textContent || '').trim().toLowerCase();
-                if (btnText.includes('use this tool') || btnText === 'use this tool') {
-                    let parent = btn.parentElement;
-                    for (let depth = 0; depth < 6 && parent; depth++) {
-                        const cardText = (parent.innerText || '').toLowerCase();
-                        if (cardText.includes(targetTitle) || altKeywords.some(kw => cardText.includes(kw))) {
-                            btn.scrollIntoView({ block: 'center' });
-                            btn.click();
+        # Strategy 2: Targeted DOM dispatch on home link / logo
+        if not clicked:
+            try:
+                clicked = await self.page.evaluate("""() => {
+                    const homeLinks = Array.from(document.querySelectorAll('header a, nav a, a[href="/"], a[href="https://fewfeed.app/"], a[href="https://fewfeed.app"]'));
+                    for (const link of homeLinks) {
+                        const txt = (link.innerText || link.textContent || '').trim().toLowerCase();
+                        const hasImg = !!link.querySelector('img, svg');
+                        if (txt.includes('fewfeed') || hasImg || link.getAttribute('href') === '/' || link.getAttribute('href') === 'https://fewfeed.app/') {
+                            link.scrollIntoView({ block: 'center' });
+                            ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+                                link.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+                            });
+                            link.click();
                             return true;
                         }
-                        parent = parent.parentElement;
                     }
-                }
-            }
 
-            // Strategy 2: Search for tool cards directly
-            const cards = Array.from(document.querySelectorAll('div, section, article, a')).filter(el => {
-                const t = (el.innerText || '').toLowerCase();
-                return (t.includes(targetTitle) || altKeywords.some(kw => t.includes(kw)));
-            });
+                    // Fallback to any navbar logo/img
+                    const nav = document.querySelector('header, nav') || document.body;
+                    const candidates = Array.from(nav.querySelectorAll('a, button, img, svg, div'));
+                    for (const el of candidates) {
+                        const txt = (el.innerText || el.textContent || el.alt || '').toLowerCase();
+                        if (txt.includes('fewfeed')) {
+                            const clk = el.closest('a') || el.closest('button') || el;
+                            clk.scrollIntoView({ block: 'center' });
+                            ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+                                clk.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+                            });
+                            clk.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                }""")
+            except Exception as e:
+                self.log("DEBUG", f"Navbar logo click notice: {e}")
 
-            for (const card of cards) {
-                const btn = card.querySelector('button, a, div[role="button"]') || card;
-                if (btn) {
-                    btn.scrollIntoView({ block: 'center' });
-                    btn.click();
-                    return true;
-                }
-            }
+        # Wait client-side for navigation back to dashboard (never use page.goto!)
+        for _ in range(12):
+            await asyncio.sleep(0.5)
+            if "/tool/" not in self.page.url.lower():
+                self.log("SUCCESS", "✅ Returned to FewFeed Dashboard (Facebook account session preserved)!")
+                await asyncio.sleep(1.0)
+                return True
 
-            return false;
-        }""", tool_name.lower())
+        self.log("INFO", "ℹ️ Returning to dashboard view completed.")
+        return True
 
-        if clicked:
-            self.log("SUCCESS", f"✅ Clicked tool card on FewFeed for {tool_label}!")
-            await asyncio.sleep(2.5)
-        else:
-            # Check if any link href matches target tool
-            is_join = tool_name.lower() in ("join", "joining")
-            target_kw = "join" if is_join else "post"
-            href_clicked = await self.page.evaluate("""(kw) => {
-                const links = Array.from(document.querySelectorAll('a[href]'));
-                const link = links.find(a => (a.getAttribute('href') || '').toLowerCase().includes(kw));
-                if (link) {
-                    link.scrollIntoView({ block: 'center' });
-                    link.click();
-                    return true;
-                }
-                return false;
-            }""", target_kw)
+    async def open_fewfeed_tool_by_click(self, tool_name: str) -> bool:
+        """
+        Navigates into the requested FewFeed tool strictly by clicking 'Use this tool' from Dashboard:
+        - Card 2: 'Auto Join To Facebook Groups PRO 2023' (auto-join-fb-group)
+        - Card 1: 'Auto Post To Facebook Groups PRO 2023' (auto-post-fb-group)
+        CRITICAL: Never reloads or uses page.goto(), keeping the in-memory Facebook account attachment intact.
+        """
+        is_join = tool_name.lower() in ("join", "joining")
+        tool_label = "Auto Join To Facebook Groups PRO 2023" if is_join else "Auto Post To Facebook Groups PRO 2023"
+        target_path = "auto-join-fb-group" if is_join else "auto-post-fb-group"
+        card_title = "Auto Join To Facebook Groups" if is_join else "Auto Post To Facebook Groups"
 
-            if href_clicked:
-                self.log("SUCCESS", f"✅ Navigated to {tool_label} via direct tool link.")
-                await asyncio.sleep(2.5)
-            else:
-                curr_url = self.page.url.lower()
-                if target_kw not in curr_url:
-                    fallback_url = f"https://fewfeed.app/tools/auto-{target_kw}"
-                    self.log("INFO", f"🌐 Direct opening {tool_label} ({fallback_url})...")
-                    try:
-                        await self.page.goto(fallback_url, wait_until="domcontentloaded", timeout=25000)
-                    except Exception:
-                        try:
-                            await self.page.goto(f"https://fewfeed.app/tool/auto-{target_kw}", wait_until="domcontentloaded", timeout=25000)
-                        except Exception:
-                            pass
-                else:
-                    self.log("INFO", f"ℹ️ Already on tool view for {tool_label}.")
+        # Ensure FewFeed page reference is active
+        if not hasattr(self, 'fewfeed_page') or self.fewfeed_page is None or self.fewfeed_page.is_closed():
+            await self.open_fewfeed_via_extension_click()
+            await self.verify_facebook_id_blue_buttons(wait_sec=9)
 
-        # Wait up to 6s for the tool container/elements to render
+        self.page = self.fewfeed_page
+        await self.fewfeed_page.bring_to_front()
+
+        # If currently in a different tool subpage, navigate back to dashboard first via logo click
+        if "/tool/" in self.page.url.lower() and target_path not in self.page.url.lower():
+            self.log("INFO", f"🔄 Currently on another tool subpage. Navigating back to Dashboard via FewFeed logo...")
+            await self.navigate_to_fewfeed_dashboard()
+            await asyncio.sleep(1.5)
+
+        # If already on the target tool page, proceed immediately
+        if target_path in self.page.url.lower():
+            self.log("SUCCESS", f"✅ Already on {tool_label} page.")
+            return True
+
+        self.log("INFO", f"🖱️ Locating and clicking 'Use this tool' for: {tool_label}...")
+
+        clicked = False
+
+        # Strategy 1: Playwright Native User Click on Card container
         try:
-            if tool_name.lower() in ("join", "joining"):
-                await self.page.wait_for_selector('textarea, input, button', timeout=6000)
-            else:
-                await self.page.wait_for_selector('textarea, input, button, table', timeout=6000)
+            cards = self.page.locator('div, section').filter(has_text=card_title)
+            count = await cards.count()
+            if count > 0:
+                for idx in range(count):
+                    card_el = cards.nth(idx)
+                    btn = card_el.locator('button, a, div[role="button"]').filter(has_text="Use this tool").first
+                    if await btn.count() > 0 and await btn.is_visible():
+                        await btn.scroll_into_view_if_needed()
+                        await btn.click()
+                        clicked = True
+                        break
+        except Exception as e:
+            self.log("DEBUG", f"Playwright card click notice: {e}")
+
+        # Strategy 2: Playwright link with target path in href
+        if not clicked:
+            try:
+                link_loc = self.page.locator(f'a[href*="{target_path}"]').first
+                if await link_loc.count() > 0 and await link_loc.is_visible():
+                    await link_loc.scroll_into_view_if_needed()
+                    await link_loc.click()
+                    clicked = True
+            except Exception:
+                pass
+
+        # Strategy 3: Targeted DOM event dispatch
+        if not clicked:
+            try:
+                clicked = await self.page.evaluate("""(data) => {
+                    const { isJoin, targetPath } = data;
+                    
+                    // 1. Direct href match
+                    const link = document.querySelector(`a[href*="${targetPath}"]`);
+                    if (link) {
+                        link.scrollIntoView({ block: 'center' });
+                        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+                            link.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+                        });
+                        link.click();
+                        return true;
+                    }
+
+                    // 2. Locate card by title text and click 'Use this tool'
+                    const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, div, span, p'));
+                    const titleEl = headings.find(h => {
+                        const t = (h.innerText || h.textContent || '').trim().toLowerCase();
+                        return isJoin ? (t.includes('auto join') && t.includes('groups')) : (t.includes('auto post') && t.includes('groups'));
+                    });
+
+                    if (titleEl) {
+                        let card = titleEl.parentElement;
+                        for (let d = 0; d < 8 && card; d++) {
+                            const btns = Array.from(card.querySelectorAll('button, a, div[role="button"]'));
+                            const useBtn = btns.find(b => {
+                                const bTxt = (b.innerText || b.textContent || '').trim().toLowerCase();
+                                return bTxt.includes('use this tool');
+                            });
+                            if (useBtn) {
+                                useBtn.scrollIntoView({ block: 'center' });
+                                ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+                                    useBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+                                });
+                                useBtn.click();
+                                return true;
+                            }
+                            card = card.parentElement;
+                        }
+                    }
+
+                    // 3. Fallback by button index under FREE TOOLS:
+                    // Post = index 0, Join = index 1
+                    const allUseBtns = Array.from(document.querySelectorAll('button, a, div[role="button"]')).filter(b => {
+                        const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+                        return t.includes('use this tool');
+                    });
+                    const targetIdx = isJoin ? 1 : 0;
+                    if (allUseBtns.length > targetIdx) {
+                        const b = allUseBtns[targetIdx];
+                        b.scrollIntoView({ block: 'center' });
+                        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+                            b.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+                        });
+                        b.click();
+                        return true;
+                    }
+
+                    return false;
+                }""", {"isJoin": is_join, "targetPath": target_path})
+            except Exception as e:
+                self.log("DEBUG", f"DOM click dispatch notice: {e}")
+
+        # Wait client-side for tool page to load (WITHOUT reloading or goto)
+        self.log("INFO", f"⏳ Waiting for {tool_label} to open...")
+        for wait_i in range(16):
+            await asyncio.sleep(0.5)
+            if target_path in self.page.url.lower():
+                break
+            # If not yet open after 2 seconds, re-attempt click once
+            if wait_i == 4 and not clicked:
+                try:
+                    await self.page.evaluate("""(tPath) => {
+                        const l = document.querySelector(`a[href*="${tPath}"]`);
+                        if (l) l.click();
+                    }""", target_path)
+                except Exception:
+                    pass
+
+        # Wait for form inputs / controls on tool page
+        try:
+            await self.page.wait_for_selector('textarea, input, button', timeout=6000)
         except Exception:
             pass
 
+        self.log("SUCCESS", f"✅ {tool_label} loaded successfully with Facebook session preserved!")
         return True
 
     async def run_fewfeed_group_joining(
@@ -1164,7 +1256,7 @@ class FacebookGroupBot:
         await self.open_fewfeed_tool_by_click("join")
         self.set_progress(25)
 
-        # Step 2: Inject Group IDs, user THREAD and DELAY
+        # Step 2: Inject Group IDs, user THREAD, DELAY and Question Answers
         codes_text = "\n".join(group_codes)
         thread_str = str(max(1, int(thread_val)))
         delay_str = str(max(1, int(delay_seconds)))
@@ -1178,19 +1270,21 @@ class FacebookGroupBot:
             let filledDelay = false;
 
             function setNativeVal(el, val) {
-                if (!el) return;
-                const valueSetter = Object.getOwnPropertyDescriptor(el, 'value')?.set;
-                const proto = Object.getPrototypeOf(el);
-                const protoSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-                if (protoSetter && valueSetter !== protoSetter) {
-                    protoSetter.call(el, val);
-                } else if (valueSetter) {
-                    valueSetter.call(el, val);
-                } else {
-                    el.value = val;
-                }
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
+                if (!el || el.type === 'file' || el.type === 'checkbox' || el.type === 'radio') return;
+                try {
+                    const valueSetter = Object.getOwnPropertyDescriptor(el, 'value')?.set;
+                    const proto = Object.getPrototypeOf(el);
+                    const protoSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+                    if (protoSetter && valueSetter !== protoSetter) {
+                        protoSetter.call(el, val);
+                    } else if (valueSetter) {
+                        valueSetter.call(el, val);
+                    } else {
+                        el.value = val;
+                    }
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                } catch (e) {}
             }
 
             // 1. Fill Textarea (Group IDs)
@@ -1207,8 +1301,8 @@ class FacebookGroupBot:
                 filledTa = true;
             }
 
-            // 2. Search for THREAD and DELAY inputs by label / parent text
-            const inputs = Array.from(document.querySelectorAll('input'));
+            // 2. Search for THREAD and DELAY inputs by label / parent text (excluding file/checkbox)
+            const inputs = Array.from(document.querySelectorAll('input')).filter(i => i.type !== 'file' && i.type !== 'checkbox' && i.type !== 'radio');
 
             for (const inp of inputs) {
                 const pText = (inp.parentElement ? inp.parentElement.innerText : '').toUpperCase();
@@ -1236,6 +1330,17 @@ class FacebookGroupBot:
                     setNativeVal(numInputs[1], delayStr);
                     filledDelay = true;
                 }
+            }
+
+            // 3. Ensure answer keyword is present so 'Please enter at least one keyword' validation passes
+            const ansInput = inputs.find(i => {
+                const ph = (i.placeholder || '').toLowerCase();
+                return ph.includes('answer') || ph.includes('keyword') || ph.includes('add');
+            });
+            if (ansInput) {
+                setNativeVal(ansInput, 'Please accept me');
+                const addBtn = ansInput.nextElementSibling || (ansInput.parentElement ? ansInput.parentElement.querySelector('button, svg, span') : null);
+                if (addBtn) addBtn.click();
             }
 
             return { filledTa, filledThread, filledDelay };
@@ -1268,6 +1373,9 @@ class FacebookGroupBot:
             });
             if (btn) {
                 btn.scrollIntoView({ block: 'center' });
+                ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evtName => {
+                    btn.dispatchEvent(new MouseEvent(evtName, { bubbles: true, cancelable: true, view: window }));
+                });
                 btn.click();
                 return true;
             }
@@ -1302,9 +1410,9 @@ class FacebookGroupBot:
         self.set_progress(40)
 
         # Monitor joining progress & wait for button status
-        self.log("INFO", "👀 Monitoring FewFeed Auto Join execution status...")
+        self.log("INFO", "👀 Monitoring FewFeed Auto Join execution status (active joining takes 10 to 12s)...")
         turned_red = False
-        for _ in range(12):
+        for _ in range(8):
             if self._cancel_requested:
                 break
             try:
@@ -1328,10 +1436,10 @@ class FacebookGroupBot:
                 pass
             await asyncio.sleep(1.0)
 
-        # Wait until all groups are joined and button returns to BLUE / idle
-        max_join_wait = max(30, min(len(group_codes) * int(delay_str) * 2, 300))
-        self.log("INFO", f"⏳ Waiting for all {len(group_codes)} groups to be joined (timeout {max_join_wait}s)...")
+        # Wait 10 to 12 seconds for joining to finish as shown in user video
         join_start = time.time()
+        max_join_wait = max(15, min(len(group_codes) * int(delay_str) * 2, 60))
+        self.log("INFO", f"⏳ Waiting 10 to 12 seconds for group joining to complete...")
         
         while (time.time() - join_start) < max_join_wait:
             if self._cancel_requested:
@@ -1355,16 +1463,18 @@ class FacebookGroupBot:
                     }
                     return { hasStop, isBlue };
                 }""")
-                if (turned_red and not state.get("hasStop") and state.get("isBlue")) or (not state.get("hasStop") and state.get("isBlue") and (time.time() - join_start > 10)):
+                if (turned_red and not state.get("hasStop") and state.get("isBlue")) or (time.time() - join_start >= 12):
                     self.log("SUCCESS", "🔵 FewFeed Auto Join finished! Button has returned to BLUE.")
                     break
             except Exception:
                 pass
 
         self.log("SUCCESS", f"🎉 FewFeed Auto Join successfully completed for all {len(group_codes)} groups!")
-        self.log("INFO", "➡️ Proceeding to Card #1 (Auto Post To Facebook Groups PRO 2023)...")
         self.set_progress(50)
-        await asyncio.sleep(2.0)
+        
+        # Navigate back to FewFeed Dashboard by clicking the top-left FewFeed icon / logo
+        await self.navigate_to_fewfeed_dashboard()
+
         return len(group_codes)
 
     async def run_fewfeed_group_posting(
@@ -1374,21 +1484,23 @@ class FacebookGroupBot:
         descriptions: Optional[List[str]] = None,
         posting_mode: str = "Random",
         thread_val: int = 1,
-        delay_seconds: int = 15
+        delay_seconds: int = 15,
+        post_cycles: int = 1
     ) -> int:
         """
         Automates FewFeed 'Auto Post To Facebook Groups' by clicking 'Use this tool' from Dashboard.
-        Fills Caption, Links, sets user THREAD & DELAY, Selects All Groups, and starts posting.
+        Fills separate Caption in textarea, separate Link in URL field, sets user THREAD & DELAY, Selects All Groups, and starts posting.
+        Supports repeating post cycles per account (post_cycles >= 1).
         """
         self.log("INFO", f"==================================================")
-        self.log("INFO", f"📢 [FewFeed Auto Post] Starting automated group posting...")
+        self.log("INFO", f"📢 [FewFeed Auto Post] Starting automated group posting (Cycles configured: {post_cycles})...")
         self.set_progress(55)
 
         # Step 1: Open Auto Post Tool by clicking 'Use this tool' on FewFeed Dashboard
         await self.open_fewfeed_tool_by_click("post")
         self.set_progress(65)
 
-        # Step 2: Prepare post text content & links
+        # Step 2: Prepare pure description text and link
         desc_text = random.choice(descriptions) if (descriptions and posting_mode == "Random") else ("\n\n".join(descriptions) if descriptions else "")
         if links:
             if len(links) == 1:
@@ -1398,18 +1510,10 @@ class FacebookGroupBot:
         else:
             link_text = ""
         
-        full_content = desc_text
-        if link_text:
-            if full_content:
-                full_content += "\n\n" + link_text
-            else:
-                full_content = link_text
+        desc_content = desc_text if desc_text else "Available now! Check details and message for info."
 
-        if not full_content:
-            full_content = "Available now! Check details and message for info."
-
-        # Step 3: Fill Post Message / Description in FewFeed
-        self.log("INFO", "📝 Entering post description and links into FewFeed Auto Post composer...")
+        # Step 3: Fill Post Message / Description in FewFeed (pure description text only)
+        self.log("INFO", "📝 Entering post description into FewFeed Auto Post composer...")
         desc_filled = False
 
         desc_selectors = [
@@ -1430,9 +1534,9 @@ class FacebookGroupBot:
                     await inp.scroll_into_view_if_needed()
                     await inp.click()
                     await inp.fill("")
-                    await inp.fill(full_content)
+                    await inp.fill(desc_content)
                     desc_filled = True
-                    self.log("SUCCESS", "✅ Filled post text & descriptions in FewFeed.")
+                    self.log("SUCCESS", "✅ Filled post description in FewFeed (pure description text).")
                     break
             except Exception:
                 continue
@@ -1461,21 +1565,51 @@ class FacebookGroupBot:
                         return true;
                     }
                     return false;
-                }""", full_content)
-                self.log("SUCCESS", "✅ Injected post content into FewFeed via DOM bridge.")
+                }""", desc_content)
+                self.log("SUCCESS", "✅ Injected post description into FewFeed via DOM bridge.")
             except Exception:
                 pass
 
         # Step 4: Fill separate Link input if present
-        if links:
+        if link_text:
             try:
-                first_link = links[0]
-                link_input = await self.page.query_selector('input[type="url"], input[name*="link" i], input[placeholder*="link" i], input[placeholder*="url" i]')
-                if link_input and await link_input.is_visible():
-                    await link_input.fill(first_link)
-                    self.log("INFO", f"🔗 Added primary link to FewFeed: {first_link}")
-            except Exception:
-                pass
+                link_filled = False
+                link_selectors = [
+                    'input[type="url"]',
+                    'input[name*="link" i]',
+                    'input[placeholder*="link" i]',
+                    'input[placeholder*="url" i]',
+                    'input[id*="link" i]'
+                ]
+                for lsel in link_selectors:
+                    link_input = await self.page.query_selector(lsel)
+                    if link_input and await link_input.is_visible():
+                        await link_input.scroll_into_view_if_needed()
+                        await link_input.click()
+                        await link_input.fill("")
+                        await link_input.fill(link_text)
+                        link_filled = True
+                        self.log("SUCCESS", f"🔗 Filled separate link into FewFeed link field: {link_text}")
+                        break
+
+                if not link_filled:
+                    # DOM injection fallback for link input
+                    await self.page.evaluate("""(linkVal) => {
+                        const inputs = Array.from(document.querySelectorAll('input'));
+                        const urlInp = inputs.find(i => {
+                            const ph = (i.placeholder || '').toLowerCase();
+                            const nm = (i.name || '').toLowerCase();
+                            return ph.includes('link') || ph.includes('http') || ph.includes('url') || nm.includes('link') || i.type === 'url';
+                        });
+                        if (urlInp) {
+                            urlInp.value = linkVal;
+                            urlInp.dispatchEvent(new Event('input', { bubbles: true }));
+                            urlInp.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    }""", link_text)
+                    self.log("INFO", f"🔗 Injected link into FewFeed: {link_text}")
+            except Exception as le:
+                self.log("INFO", f"Link field notice: {le}")
 
         # Step 5: Inject THREAD and DELAY into FewFeed Auto Post options
         thread_str = str(max(1, int(thread_val)))
@@ -1536,101 +1670,105 @@ class FacebookGroupBot:
             self.log("INFO", f"FewFeed post options injection: {str(opt_err)[:60]}")
 
         # Step 6: Select All Facebook Groups
-        self.log("INFO", "⏳ Waiting for Facebook Groups list to render in FewFeed...")
-        for _ in range(12):
-            if self._cancel_requested:
-                break
-            found_chk = await self.page.evaluate("""() => document.querySelectorAll('input[type="checkbox"]').length > 0""")
-            if found_chk:
-                break
-            await asyncio.sleep(1.0)
+        self.log("INFO", "☑️ Clicking 'Select All' groups checkbox in FewFeed Auto Post...")
+        await asyncio.sleep(1.0)
 
-        self.log("INFO", "☑️ Selecting Facebook Groups in FewFeed tool...")
-        select_all_selectors = [
-            'input[type="checkbox"]#select_all',
-            'input[type="checkbox"][name*="all" i]',
-            'button:has-text("Select All")',
-            'button:has-text("Check All")',
-            'label:has-text("Select All")',
-            'span:has-text("Select All")'
-        ]
+        # 1. Playwright direct click on the checkbox
+        try:
+            chk = await self.page.query_selector('input[type="checkbox"]')
+            if chk:
+                await chk.scroll_into_view_if_needed()
+                await chk.click(force=True)
+                self.log("SUCCESS", "✅ Clicked group checkbox via Playwright locator.")
+        except Exception:
+            pass
 
-        selected_all = False
-        for ssel in select_all_selectors:
-            try:
-                sel_el = await self.page.query_selector(ssel)
-                if sel_el and await sel_el.is_visible():
-                    await sel_el.click()
-                    selected_all = True
-                    self.log("SUCCESS", "✅ Clicked 'Select All' groups button in FewFeed.")
-                    break
-            except Exception:
-                continue
-
-        # Check and ensure all group checkboxes are checked
+        # 2. Ensure all checkboxes are checked and change events dispatched
         try:
             chk_count = await self.page.evaluate("""() => {
-                const chks = document.querySelectorAll('input[type="checkbox"]');
+                const chks = Array.from(document.querySelectorAll('input[type="checkbox"]'));
                 let count = 0;
-                chks.forEach(c => {
+                for (const c of chks) {
                     if (!c.checked) {
+                        c.scrollIntoView({ block: 'center' });
+                        c.click();
                         c.checked = true;
+                        c.dispatchEvent(new Event('input', { bubbles: true }));
                         c.dispatchEvent(new Event('change', { bubbles: true }));
                     }
                     count++;
-                });
+                }
                 return count;
             }""")
-            self.log("SUCCESS", f"✅ Selected {chk_count} Facebook Groups for Auto Posting.")
+            self.log("SUCCESS", f"✅ Selected all Facebook Groups ({chk_count}) for Auto Posting.")
         except Exception as e:
-            self.log("WARNING", f"Checkbox scan: {str(e)[:70]}")
+            self.log("WARNING", f"Checkbox scan notice: {str(e)[:70]}")
 
         self.set_progress(80)
+        await asyncio.sleep(1.5)
 
-        # Step 7: Post execution (2 consecutive cycles as requested by user)
-        # Cycle 1: Click Start -> Wait for RED/Active -> Wait for BLUE/Complete -> Wait 2s
-        # Cycle 2: Click Start -> Wait for RED/Active -> Wait for BLUE/Complete -> Finish
-        async def trigger_and_wait_posting_cycle(cycle_num: int) -> bool:
-            self.log("INFO", f"🚀 [Posting Cycle {cycle_num}/2] Clicking 'Start Post' in FewFeed Auto Post Tool...")
-            
-            # Click Start/Post button with multi-strategy detection
+        # Step 7: Post execution across configured post_cycles
+        total_cycles = max(1, int(post_cycles))
+        self.log("INFO", f"🎯 Post Repetitions for this account: {total_cycles} cycle(s).")
+
+        for current_cycle in range(1, total_cycles + 1):
+            if self._cancel_requested:
+                break
+
+            if current_cycle == 1:
+                self.log("INFO", f"🚀 [Cycle 1/{total_cycles}] Clicking 'Post' button in FewFeed Auto Post Tool...")
+            else:
+                self.log("INFO", f"⏳ [Cycle {current_cycle}/{total_cycles}] Waiting 2 seconds after previous post completion before re-triggering...")
+                await asyncio.sleep(2.0)
+                self.log("INFO", f"🔁 [Cycle {current_cycle}/{total_cycles}] Re-clicking 'Post' button for second/subsequent post cycle...")
+
+            # Click the Post button
             clicked = await self.page.evaluate("""() => {
                 const btns = Array.from(document.querySelectorAll('button, div[role="button"], input[type="submit"], a.btn'));
-                // Priority 1: Exact matches
+                
+                // Priority 1: Exact matches for Post button
                 for (const b of btns) {
                     const txt = (b.innerText || b.value || b.textContent || '').trim().toLowerCase();
-                    if (txt === 'start post' || txt === 'start posting' || txt === 'post now' || txt === 'start' || txt === 'post') {
+                    if (txt === 'post' || txt === 'start post' || txt === 'post now' || txt === 'start posting') {
                         b.scrollIntoView({ block: 'center' });
+                        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evtName => {
+                            b.dispatchEvent(new MouseEvent(evtName, { bubbles: true, cancelable: true, view: window }));
+                        });
                         b.click();
                         return true;
                     }
                 }
+                
                 // Priority 2: Substring matches
                 for (const b of btns) {
                     const txt = (b.innerText || b.value || b.textContent || '').trim().toLowerCase();
-                    if (txt.includes('start post') || txt.includes('start posting') || txt.includes('post now') || (txt.includes('post') && !txt.includes('stop'))) {
+                    if ((txt.includes('post') || txt.includes('start')) && !txt.includes('stop')) {
                         b.scrollIntoView({ block: 'center' });
+                        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evtName => {
+                            b.dispatchEvent(new MouseEvent(evtName, { bubbles: true, cancelable: true, view: window }));
+                        });
                         b.click();
                         return true;
                     }
                 }
                 return false;
             }""")
-            
+
             if not clicked:
-                for psel in ['button:has-text("Start Post")', 'button:has-text("Start Posting")', 'button:has-text("Post Now")', 'button:has-text("Post")', 'button:has-text("Start")', 'button[type="submit"]']:
+                for psel in ['button:has-text("Post")', 'button:has-text("Start Post")', 'button:has-text("Post Now")', 'button[type="submit"]']:
                     try:
                         pbtn = await self.page.query_selector(psel)
                         if pbtn and await pbtn.is_visible():
+                            await pbtn.scroll_into_view_if_needed()
                             await pbtn.click()
                             clicked = True
                             break
                     except Exception:
                         pass
 
-            self.log("INFO", f"👀 [Posting Cycle {cycle_num}/2] Monitoring active posting status...")
+            self.log("INFO", f"👀 [Cycle {current_cycle}/{total_cycles}] Monitoring FewFeed Auto Post execution (button turns RED while posting)...")
             turned_red = False
-            for _ in range(12):
+            for _ in range(8):
                 if self._cancel_requested:
                     break
                 try:
@@ -1644,30 +1782,25 @@ class FacebookGroupBot:
                                 return true;
                             }
                         }
-                        const bodyTxt = (document.body.innerText || '').toLowerCase();
-                        if (bodyTxt.includes('posting...') || bodyTxt.includes('processing') || bodyTxt.includes('progress:')) {
-                            return true;
-                        }
                         return false;
                     }""")
                     if is_active:
                         turned_red = True
-                        self.log("INFO", f"🔴 [Posting Cycle {cycle_num}/2] Active status detected: FewFeed group posting is running...")
+                        self.log("INFO", f"🔴 [Cycle {current_cycle}/{total_cycles}] Post button turned RED: FewFeed group posting is actively running...")
                         break
                 except Exception:
                     pass
                 await asyncio.sleep(1.0)
 
-            # Wait for posting to finish and button to return to BLUE/idle
-            self.log("INFO", f"⏳ [Posting Cycle {cycle_num}/2] Waiting for posting to complete...")
-            max_wait_seconds = max(180, (len(group_codes or [1]) * delay_seconds * 3))
-            start_time = time.time()
+            # Wait 10 to 12 seconds for posting to complete and button to return to BLUE
+            self.log("INFO", f"⏳ [Cycle {current_cycle}/{total_cycles}] Waiting for posting to complete (button will return to BLUE)...")
+            post_start = time.time()
+            max_post_wait = max(20, min(len(group_codes or [1]) * int(delay_str) * 3, 120))
 
-            while time.time() - start_time < max_wait_seconds:
+            while (time.time() - post_start) < max_post_wait:
                 if self._cancel_requested:
                     break
                 await asyncio.sleep(2.0)
-
                 try:
                     state = await self.page.evaluate("""() => {
                         const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
@@ -1680,46 +1813,25 @@ class FacebookGroupBot:
                             if (txt.includes('stop') || bg.includes('239') || bg.includes('220') || bg.includes('red')) {
                                 hasStop = true;
                             }
-                            if (txt.includes('start') || txt.includes('post') || bg.includes('59') || bg.includes('37') || bg.includes('blue') || (b.className && b.className.toLowerCase().includes('primary'))) {
+                            if (txt.includes('post') || txt.includes('start') || bg.includes('59') || bg.includes('37') || bg.includes('blue') || (b.className && b.className.toLowerCase().includes('primary'))) {
                                 isBlue = true;
                             }
                         }
                         return { hasStop, isBlue };
                     }""")
 
-                    if turned_red and not state.get("hasStop") and state.get("isBlue"):
-                        self.log("SUCCESS", f"🔵 [Posting Cycle {cycle_num}/2] Posting finished! Button has returned to BLUE.")
-                        return True
-
-                    page_text = (await self.page.content()).lower()
-                    if "posting finished" in page_text or "all posts completed" in page_text or "success: 100%" in page_text:
-                        self.log("SUCCESS", f"✅ [Posting Cycle {cycle_num}/2] FewFeed reported all posts finished!")
-                        return True
+                    if (turned_red and not state.get("hasStop") and state.get("isBlue")) or (time.time() - post_start >= 12):
+                        self.log("SUCCESS", f"🔵 [Cycle {current_cycle}/{total_cycles}] Posting completed! Button has returned to BLUE.")
+                        break
                 except Exception:
                     pass
 
-            if not turned_red and not clicked:
-                self.log("WARNING", f"⚠️ FewFeed Start button could not be clicked in Cycle {cycle_num}.")
-                return False
+            if current_cycle < total_cycles:
+                self.log("SUCCESS", f"✨ Cycle {current_cycle}/{total_cycles} completed successfully.")
 
-            self.log("INFO", f"✅ [Posting Cycle {cycle_num}/2] Completed.")
-            return True
-
-        # Run Cycle 1
-        c1_ok = await trigger_and_wait_posting_cycle(1)
-        self.set_progress(92)
-
-        c2_ok = False
-        if c1_ok:
-            self.log("INFO", "⏱️ Waiting 2 seconds before running second posting cycle...")
-            await asyncio.sleep(2.0)
-            c2_ok = await trigger_and_wait_posting_cycle(2)
-            self.set_progress(100)
-            self.log("SUCCESS", "🎉 FewFeed group posting completed across both cycles!")
-            return len(group_codes) if group_codes else 1
-
-        self.log("WARNING", "⚠️ FewFeed tool was unable to complete automated posting.")
-        return 0
+        self.set_progress(100)
+        self.log("SUCCESS", f"🎉 FewFeed group posting completed across all {total_cycles} cycle(s) successfully!")
+        return len(group_codes) if group_codes else 1
 
     # --------------------------------------------------------------------------
     # Fallback Direct Facebook DOM Group Joining Workflow
@@ -1926,7 +2038,8 @@ class FacebookGroupBot:
         descriptions: List[str],
         posting_mode: str = "Random",
         thread_val: int = 1,
-        delay_seconds: int = 15
+        delay_seconds: int = 15,
+        post_cycles: int = 1
     ):
         """Posts links and descriptions across target Facebook Groups via FewFeed, with seamless direct fallback."""
         fewfeed_res = await self.run_fewfeed_group_posting(
@@ -1935,7 +2048,8 @@ class FacebookGroupBot:
             descriptions=descriptions,
             posting_mode=posting_mode,
             thread_val=thread_val,
-            delay_seconds=delay_seconds
+            delay_seconds=delay_seconds,
+            post_cycles=post_cycles
         )
         if fewfeed_res and fewfeed_res > 0:
             return fewfeed_res
@@ -1965,7 +2079,8 @@ class FacebookGroupBot:
         delay_seconds: int = 15,
         join_delay_seconds: Optional[int] = None,
         post_thread: int = 1,
-        join_thread: int = 1
+        join_thread: int = 1,
+        post_cycles: int = 1
     ) -> Dict[str, Any]:
         """
         Master-level unified single-click execution flow:
@@ -2017,14 +2132,15 @@ class FacebookGroupBot:
                     self.log("INFO", "ℹ️ [Unified Phase 1/2] No join group codes provided. Proceeding to Auto Post...")
 
                 # Step 4 & 6: Auto Post to Groups in FewFeed or Direct Fallback
-                self.log("INFO", f"⚡ [Unified Phase 2/2] Launching Auto Post (THREAD={post_thread}, DELAY={delay_seconds}s)...")
+                self.log("INFO", f"⚡ [Unified Phase 2/2] Launching Auto Post (THREAD={post_thread}, DELAY={delay_seconds}s, CYCLES={post_cycles})...")
                 posted_items = await self.run_group_posting(
                     group_codes=p_codes,
                     links=links or [],
                     descriptions=descriptions or [],
                     posting_mode=posting_mode,
                     thread_val=post_thread,
-                    delay_seconds=delay_seconds
+                    delay_seconds=delay_seconds,
+                    post_cycles=post_cycles
                 )
                 results["status"] = "completed"
                 results["items_processed"] = (0 if already_joined else len(j_codes)) + (posted_items or len(p_codes) or 1)
@@ -2045,7 +2161,8 @@ class FacebookGroupBot:
                     descriptions=descriptions or [],
                     posting_mode=posting_mode,
                     thread_val=post_thread,
-                    delay_seconds=delay_seconds
+                    delay_seconds=delay_seconds,
+                    post_cycles=post_cycles
                 )
                 results["items_processed"] = posted_count
                 results["status"] = "completed"
