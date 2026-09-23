@@ -200,6 +200,17 @@ except ImportError:
     except ImportError:
         HAS_PAGE_CREATOR_BOT = False
 
+# Phase 9: Facebook Friend Request Engine (Auto Accept & Reject)
+try:
+    from automation.friend_request_bot import FacebookFriendRequestBot
+    HAS_FRIEND_REQUEST_BOT = True
+except ImportError:
+    try:
+        from desktop_app.automation.friend_request_bot import FacebookFriendRequestBot
+        HAS_FRIEND_REQUEST_BOT = True
+    except ImportError:
+        HAS_FRIEND_REQUEST_BOT = False
+
 # Licensing Subsystem & Anti-Tamper Protection
 try:
     from utils.licensing import (
@@ -1303,8 +1314,11 @@ class PageCreationWorker(QThread):
 
                 name_pointer += pages_per_acc
 
+                acc_copy = dict(acc)
+                acc_copy["network_mode"] = self.payload.get("network_mode", "direct")
+
                 bot = FacebookPageCreatorBot(
-                    account_data=acc,
+                    account_data=acc_copy,
                     log_callback=self._log_bridge,
                     progress_callback=self._progress_bridge
                 )
@@ -1334,6 +1348,132 @@ class PageCreationWorker(QThread):
 
         if self._is_running:
             msg = f"🎉 Facebook Page Creation finished! Created {total_created} pages across {len(accounts)} accounts."
+            self.log_signal.emit("SUCCESS", msg)
+            self.progress_signal.emit(100)
+            self.finished_signal.emit(True, msg)
+
+
+# ------------------------------------------------------------------------------
+# Asynchronous Friend Request Worker Thread (Auto Accept & Reject Engine)
+# ------------------------------------------------------------------------------
+class FriendRequestWorker(QThread):
+    """
+    Asynchronous background worker that orchestrates Facebook Friend Request
+    processing (Accept or Reject) across selected target accounts.
+    """
+    log_signal = pyqtSignal(str, str)
+    progress_signal = pyqtSignal(int)
+    counter_signal = pyqtSignal(str, int)  # (account_id, processed_count)
+    finished_signal = pyqtSignal(bool, str)
+
+    def __init__(self, payload: Dict[str, Any]):
+        super().__init__()
+        self.payload = payload
+        self.active_bots: List[Any] = []
+        self.loop = None
+        self._is_running = True
+
+    def _log_bridge(self, level: str, message: str):
+        self.log_signal.emit(level, message)
+
+    def _progress_bridge(self, percent: int):
+        self.progress_signal.emit(percent)
+
+    def _counter_bridge(self, account_id: str, count: int):
+        self.counter_signal.emit(account_id, count)
+
+    def stop(self):
+        self._is_running = False
+        self.log_signal.emit("WARNING", "🛑 Stop command received for Friend Request Automation...")
+        for bot in list(self.active_bots):
+            try:
+                bot.cancel()
+            except Exception:
+                pass
+        self.finished_signal.emit(False, "Friend Request Automation stopped by user.")
+
+    def run(self):
+        setup_windows_asyncio()
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        try:
+            self.loop.run_until_complete(self._execute_task())
+        except Exception as e:
+            if self._is_running:
+                self.log_signal.emit("ERROR", f"Friend Request Worker error: {str(e)}")
+                self.finished_signal.emit(False, str(e))
+        finally:
+            try:
+                self.loop.close()
+            except Exception:
+                pass
+
+    async def _execute_task(self):
+        if not HAS_FRIEND_REQUEST_BOT:
+            self.log_signal.emit("ERROR", "Friend Request Bot engine module not available.")
+            self.finished_signal.emit(False, "Friend Request Bot module missing.")
+            return
+
+        accounts = self.payload.get("accounts", [])
+        if not accounts:
+            self.log_signal.emit("ERROR", "No target Facebook accounts selected.")
+            self.finished_signal.emit(False, "No accounts selected.")
+            return
+
+        mode = self.payload.get("mode", "accept")
+        max_requests = int(self.payload.get("max_requests", 0))
+        click_delay = float(self.payload.get("click_delay", 0.8))
+        concurrent_browsers = max(1, int(self.payload.get("concurrent_browsers", 2)))
+        network_mode = self.payload.get("network_mode", "direct")
+
+        verb = "Accept" if mode == "accept" else "Reject"
+        self.log_signal.emit("INFO", f"🚀 Starting Friend Request {verb} automation on {len(accounts)} account(s) (Concurrency: {concurrent_browsers})...")
+
+        sem = asyncio.Semaphore(concurrent_browsers)
+        total_accs = len(accounts)
+        completed_accs = 0
+        total_processed = 0
+
+        async def _process_account(acc: Dict[str, Any], acc_idx: int):
+            nonlocal completed_accs, total_processed
+            async with sem:
+                if not self._is_running:
+                    return
+
+                acc_copy = dict(acc)
+                acc_copy["network_mode"] = network_mode
+
+                bot = FacebookFriendRequestBot(
+                    account_data=acc_copy,
+                    mode=mode,
+                    max_requests=max_requests,
+                    click_delay=click_delay,
+                    log_callback=self._log_bridge,
+                    progress_callback=self._progress_bridge,
+                    counter_callback=self._counter_bridge
+                )
+                self.active_bots.append(bot)
+
+                try:
+                    res = await bot.run()
+                    c = res.get("count", 0)
+                    total_processed += c
+                except Exception as ex:
+                    self.log_signal.emit("ERROR", f"[{acc.get('name')}] Error: {str(ex)}")
+                finally:
+                    if bot in self.active_bots:
+                        self.active_bots.remove(bot)
+
+                completed_accs += 1
+                percent = int((completed_accs / total_accs) * 100)
+                self.progress_signal.emit(percent)
+
+        tasks = [_process_account(acc, idx) for idx, acc in enumerate(accounts)]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        if self._is_running:
+            action_past = "accepted" if mode == "accept" else "rejected"
+            msg = f"🎉 Friend Request Automation completed! Successfully {action_past} {total_processed} requests across {len(accounts)} account(s)."
             self.log_signal.emit("SUCCESS", msg)
             self.progress_signal.emit(100)
             self.finished_signal.emit(True, msg)
@@ -2112,6 +2252,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.worker = None
         self.group_worker = None
         self.page_creation_worker = None
+        self.friend_request_worker = None
         self.health_worker = None
         self.manual_worker = None
         self.ai_worker = None
@@ -2218,6 +2359,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.page_project_listing = self.create_project_listing_page()
         self.page_group_posting = self.create_group_automation_page()
         self.page_create_fb_page = self.create_page_creation_page()
+        self.page_friend_request = self.create_friend_request_page()
         self.page_ai = self.create_ai_page()
         self.page_settings = self.create_settings_page()
         self.page_profile = self.create_profile_page()
@@ -2228,9 +2370,10 @@ class FBAutoBotMainWindow(QMainWindow):
         self.pages_stack.addWidget(self.page_project_listing) # Index 3 (Project Listing Marketplace)
         self.pages_stack.addWidget(self.page_group_posting)   # Index 4 (FB Group Posting)
         self.pages_stack.addWidget(self.page_create_fb_page)  # Index 5 (Create FB Page)
-        self.pages_stack.addWidget(self.page_ai)              # Index 6 (AI Content Spinner)
-        self.pages_stack.addWidget(self.page_settings)        # Index 7 (Settings & Stealth)
-        self.pages_stack.addWidget(self.page_profile)         # Index 8 (User Profile & Activity Logs)
+        self.pages_stack.addWidget(self.page_friend_request)  # Index 6 (Auto FB Request Accept)
+        self.pages_stack.addWidget(self.page_ai)              # Index 7 (AI Content Spinner)
+        self.pages_stack.addWidget(self.page_settings)        # Index 8 (Settings & Stealth)
+        self.pages_stack.addWidget(self.page_profile)         # Index 9 (User Profile & Activity Logs)
 
         content_layout.addWidget(self.pages_stack, stretch=7)
 
@@ -2303,7 +2446,7 @@ class FBAutoBotMainWindow(QMainWindow):
             font-weight: 700;
             padding: 4px 10px;
         """)
-        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(8)
+        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(9)
         right_layout.addWidget(self.header_countdown_pill)
 
         # User Profile Chip
@@ -2327,7 +2470,7 @@ class FBAutoBotMainWindow(QMainWindow):
                 border: 1px solid rgba(255, 255, 255, 0.25);
             }
         """)
-        self.header_user_chip.clicked.connect(lambda: self.switch_tab(8))
+        self.header_user_chip.clicked.connect(lambda: self.switch_tab(9))
         right_layout.addWidget(self.header_user_chip)
 
         # Quick Key Button
@@ -2416,7 +2559,7 @@ class FBAutoBotMainWindow(QMainWindow):
         version_lbl.setStyleSheet("font-size: 10px; font-weight: 700; color: #6366f1; letter-spacing: 1px; margin-bottom: 16px;")
         layout.addWidget(version_lbl)
 
-        # Navigation Buttons (9 Tabs)
+        # Navigation Buttons (10 Tabs)
         self.nav_buttons = []
         nav_items = [
             ("📊 Dashboard", 0),
@@ -2425,9 +2568,10 @@ class FBAutoBotMainWindow(QMainWindow):
             ("📁 Project Listing", 3),
             ("📢 FB Group Posting", 4),
             ("📄 Create FB Page", 5),
-            ("🧠 AI Content Spinner", 6),
-            ("⚙️ Settings & Stealth", 7),
-            ("👤 User Profile & Logs", 8),
+            ("🤝 Auto FB Request Accept", 6),
+            ("🧠 AI Content Spinner", 7),
+            ("⚙️ Settings & Stealth", 8),
+            ("👤 User Profile & Logs", 9),
         ]
 
         for text, index in nav_items:
@@ -2474,6 +2618,7 @@ class FBAutoBotMainWindow(QMainWindow):
             "Project Listing Marketplace",
             "Facebook Group Automation",
             "Create FB Page",
+            "Auto FB Friend Request Accept & Reject",
             "AI Content Spinner & Intelligence",
             "Settings & Stealth Parameters",
             "User Profile & Activity Logs"
@@ -2482,7 +2627,7 @@ class FBAutoBotMainWindow(QMainWindow):
             self.header_page_title.setText(tab_names[index])
 
         # If switching to profile page, ensure data is fresh
-        if index == 8 and hasattr(self, 'update_profile_page_data'):
+        if index == 9 and hasattr(self, 'update_profile_page_data'):
             self.update_profile_page_data()
 
     # --------------------------------------------------------------------------
@@ -2744,18 +2889,23 @@ class FBAutoBotMainWindow(QMainWindow):
         b_page.setProperty("class", "secondaryBtn")
         b_page.clicked.connect(lambda: self.switch_tab(5))
 
+        b_req = QPushButton("🤝 Auto FB Request Accept")
+        b_req.setProperty("class", "secondaryBtn")
+        b_req.clicked.connect(lambda: self.switch_tab(6))
+
         b3 = QPushButton("🧠 AI Spinner")
         b3.setProperty("class", "secondaryBtn")
-        b3.clicked.connect(lambda: self.switch_tab(6))
+        b3.clicked.connect(lambda: self.switch_tab(7))
 
         b4 = QPushButton("👤 Profile")
         b4.setProperty("class", "secondaryBtn")
-        b4.clicked.connect(lambda: self.switch_tab(8))
+        b4.clicked.connect(lambda: self.switch_tab(9))
 
         btn_row.addWidget(b1)
         btn_row.addWidget(b2)
         btn_row.addWidget(b_grp)
         btn_row.addWidget(b_page)
+        btn_row.addWidget(b_req)
         btn_row.addWidget(b3)
         btn_row.addWidget(b4)
         btn_row.addStretch()
@@ -5930,6 +6080,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.populate_accounts_checklist()
         self.populate_group_accounts_checklist()
         self.populate_page_creation_accounts_checklist()
+        self.populate_req_accounts_checklist()
         self.refresh_project_accounts_checklist()
         if hasattr(self, 'target_acc_select'):
             self.target_acc_select.clear()
@@ -8987,6 +9138,36 @@ class FBAutoBotMainWindow(QMainWindow):
         self.page_delay_spin.setStyleSheet("font-weight: 800; color: #e2e8f0; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 4px;")
         acc_bottom_row.addWidget(self.page_delay_spin)
 
+        # Network Mode Selection (Direct vs Proxy)
+        net_lbl = QLabel("🌐 Network:")
+        net_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        acc_bottom_row.addWidget(net_lbl)
+
+        self.page_network_combo = QComboBox()
+        self.page_network_combo.addItems([
+            "⚡ Direct Connection (Recommended - Zero Proxy Errors)",
+            "🛡️ Use Account Proxy (If Configured & Live)"
+        ])
+        self.page_network_combo.setStyleSheet("""
+            QComboBox {
+                font-weight: 700;
+                color: #10b981;
+                background: #0f172a;
+                border: 1px solid #10b981;
+                border-radius: 4px;
+                padding: 2px 8px;
+                font-size: 11px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #0f172a;
+                color: #f8fafc;
+                selection-background-color: #10b981;
+                selection-color: #000000;
+            }
+        """)
+        self.page_network_combo.setToolTip("Direct Connection routes through your local high-speed internet, bypassing system/broken proxies and preventing ERR_PROXY_CONNECTION_FAILED.")
+        acc_bottom_row.addWidget(self.page_network_combo)
+
         acc_card_layout.addLayout(acc_bottom_row)
         layout.addWidget(acc_card)
 
@@ -9702,6 +9883,11 @@ class FBAutoBotMainWindow(QMainWindow):
         profile_photo = self.page_profile_photo_input.text().strip() if hasattr(self, 'page_profile_photo_input') else ""
         cover_photo = self.page_cover_photo_input.text().strip() if hasattr(self, 'page_cover_photo_input') else ""
 
+        # Network mode
+        network_mode = "direct"
+        if hasattr(self, 'page_network_combo') and self.page_network_combo.currentIndex() == 1:
+            network_mode = "proxy"
+
         payload = {
             "accounts": accounts,
             "page_names": page_names,
@@ -9711,6 +9897,7 @@ class FBAutoBotMainWindow(QMainWindow):
             "pages_per_account": pages_per_acc,
             "concurrent_browsers": concurrent_browsers,
             "delay": delay,
+            "network_mode": network_mode,
             "contact": contact_data,
             "location": location_data,
             "hours_mode": hours_mode,
@@ -9757,6 +9944,523 @@ class FBAutoBotMainWindow(QMainWindow):
             QMessageBox.information(self, "Page Creation Complete", f"Facebook Page Creation finished!\n\n{message}")
         else:
             QMessageBox.warning(self, "Page Creation Notice", f"Facebook Page Creation notice:\n\n{message}")
+
+    # --------------------------------------------------------------------------
+    # Tab 6: Auto FB Request Accept & Reject Engine (Phase 9)
+    # --------------------------------------------------------------------------
+    def create_friend_request_page(self):
+        page = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        # Header Title
+        title_box = QVBoxLayout()
+        title = QLabel("Auto FB Request Accept Engine (آٹو ایف بی ریکویسٹ ایکسیپٹ)")
+        title.setProperty("class", "pageTitle")
+        sub = QLabel("Automate Facebook Friend Requests in bulk across multiple accounts. Automatically accept or reject hundreds of incoming requests with auto-scrolling and automatic Chrome browser closure.")
+        sub.setProperty("class", "pageSubtitle")
+        title_box.addWidget(title)
+        title_box.addWidget(sub)
+        layout.addLayout(title_box)
+
+        # ----------------------------------------------------------------------
+        # Card 1: Target Accounts Column (From Accounts Manager)
+        # ----------------------------------------------------------------------
+        acc_card = QFrame()
+        acc_card.setProperty("class", "glassCard")
+        acc_card_layout = QVBoxLayout(acc_card)
+        acc_card_layout.setSpacing(10)
+
+        acc_hdr = QHBoxLayout()
+        hdr_lbl = QLabel("👥 Accounts Manager Target Accounts:")
+        hdr_lbl.setStyleSheet("font-size: 13px; font-weight: 700; color: #f8fafc;")
+        acc_hdr.addWidget(hdr_lbl)
+
+        self.req_acc_summary_lbl = QLabel("🎯 0 Account(s) Selected")
+        self.req_acc_summary_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        acc_hdr.addWidget(self.req_acc_summary_lbl)
+        acc_hdr.addStretch()
+
+        self.btn_req_refresh_acc = QPushButton("🔄 Refresh")
+        self.btn_req_refresh_acc.setStyleSheet("background-color: #059669; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
+        self.btn_req_refresh_acc.setCursor(Qt.PointingHandCursor)
+        self.btn_req_refresh_acc.setToolTip("Reload accounts from Accounts Manager")
+        self.btn_req_refresh_acc.clicked.connect(self.reload_accounts_from_manager)
+        acc_hdr.addWidget(self.btn_req_refresh_acc)
+
+        self.btn_req_select_all = QPushButton("⚡ Select All")
+        self.btn_req_select_all.setStyleSheet("background-color: #3b82f6; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
+        self.btn_req_select_all.setCursor(Qt.PointingHandCursor)
+        self.btn_req_select_all.clicked.connect(self.select_all_req_accounts)
+        acc_hdr.addWidget(self.btn_req_select_all)
+
+        self.btn_req_clear_acc = QPushButton("❌ Clear")
+        self.btn_req_clear_acc.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
+        self.btn_req_clear_acc.setCursor(Qt.PointingHandCursor)
+        self.btn_req_clear_acc.clicked.connect(self.clear_all_req_accounts)
+        acc_hdr.addWidget(self.btn_req_clear_acc)
+        acc_card_layout.addLayout(acc_hdr)
+
+        # Accounts checklist scroll
+        self.req_acc_scroll = QScrollArea()
+        self.req_acc_scroll.setFixedHeight(120)
+        self.req_acc_scroll.setWidgetResizable(True)
+        self.req_acc_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(15, 23, 42, 0.7); border-radius: 6px; }")
+
+        self.req_acc_widget = QWidget()
+        self.req_acc_layout = QVBoxLayout(self.req_acc_widget)
+        self.req_acc_layout.setContentsMargins(8, 6, 8, 6)
+        self.req_acc_layout.setSpacing(4)
+        self.req_acc_scroll.setWidget(self.req_acc_widget)
+        acc_card_layout.addWidget(self.req_acc_scroll)
+
+        # Bottom Configuration Row inside Accounts Card
+        cfg_row = QHBoxLayout()
+        cfg_row.setSpacing(12)
+
+        # Concurrency
+        c_lbl = QLabel("🖥️ Concurrent Browsers:")
+        c_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(c_lbl)
+        self.req_concurrent_spin = QSpinBox()
+        self.req_concurrent_spin.setRange(1, 10)
+        self.req_concurrent_spin.setValue(2)
+        self.req_concurrent_spin.setStyleSheet("font-weight: 800; color: #e2e8f0; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 4px;")
+        cfg_row.addWidget(self.req_concurrent_spin)
+
+        # Delay
+        d_lbl = QLabel("⏱️ Speed Delay (Sec):")
+        d_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(d_lbl)
+        self.req_delay_spin = QDoubleSpinBox()
+        self.req_delay_spin.setRange(0.2, 5.0)
+        self.req_delay_spin.setSingleStep(0.2)
+        self.req_delay_spin.setValue(0.8)
+        self.req_delay_spin.setStyleSheet("font-weight: 800; color: #e2e8f0; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 4px;")
+        cfg_row.addWidget(self.req_delay_spin)
+
+        # Max Requests Cap
+        m_lbl = QLabel("🎯 Max Limit (0 = All):")
+        m_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(m_lbl)
+        self.req_max_spin = QSpinBox()
+        self.req_max_spin.setRange(0, 10000)
+        self.req_max_spin.setValue(0)
+        self.req_max_spin.setStyleSheet("font-weight: 800; color: #e2e8f0; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 4px;")
+        self.req_max_spin.setToolTip("Set to 0 to accept/reject ALL pending incoming requests without any limit.")
+        cfg_row.addWidget(self.req_max_spin)
+
+        # Network Mode
+        net_lbl = QLabel("🌐 Network:")
+        net_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(net_lbl)
+        self.req_network_combo = QComboBox()
+        self.req_network_combo.addItems([
+            "⚡ Direct Connection (Recommended - Zero Proxy Errors)",
+            "🛡️ Use Account Proxy (If Configured & Live)"
+        ])
+        self.req_network_combo.setStyleSheet("""
+            QComboBox {
+                font-weight: 700;
+                color: #10b981;
+                background: #0f172a;
+                border: 1px solid #10b981;
+                border-radius: 4px;
+                padding: 2px 8px;
+                font-size: 11px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #0f172a;
+                color: #f8fafc;
+                selection-background-color: #10b981;
+                selection-color: #000000;
+            }
+        """)
+        cfg_row.addWidget(self.req_network_combo)
+        cfg_row.addStretch()
+
+        acc_card_layout.addLayout(cfg_row)
+        layout.addWidget(acc_card)
+
+        # ----------------------------------------------------------------------
+        # Card 2: The Two Action Columns (Accept vs Reject)
+        # ----------------------------------------------------------------------
+        mode_card = QFrame()
+        mode_card.setProperty("class", "glassCard")
+        mode_card_layout = QVBoxLayout(mode_card)
+        mode_card_layout.setSpacing(10)
+
+        mode_hdr = QLabel("⚙️ Action Selection (دو کالمز: ایکسیپٹ یا ریجیکٹ):")
+        mode_hdr.setStyleSheet("font-size: 13px; font-weight: 700; color: #f8fafc;")
+        mode_card_layout.addWidget(mode_hdr)
+
+        # Two Columns Layout
+        cols_layout = QHBoxLayout()
+        cols_layout.setSpacing(14)
+
+        # Column 1: Accept Mode (Green theme)
+        self.col_accept_frame = QFrame()
+        self.col_accept_frame.setStyleSheet("""
+            QFrame {
+                background: rgba(16, 185, 129, 0.07);
+                border: 2px solid #10b981;
+                border-radius: 10px;
+                padding: 12px;
+            }
+        """)
+        col_acc_v = QVBoxLayout(self.col_accept_frame)
+        col_acc_v.setSpacing(8)
+
+        self.radio_req_accept = QRadioButton("✅ ایکسیپٹ کریں (Confirm & Accept All)")
+        self.radio_req_accept.setChecked(True)
+        self.radio_req_accept.setStyleSheet("""
+            QRadioButton {
+                color: #10b981;
+                font-size: 14px;
+                font-weight: 800;
+            }
+            QRadioButton::indicator {
+                width: 18px;
+                height: 18px;
+            }
+        """)
+        col_acc_v.addWidget(self.radio_req_accept)
+
+        desc_accept = QLabel(
+            "• Automatically clicks 'Confirm' on all incoming friend requests.\n"
+            "• Scales account friends towards the 5,000 maximum limit.\n"
+            "• Auto-scrolls through dynamic lists until 100% requests are accepted.\n"
+            "• Automatically closes Chrome browser when finished."
+        )
+        desc_accept.setStyleSheet("color: #cbd5e1; font-size: 11px; line-height: 1.4;")
+        desc_accept.setWordWrap(True)
+        col_acc_v.addWidget(desc_accept)
+        col_acc_v.addStretch()
+
+        cols_layout.addWidget(self.col_accept_frame, stretch=1)
+
+        # Column 2: Reject Mode (Rose theme)
+        self.col_reject_frame = QFrame()
+        self.col_reject_frame.setStyleSheet("""
+            QFrame {
+                background: rgba(244, 63, 94, 0.07);
+                border: 2px solid #f43f5e;
+                border-radius: 10px;
+                padding: 12px;
+            }
+        """)
+        col_rej_v = QVBoxLayout(self.col_reject_frame)
+        col_rej_v.setSpacing(8)
+
+        self.radio_req_reject = QRadioButton("🗑️ ریجیکٹ کریں (Delete & Reject All)")
+        self.radio_req_reject.setStyleSheet("""
+            QRadioButton {
+                color: #f43f5e;
+                font-size: 14px;
+                font-weight: 800;
+            }
+            QRadioButton::indicator {
+                width: 18px;
+                height: 18px;
+            }
+        """)
+        col_rej_v.addWidget(self.radio_req_reject)
+
+        desc_reject = QLabel(
+            "• Automatically clicks 'Delete' / Remove on all incoming friend requests.\n"
+            "• Instantly clears cluttered pending request queues in bulk.\n"
+            "• Auto-scrolls through dynamic lists until 100% requests are purged.\n"
+            "• Automatically closes Chrome browser when finished."
+        )
+        desc_reject.setStyleSheet("color: #cbd5e1; font-size: 11px; line-height: 1.4;")
+        desc_reject.setWordWrap(True)
+        col_rej_v.addWidget(desc_reject)
+        col_rej_v.addStretch()
+
+        cols_layout.addWidget(self.col_reject_frame, stretch=1)
+
+        # Connect radio buttons
+        self.req_mode_btn_group = QButtonGroup(self)
+        self.req_mode_btn_group.addButton(self.radio_req_accept)
+        self.req_mode_btn_group.addButton(self.radio_req_reject)
+
+        mode_card_layout.addLayout(cols_layout)
+        layout.addWidget(mode_card)
+
+        # ----------------------------------------------------------------------
+        # Card 3: Execution Controls, Live Progress & Status
+        # ----------------------------------------------------------------------
+        exec_card = QFrame()
+        exec_card.setProperty("class", "glassCard")
+        exec_layout = QVBoxLayout(exec_card)
+        exec_layout.setSpacing(10)
+
+        # Progress bar
+        self.req_progress_bar = QProgressBar()
+        self.req_progress_bar.setValue(0)
+        self.req_progress_bar.setTextVisible(True)
+        self.req_progress_bar.setFixedHeight(18)
+        self.req_progress_bar.setStyleSheet("""
+            QProgressBar {
+                background: #0f172a;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 9px;
+                text-align: center;
+                color: #ffffff;
+                font-size: 10px;
+                font-weight: 700;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #10b981, stop:1 #06b6d4);
+                border-radius: 9px;
+            }
+        """)
+        exec_layout.addWidget(self.req_progress_bar)
+
+        # Status row
+        status_row = QHBoxLayout()
+        self.req_status_lbl = QLabel("● READY FOR AUTOMATION")
+        self.req_status_lbl.setStyleSheet("color: #10b981; font-weight: 800; font-size: 12px;")
+        status_row.addWidget(self.req_status_lbl)
+
+        status_row.addStretch()
+
+        self.req_total_processed_lbl = QLabel("🎯 Requests Processed: 0")
+        self.req_total_processed_lbl.setStyleSheet("color: #f8fafc; font-weight: 700; font-size: 12px; background: rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 6px;")
+        status_row.addWidget(self.req_total_processed_lbl)
+
+        exec_layout.addLayout(status_row)
+
+        # Button row
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(12)
+
+        self.btn_start_req_bot = QPushButton("🚀 Start Request Automation (سٹارٹ آٹومیشن)")
+        self.btn_start_req_bot.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10b981);
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 800;
+                padding: 10px 24px;
+                border-radius: 8px;
+                border: none;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #10b981, stop:1 #34d399);
+            }
+            QPushButton:disabled {
+                background: #334155;
+                color: #94a3b8;
+            }
+        """)
+        self.btn_start_req_bot.setCursor(Qt.PointingHandCursor)
+        self.btn_start_req_bot.clicked.connect(self.start_request_automation)
+        btn_box.addWidget(self.btn_start_req_bot, stretch=2)
+
+        self.btn_stop_req_bot = QPushButton("🛑 Stop Automation")
+        self.btn_stop_req_bot.setStyleSheet("""
+            QPushButton {
+                background-color: #ef4444;
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 800;
+                padding: 10px 20px;
+                border-radius: 8px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #dc2626;
+            }
+            QPushButton:disabled {
+                background-color: #334155;
+                color: #64748b;
+            }
+        """)
+        self.btn_stop_req_bot.setEnabled(False)
+        self.btn_stop_req_bot.setCursor(Qt.PointingHandCursor)
+        self.btn_stop_req_bot.clicked.connect(self.stop_request_automation)
+        btn_box.addWidget(self.btn_stop_req_bot, stretch=1)
+
+        exec_layout.addLayout(btn_box)
+        layout.addWidget(exec_card)
+
+        layout.addStretch()
+        scroll.setWidget(container)
+        outer_layout = QVBoxLayout(page)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(scroll)
+
+        # Initial populate
+        self.populate_req_accounts_checklist()
+
+        return page
+
+    # --------------------------------------------------------------------------
+    # Friend Request Account Selection & Automation Helpers
+    # --------------------------------------------------------------------------
+    def populate_req_accounts_checklist(self):
+        """Populates the multi-account checkbox list for Friend Request automation."""
+        if not hasattr(self, 'req_acc_layout'):
+            return
+
+        while self.req_acc_layout.count():
+            item = self.req_acc_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self.req_acc_checkboxes = []
+        self.req_acc_counter_labels = {}
+        active_accounts = self.get_active_accounts()
+
+        if not active_accounts:
+            lbl = QLabel("⚠️ No Active Facebook accounts available. (Add accounts in Accounts Manager tab)")
+            lbl.setStyleSheet("color: #94a3b8; font-style: italic; font-size: 11px;")
+            self.req_acc_layout.addWidget(lbl)
+            self.update_req_account_selection_summary()
+            return
+
+        for idx, acc in enumerate(active_accounts, start=1):
+            row_widget = QWidget()
+            r_layout = QHBoxLayout(row_widget)
+            r_layout.setContentsMargins(2, 2, 2, 2)
+
+            name = acc.get("name", "Account")
+            status = acc.get("status", "Healthy")
+            proxy = acc.get("proxy", "Direct")
+            acc_id = acc.get("id", str(idx))
+            icon = "🟢" if status in ("Healthy", "Active", "Ready", "Logged in") else "🟡"
+
+            chk = QCheckBox(f"#{idx}  {icon} {name}  [{status}]  •  Proxy: {proxy}")
+            chk.setStyleSheet("font-size: 12px; color: #f8fafc; font-weight: 600;")
+            chk.setProperty("account_data", acc)
+            chk.setChecked(True)
+            chk.stateChanged.connect(self.update_req_account_selection_summary)
+            r_layout.addWidget(chk)
+
+            r_layout.addStretch()
+
+            cnt_lbl = QLabel("Pending: 0")
+            cnt_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.05); padding: 1px 6px; border-radius: 4px;")
+            r_layout.addWidget(cnt_lbl)
+
+            self.req_acc_layout.addWidget(row_widget)
+            self.req_acc_checkboxes.append(chk)
+            self.req_acc_counter_labels[acc_id] = cnt_lbl
+
+        self.req_acc_layout.addStretch()
+        self.update_req_account_selection_summary()
+
+    def select_all_req_accounts(self):
+        if hasattr(self, 'req_acc_checkboxes'):
+            for chk in self.req_acc_checkboxes:
+                chk.setChecked(True)
+            self.update_req_account_selection_summary()
+
+    def clear_all_req_accounts(self):
+        if hasattr(self, 'req_acc_checkboxes'):
+            for chk in self.req_acc_checkboxes:
+                chk.setChecked(False)
+            self.update_req_account_selection_summary()
+
+    def update_req_account_selection_summary(self):
+        if not hasattr(self, 'req_acc_summary_lbl'):
+            return
+        selected = self.get_selected_req_accounts()
+        count = len(selected)
+        total = len(self.req_acc_checkboxes) if hasattr(self, 'req_acc_checkboxes') else 0
+        self.req_acc_summary_lbl.setText(f"🎯 {count} of {total} Account(s) Selected")
+
+    def get_selected_req_accounts(self) -> List[Dict[str, Any]]:
+        selected = []
+        if hasattr(self, 'req_acc_checkboxes'):
+            for chk in self.req_acc_checkboxes:
+                if chk.isChecked():
+                    data = chk.property("account_data")
+                    if data:
+                        selected.append(data)
+        return selected
+
+    def start_request_automation(self):
+        """Dispatches FriendRequestWorker to accept or reject pending friend requests."""
+        accounts = self.get_selected_req_accounts()
+        if not accounts:
+            QMessageBox.warning(self, "No Accounts Selected", "Please select at least one Facebook account to run friend request automation.")
+            return
+
+        mode = "accept" if self.radio_req_accept.isChecked() else "reject"
+        concurrent_browsers = self.req_concurrent_spin.value()
+        click_delay = self.req_delay_spin.value()
+        max_requests = self.req_max_spin.value()
+
+        network_mode = "direct"
+        if hasattr(self, 'req_network_combo') and self.req_network_combo.currentIndex() == 1:
+            network_mode = "proxy"
+
+        payload = {
+            "accounts": accounts,
+            "mode": mode,
+            "concurrent_browsers": concurrent_browsers,
+            "click_delay": click_delay,
+            "max_requests": max_requests,
+            "network_mode": network_mode
+        }
+
+        self.btn_start_req_bot.setEnabled(False)
+        self.btn_stop_req_bot.setEnabled(True)
+
+        mode_verb = "ACCEPTING" if mode == "accept" else "REJECTING"
+        self.req_status_lbl.setText(f"● {mode_verb} FRIEND REQUESTS IN PROGRESS...")
+        self.req_status_lbl.setStyleSheet("color: #38bdf8; font-weight: 800; font-size: 12px;")
+        self.engine_status_lbl.setText(f"● REQUEST {mode_verb} ACTIVE")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #38bdf8;")
+        self.req_progress_bar.setValue(0)
+        self.req_total_processed_lbl.setText("🎯 Requests Processed: 0")
+
+        self.friend_request_worker = FriendRequestWorker(payload=payload)
+        self.friend_request_worker.log_signal.connect(self.log_message)
+        self.friend_request_worker.progress_signal.connect(self.update_req_progress)
+        self.friend_request_worker.counter_signal.connect(self.on_req_counter_update)
+        self.friend_request_worker.finished_signal.connect(self.on_req_automation_finished)
+        self.friend_request_worker.start()
+
+    def stop_request_automation(self):
+        if self.friend_request_worker:
+            self.friend_request_worker.stop()
+            self.btn_stop_req_bot.setEnabled(False)
+
+    def update_req_progress(self, percent: int):
+        if hasattr(self, 'req_progress_bar'):
+            self.req_progress_bar.setValue(percent)
+        self.update_progress(percent)
+
+    def on_req_counter_update(self, account_id: str, count: int):
+        if hasattr(self, 'req_acc_counter_labels') and account_id in self.req_acc_counter_labels:
+            lbl = self.req_acc_counter_labels[account_id]
+            lbl.setText(f"Processed: {count}")
+            lbl.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 800; background: rgba(16, 185, 129, 0.15); padding: 1px 6px; border-radius: 4px;")
+
+    def on_req_automation_finished(self, success: bool, message: str):
+        self.btn_start_req_bot.setEnabled(True)
+        self.btn_stop_req_bot.setEnabled(False)
+        self.engine_status_lbl.setText("● READY FOR TASKS")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
+        if hasattr(self, 'req_status_lbl'):
+            self.req_status_lbl.setText("● READY FOR AUTOMATION")
+            self.req_status_lbl.setStyleSheet("color: #10b981; font-weight: 800; font-size: 12px;")
+
+        if success:
+            if hasattr(self, 'req_progress_bar'):
+                self.req_progress_bar.setValue(100)
+            QMessageBox.information(self, "Request Automation Complete", f"Facebook Friend Request Automation Complete!\n\n{message}")
+        else:
+            QMessageBox.warning(self, "Request Automation Notice", f"Facebook Friend Request notice:\n\n{message}")
 
     # --------------------------------------------------------------------------
     # Tab 4: AI Content Spinner & Title/Description Generator (Phase 5)

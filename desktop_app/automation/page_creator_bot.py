@@ -19,6 +19,8 @@ import json
 import random
 import asyncio
 import logging
+import socket
+from urllib.parse import urlparse
 from typing import List, Dict, Any, Optional, Callable
 
 logger = logging.getLogger("FBAutoBot.PageCreator")
@@ -47,6 +49,73 @@ POPULAR_FB_CATEGORIES = [
     "Restaurant",
     "Photographer"
 ]
+
+
+def test_proxy_connectivity(host: str, port: int, timeout: float = 2.0) -> bool:
+    """Quick socket probe to verify proxy server is alive before passing to Chrome."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect((host, port))
+        sock.close()
+        return True
+    except Exception:
+        return False
+
+
+def parse_cookie_payload(raw_cookies: str) -> List[Dict[str, Any]]:
+    """
+    Parses both JSON array cookie exports and raw semicolon string formats
+    (e.g., 'c_user=1000...; xs=2%3A...; datr=...').
+    Returns a list of standardized cookies suitable for Playwright.
+    """
+    cleaned = (raw_cookies or "").strip()
+    if not cleaned:
+        return []
+
+    # Format 1: JSON Array
+    if cleaned.startswith("[") and cleaned.endswith("]"):
+        try:
+            items = json.loads(cleaned)
+            formatted = []
+            for item in items:
+                cookie = {
+                    "name": str(item.get("name", "")),
+                    "value": str(item.get("value", "")),
+                    "domain": item.get("domain", ".facebook.com"),
+                    "path": item.get("path", "/"),
+                }
+                if not cookie["domain"].startswith("."):
+                    cookie["domain"] = "." + cookie["domain"]
+                if "sameSite" in item and item["sameSite"] in ["Strict", "Lax", "None"]:
+                    cookie["sameSite"] = item["sameSite"]
+                if "secure" in item:
+                    cookie["secure"] = bool(item["secure"])
+                if cookie["name"]:
+                    formatted.append(cookie)
+            return formatted
+        except json.JSONDecodeError:
+            pass
+
+    # Format 2: Semicolon key=value string
+    formatted = []
+    pairs = cleaned.split(";")
+    for pair in pairs:
+        pair = pair.strip()
+        if not pair or "=" not in pair:
+            continue
+        key, val = pair.split("=", 1)
+        key = key.strip()
+        val = val.strip()
+        if key:
+            formatted.append({
+                "name": key,
+                "value": val,
+                "domain": ".facebook.com",
+                "path": "/",
+                "secure": True
+            })
+    return formatted
 
 
 class FacebookPageCreatorBot:
@@ -120,20 +189,51 @@ class FacebookPageCreatorBot:
             "--start-maximized"
         ]
 
-        # Proxy support
+        # Proxy support & Connectivity Verification
         proxy_cfg = None
-        raw_proxy = self.account_data.get("proxy", "").strip()
-        if raw_proxy:
-            ptype = self.account_data.get("proxy_type", "HTTP").lower()
-            if not raw_proxy.startswith("http://") and not raw_proxy.startswith("socks5://"):
-                full_srv = f"{ptype}://{raw_proxy}"
-            else:
-                full_srv = raw_proxy
-            proxy_cfg = {"server": full_srv}
-            if self.account_data.get("proxy_user"):
-                proxy_cfg["username"] = self.account_data["proxy_user"]
-            if self.account_data.get("proxy_pass"):
-                proxy_cfg["password"] = self.account_data["proxy_pass"]
+        use_direct = (
+            self.account_data.get("network_mode") == "direct"
+            or self.account_data.get("use_direct_network", False)
+        )
+        raw_proxy = (self.account_data.get("proxy") or "").strip()
+
+        # Check if proxy string indicates Direct or empty
+        is_direct_str = any(d in raw_proxy.lower() for d in ["direct", "no proxy", "none", "null", "false", "0", ""])
+
+        if use_direct or is_direct_str or not raw_proxy:
+            proxy_cfg = None
+            launch_args.append("--no-proxy-server")
+            self.log("INFO", "🌐 Network Mode: Direct high-speed connection (Proxy bypassed, zero proxy errors).")
+        else:
+            # User provided a real proxy string: parse and probe socket connectivity
+            try:
+                server_url = raw_proxy if "://" in raw_proxy else f"{self.account_data.get('proxy_type', 'http').lower()}://{raw_proxy}"
+                parsed = urlparse(server_url)
+                host = parsed.hostname
+                port = parsed.port
+                if host and port:
+                    self.log("INFO", f"🔍 Probing assigned proxy connectivity ({host}:{port})...")
+                    if test_proxy_connectivity(host, port, timeout=2.5):
+                        proxy_cfg = {"server": f"{parsed.scheme}://{host}:{port}"}
+                        u = parsed.username or self.account_data.get("proxy_user")
+                        p = parsed.password or self.account_data.get("proxy_pass")
+                        if u:
+                            proxy_cfg["username"] = u
+                        if p:
+                            proxy_cfg["password"] = p
+                        self.log("SUCCESS", f"🛡️ Assigned proxy ({host}:{port}) is LIVE and active.")
+                    else:
+                        self.log("WARNING", f"⚠️ Proxy {host}:{port} is UNREACHABLE or offline! Safely falling back to direct connection to prevent ERR_PROXY_CONNECTION_FAILED.")
+                        proxy_cfg = None
+                        launch_args.append("--no-proxy-server")
+                else:
+                    self.log("WARNING", f"⚠️ Invalid proxy format '{raw_proxy}'. Falling back to direct connection.")
+                    proxy_cfg = None
+                    launch_args.append("--no-proxy-server")
+            except Exception as e:
+                self.log("WARNING", f"⚠️ Proxy resolution notice: {e}. Falling back to direct connection.")
+                proxy_cfg = None
+                launch_args.append("--no-proxy-server")
 
         # Check for real Chrome
         chrome_exe = None
@@ -186,23 +286,28 @@ class FacebookPageCreatorBot:
                 locale="en-US"
             )
 
-        # Inject session cookies if provided
-        cookies = self.account_data.get("cookies", [])
-        if cookies and self.context:
+        # Inject session cookies if provided (handles strings, JSON arrays, and dictionaries)
+        raw_cookies = self.account_data.get("cookies", "")
+        if raw_cookies and self.context:
             try:
                 formatted_cookies = []
-                for c in cookies:
-                    if isinstance(c, dict) and "name" in c and "value" in c:
-                        ck = {
-                            "name": c["name"],
-                            "value": c["value"],
-                            "domain": c.get("domain", ".facebook.com"),
-                            "path": c.get("path", "/")
-                        }
-                        formatted_cookies.append(ck)
+                if isinstance(raw_cookies, str):
+                    formatted_cookies = parse_cookie_payload(raw_cookies)
+                elif isinstance(raw_cookies, list):
+                    for item in raw_cookies:
+                        if isinstance(item, dict) and "name" in item and "value" in item:
+                            formatted_cookies.append({
+                                "name": str(item["name"]),
+                                "value": str(item["value"]),
+                                "domain": str(item.get("domain", ".facebook.com")),
+                                "path": str(item.get("path", "/")),
+                                "secure": bool(item.get("secure", True))
+                            })
+                        elif isinstance(item, str):
+                            formatted_cookies.extend(parse_cookie_payload(item))
                 if formatted_cookies:
                     await self.context.add_cookies(formatted_cookies)
-                    self.log("INFO", f"Loaded {len(formatted_cookies)} cookies into session.")
+                    self.log("SUCCESS", f"🔑 Injected {len(formatted_cookies)} Facebook session cookies. Account logged in!")
             except Exception as e:
                 self.log("DEBUG", f"Cookie injection notice: {e}")
 
@@ -220,6 +325,12 @@ class FacebookPageCreatorBot:
             await asyncio.sleep(2.0)
         except Exception as e:
             self.log("WARNING", f"[Tab #{tab_index}] Navigation notice: {str(e)[:60]}")
+            try:
+                await asyncio.sleep(2.0)
+                await page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
+                await asyncio.sleep(2.0)
+            except Exception:
+                pass
 
         # Check if redirected to login
         current_url = page.url.lower()
