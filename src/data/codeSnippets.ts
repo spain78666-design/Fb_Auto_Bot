@@ -122,7 +122,7 @@ import asyncio
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QStackedWidget, QPushButton, QLabel, QLineEdit, QTextEdit,
-    QComboBox, QSpinBox, QCheckBox, QTableWidget, QTableWidgetItem,
+    QComboBox, QSpinBox, QDoubleSpinBox, QCheckBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QFileDialog, QProgressBar, QFrame, QMessageBox, QScrollArea
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal

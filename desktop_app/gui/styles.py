@@ -23,7 +23,7 @@ QPushButton.navBtn {
     background-color: transparent;
     color: #94a3b8;
     text-align: left;
-    padding: 12px 18px;
+    padding: 10px 14px;
     border-radius: 8px;
     font-size: 13px;
     font-weight: 600;

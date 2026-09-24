@@ -561,10 +561,141 @@ class FacebookPageCreatorBot:
         self.log("SUCCESS", f"✅ [Tab #{tab_index}] Form filled successfully for '{page_name}'!")
         return True
 
+    async def _arm_create_page_button(self, page, tab_index: int, page_name: str) -> bool:
+        """
+        Arms the 'Create Page' button on this tab:
+          - Confirms the button is present, visible, and enabled (aria-disabled !== 'true').
+          - Scrolls it into view and attaches it to window.__fbCreatePageBtn.
+          - Prepares the tab for microsecond synchronized atomic firing.
+        """
+        self.log("INFO", f"[Tab #{tab_index}] Arming 'Create Page' button for '{page_name}'...")
+        for _ in range(16):
+            try:
+                is_armed = await page.evaluate("""() => {
+                    window.__fbCreatePageBtn = null;
+                    window.__fbCreatePageArmed = false;
+                    const candidates = Array.from(document.querySelectorAll(
+                        'div[aria-label="Create Page"][role="button"], button, div[role="button"], div[aria-label*="Create Page"]'
+                    ));
+                    for (const b of candidates) {
+                        const txt = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase();
+                        if (txt === 'create page' || (txt.includes('create') && txt.includes('page'))) {
+                            const ariaDisabled = b.getAttribute('aria-disabled');
+                            const isNativeDisabled = b.hasAttribute('disabled');
+                            if (ariaDisabled !== 'true' && !isNativeDisabled) {
+                                b.scrollIntoView({ block: 'center', behavior: 'instant' });
+                                b.focus();
+                                window.__fbCreatePageBtn = b;
+                                window.__fbCreatePageArmed = true;
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }""")
+                if is_armed:
+                    self.log("SUCCESS", f"🎯 [Tab #{tab_index}] 'Create Page' button armed & verified ready for '{page_name}'!")
+                    return True
+            except Exception as e:
+                self.log("DEBUG", f"[Tab #{tab_index}] Arming notice: {e}")
+            await asyncio.sleep(0.5)
+
+        self.log("WARNING", f"⚠️ [Tab #{tab_index}] Arming verification timed out. Will fallback to direct DOM selection during trigger.")
+        return False
+
+    async def _fire_atomic_create_click(self, page, tab_index: int, target_epoch_ms: int) -> bool:
+        """
+        Fires the 'Create Page' click at the exact synchronized millisecond epoch
+        across all tabs simultaneously via internal page timer to bypass rate limits.
+        """
+        try:
+            res = await page.evaluate("""(targetEpoch) => {
+                return new Promise((resolve) => {
+                    function executeClick() {
+                        try {
+                            let btn = window.__fbCreatePageBtn;
+                            if (!btn) {
+                                const candidates = Array.from(document.querySelectorAll(
+                                    'div[aria-label="Create Page"][role="button"], button, div[role="button"]'
+                                ));
+                                for (const b of candidates) {
+                                    const txt = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase();
+                                    if (txt === 'create page' || (txt.includes('create') && txt.includes('page'))) {
+                                        btn = b;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (btn) {
+                                const opts = { bubbles: true, cancelable: true, view: window };
+                                ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+                                    btn.dispatchEvent(new MouseEvent(evt, opts));
+                                });
+                                btn.click();
+                                resolve({ clicked: true, timestamp: Date.now() });
+                                return;
+                            }
+                        } catch (e) {}
+                        resolve({ clicked: false, timestamp: Date.now() });
+                    }
+
+                    const remainingMs = Math.max(0, targetEpoch - Date.now());
+                    if (remainingMs <= 0) {
+                        executeClick();
+                    } else {
+                        setTimeout(executeClick, remainingMs);
+                    }
+                });
+            }""", target_epoch_ms)
+            clicked = res.get("clicked", False) if isinstance(res, dict) else False
+            fired_at = res.get("timestamp", 0) if isinstance(res, dict) else 0
+            self.log("INFO", f"💥 [Tab #{tab_index}] Atomic click dispatched (Timestamp: {fired_at})!")
+            return clicked
+        except Exception as e:
+            self.log("DEBUG", f"[Tab #{tab_index}] Atomic click exception: {e}")
+            return False
+
+    async def _monitor_page_creation_status(self, page, tab_index: int, page_name: str) -> bool:
+        """
+        Monitors tab response after atomic click to detect successful creation
+        or Facebook rate limit banners.
+        """
+        self.log("INFO", f"[Tab #{tab_index}] Monitoring creation response for '{page_name}'...")
+        for _ in range(14):
+            await asyncio.sleep(1.0)
+            try:
+                res = await page.evaluate("""() => {
+                    const text = (document.body.innerText || '').toLowerCase();
+                    if (text.includes('finish setting up your page') || 
+                        text.includes('contact') || 
+                        text.includes('customize your page') || 
+                        text.includes('page created')) {
+                        return { status: 'created' };
+                    }
+                    if (text.includes('too many pages') || 
+                        text.includes('try again later') || 
+                        text.includes('limit reached') ||
+                        text.includes('you\\'ve created too many')) {
+                        return { status: 'rate_limit' };
+                    }
+                    return { status: 'pending' };
+                }""")
+                st = res.get("status") if isinstance(res, dict) else "pending"
+                if st == "created":
+                    self.log("SUCCESS", f"🎉 [Tab #{tab_index}] Facebook Page '{page_name}' created successfully! Advancing to page setup...")
+                    return True
+                elif st == "rate_limit":
+                    self.log("WARNING", f"⚠️ [Tab #{tab_index}] Facebook rate limit detected for '{page_name}'.")
+                    return False
+            except Exception:
+                pass
+
+        self.log("INFO", f"✅ [Tab #{tab_index}] Creation submission proceeded for '{page_name}'.")
+        return True
+
     async def _click_create_page(self, page, tab_index: int, page_name: str) -> bool:
         """
-        Clicks the final 'Create Page' button on the form (Image 3)
-        and waits for Facebook to process creation.
+        Direct single-tab fallback method for 'Create Page' button.
         """
         self.log("INFO", f"[Tab #{tab_index}] Submitting 'Create Page' for '{page_name}'...")
         await asyncio.sleep(0.5)
@@ -584,7 +715,6 @@ class FacebookPageCreatorBot:
             try:
                 btn = page.locator(b_sel).first
                 if await btn.count() > 0 and await btn.is_visible():
-                    # Wait briefly if disabled
                     is_disabled = await btn.get_attribute("aria-disabled")
                     if is_disabled == "true":
                         await asyncio.sleep(1.0)
@@ -617,23 +747,7 @@ class FacebookPageCreatorBot:
                 self.log("DEBUG", f"[Tab #{tab_index}] DOM click notice: {e}")
 
         if clicked:
-            self.log("INFO", f"[Tab #{tab_index}] Clicked 'Create Page' button. Waiting for Step 1 setup...")
-            # Wait for creation processing and transition to 'Finish setting up your Page'
-            for _ in range(12):
-                await asyncio.sleep(1.0)
-                try:
-                    has_step1 = await page.evaluate("""() => {
-                        const txt = (document.body.innerText || '').toLowerCase();
-                        return txt.includes('finish setting up your page') || txt.includes('contact') || txt.includes('customize your page') || txt.includes('page created');
-                    }""")
-                    if has_step1:
-                        self.log("SUCCESS", f"🎉 [Tab #{tab_index}] Facebook Page '{page_name}' created successfully! Advancing to page setup...")
-                        return True
-                except Exception:
-                    pass
-
-            self.log("INFO", f"✅ [Tab #{tab_index}] Creation submission proceeded for '{page_name}'.")
-            return True
+            return await self._monitor_page_creation_status(page, tab_index, page_name)
         else:
             self.log("WARNING", f"⚠️ [Tab #{tab_index}] Could not find or click 'Create Page' button.")
             return False
@@ -1131,15 +1245,37 @@ class FacebookPageCreatorBot:
         self.log("INFO", "⏳ All tabs filled! Synchronizing before simultaneous creation click...")
         await asyncio.sleep(2.0)
 
-        # Step 5: Phase 3 - Concurrently Click 'Create Page' across all tabs!
-        self.log("INFO", "🔥 [Phase 3/5] Triggering 'Create Page' across all tabs simultaneously!")
-        click_tasks = []
+        # Step 5: Phase 2.5 - Arm 'Create Page' buttons across all tabs simultaneously
+        self.log("INFO", f"🎯 [Phase 2.5] Arming 'Create Page' buttons across all {len(pages)} tab(s) to guarantee simultaneous readiness...")
+        arm_tasks = []
         for idx, (p, cfg) in enumerate(zip(pages, page_configs)):
             p_name = cfg.get("name", f"New Page {idx + 1}")
-            click_tasks.append(self._click_create_page(p, idx + 1, p_name))
+            arm_tasks.append(self._arm_create_page_button(p, idx + 1, p_name))
+
+        await asyncio.gather(*arm_tasks, return_exceptions=True)
+        await asyncio.sleep(1.0)
+
+        # Step 6: Phase 3 - Multi-Tab Microsecond Atomic Click Barrier (Bypasses Facebook Rate Limit)
+        sync_epoch_ms = int(time.time() * 1000) + 1200
+        self.log("INFO", f"🔥 [Phase 3/5] ATOMIC TRIGGER: Firing simultaneous microsecond 'Create Page' click across all {len(pages)} tabs at epoch {sync_epoch_ms}!")
+        
+        click_tasks = []
+        for idx, p in enumerate(pages):
+            click_tasks.append(self._fire_atomic_create_click(p, idx + 1, sync_epoch_ms))
 
         await asyncio.gather(*click_tasks, return_exceptions=True)
-        await asyncio.sleep(2.0)
+        self.log("SUCCESS", f"⚡ Atomic click executed simultaneously across all {len(pages)} tab(s)!")
+        await asyncio.sleep(3.0)
+
+        # Step 7: Phase 3.5 - Concurrently Monitor Creation Response across all tabs
+        self.log("INFO", "👀 [Phase 3.5] Verifying page creation responses across all tabs...")
+        verify_tasks = []
+        for idx, (p, cfg) in enumerate(zip(pages, page_configs)):
+            p_name = cfg.get("name", f"New Page {idx + 1}")
+            verify_tasks.append(self._monitor_page_creation_status(p, idx + 1, p_name))
+
+        await asyncio.gather(*verify_tasks, return_exceptions=True)
+        await asyncio.sleep(1.5)
 
         # Step 6: Phase 4 - Concurrently Fill Step 1: Finish setting up your Page (Contact, Location, Hours)
         self.log("INFO", "🌐 [Phase 4/5] Concurrently filling Contact, Location & Hours across all tabs...")

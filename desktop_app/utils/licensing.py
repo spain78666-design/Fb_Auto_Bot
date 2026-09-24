@@ -14,6 +14,7 @@ import os
 import sys
 import json
 import time
+import math
 import base64
 import hmac
 import hashlib
@@ -210,19 +211,104 @@ class LicenseManager:
             if not hwid_matched:
                 return False, f"Hardware ID mismatch! This license is locked to machine ID [{key_hwid_raw}], but this PC is [{current_hwid_hex}]. Keys cannot be transferred across PCs.", {}
 
-            tier_map = {
-                "MTH": "Monthly (30 Days)",
-                "YR": "1 Year (365 Days)",
-                "LFT": "Lifetime Pro",
-                "TRL": "Trial (3 Days)",
-                "PRO": "Pro Commercial"
-            }
-            tier_name = tier_map.get(tier_code, f"{tier_code} License")
+            # Derive the duration and human-readable plan name dynamically
+            stored_ts = 0
+            stored_tier = ""
+            stored_days = 0
+            try:
+                lic_path = cls.get_license_file_path()
+                if os.path.exists(lic_path):
+                    with open(lic_path, "r", encoding="utf-8") as f:
+                        saved_meta = json.load(f)
+                        stored_ts = saved_meta.get("ts", 0)
+                        stored_tier = saved_meta.get("tier", "")
+                        stored_days = saved_meta.get("total_days", 0)
+            except Exception:
+                pass
+
+            if expiry_ts == 0:
+                tier_name = "Lifetime Access"
+                total_days = 0
+            else:
+                total_days = 0
+                if stored_days and stored_days > 0:
+                    total_days = int(stored_days)
+                elif stored_ts and stored_ts > 0 and expiry_ts > stored_ts:
+                    # Difference between expiry timestamp and activation timestamp
+                    total_days = max(1, round((expiry_ts - stored_ts) / 86400.0))
+                else:
+                    # Difference between expiry and now
+                    diff_sec = max(0, expiry_ts - now_ts)
+                    raw_days = diff_sec / 86400.0
+                    if tier_code == "TRL" or "trial" in tier_code.lower():
+                        # Map remaining duration to nearest original trial tier
+                        if raw_days <= 1.2:
+                            total_days = 1
+                        elif raw_days <= 3.2:
+                            total_days = 3
+                        elif raw_days <= 7.2:
+                            total_days = 7
+                        elif raw_days <= 10.2:
+                            total_days = 10
+                        elif raw_days <= 15.2:
+                            total_days = 15
+                        elif raw_days <= 30.5:
+                            total_days = 30
+                        else:
+                            total_days = max(1, round(raw_days))
+                    else:
+                        total_days = max(1, round(raw_days))
+
+                # Protect against underestimation: if remaining days right now exceeds total_days,
+                # total_days must be at least ceil(remaining_days)
+                remaining_sec = expiry_ts - now_ts
+                if remaining_sec > 0:
+                    rem_days_ceil = int(math.ceil(remaining_sec / 86400.0))
+                    if rem_days_ceil > total_days:
+                        # Match standard plan tiers: 7, 10, 15, 30, 365, etc.
+                        if rem_days_ceil <= 7:
+                            total_days = 7
+                        elif rem_days_ceil <= 10:
+                            total_days = 10
+                        elif rem_days_ceil <= 15:
+                            total_days = 15
+                        elif rem_days_ceil <= 30:
+                            total_days = 30
+                        elif rem_days_ceil <= 365:
+                            total_days = 365
+                        else:
+                            total_days = rem_days_ceil
+
+                # Format human readable tier name matching the exact days
+                if tier_code == "LFT":
+                    tier_name = "Lifetime Access"
+                elif tier_code == "YR" or total_days in (365, 366):
+                    tier_name = "1 Year (365 Days)"
+                elif tier_code == "MTH" or total_days == 30:
+                    tier_name = "Monthly (30 Days)"
+                elif tier_code == "TRL" or "trial" in tier_code.lower():
+                    if total_days == 1:
+                        tier_name = "Trial (1 Day)"
+                    else:
+                        tier_name = f"Trial ({total_days} Days)"
+                else:
+                    # Custom Pass or Pro
+                    if total_days == 1:
+                        tier_name = "Trial (1 Day)"
+                    elif total_days <= 15:
+                        tier_name = f"Trial ({total_days} Days)"
+                    elif total_days == 30:
+                        tier_name = "Monthly (30 Days)"
+                    elif total_days in (365, 366):
+                        tier_name = "1 Year (365 Days)"
+                    else:
+                        tier_name = f"{total_days}-Day Custom Pass"
 
             payload_data = {
                 "customer": customer_slug,
                 "hwid": current_hwid,
                 "tier": tier_name,
+                "total_days": total_days,
                 "expiry": expiry_ts,
                 "created": now_ts,
                 "status": "ACTIVE"
@@ -271,14 +357,28 @@ class LicenseManager:
         return False, "Invalid license key format.", {}
 
     @classmethod
-    def save_license(cls, license_key: str) -> bool:
+    def save_license(cls, license_key: str, extra_meta: Optional[Dict[str, Any]] = None) -> bool:
         """Stores the validated license key encrypted/obfuscated in config/license.dat."""
         try:
             lic_path = cls.get_license_file_path()
             os.makedirs(os.path.dirname(lic_path), exist_ok=True)
             encoded = base64.b64encode(license_key.strip().encode('utf-8')).decode('utf-8')
+            save_obj = {
+                "v": 1,
+                "k": encoded,
+                "ts": int(time.time()),
+            }
+            if extra_meta and isinstance(extra_meta, dict):
+                if "tier" in extra_meta:
+                    save_obj["tier"] = extra_meta["tier"]
+                if "total_days" in extra_meta:
+                    save_obj["total_days"] = extra_meta["total_days"]
+                if "customer" in extra_meta:
+                    save_obj["customer"] = extra_meta["customer"]
+                if "expiry" in extra_meta:
+                    save_obj["expiry"] = extra_meta["expiry"]
             with open(lic_path, "w", encoding="utf-8") as f:
-                json.dump({"v": 1, "k": encoded, "ts": int(time.time())}, f, indent=2)
+                json.dump(save_obj, f, indent=2)
             return True
         except Exception:
             return False
@@ -479,15 +579,21 @@ try:
 
             valid, msg, data = LicenseManager.verify_key(key, self.hwid)
             if valid:
-                LicenseManager.save_license(key)
+                LicenseManager.save_license(key, extra_meta=data)
                 self.license_data = data
+                total_days = data.get("total_days", 0)
+                tier = data.get("tier", "Active Plan")
+                expiry_val = data.get("expiry", 0)
+                exp_text = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(expiry_val)) if expiry_val > 0 else "Lifetime Unlimited Access"
+                dur_text = f"{total_days} Days Active" if total_days > 0 else "Lifetime Access"
                 QMessageBox.information(
                     self,
                     "Activation Successful",
                     f"🎉 License Activated Successfully!\n\n"
                     f"• Customer: {data.get('customer', 'Valued User')}\n"
-                    f"• Plan: {data.get('tier', 'Lifetime')}\n"
-                    f"• Expiry: {time.strftime('%Y-%m-%d', time.localtime(data.get('expiry', 0))) if data.get('expiry', 0) > 0 else 'Lifetime Unlimited Access'}\n\n"
+                    f"• Plan / Tier: {tier}\n"
+                    f"• Duration: {dur_text}\n"
+                    f"• Expiry Date: {exp_text}\n\n"
                     f"Welcome to FB Auto Bot!"
                 )
                 self.accept()

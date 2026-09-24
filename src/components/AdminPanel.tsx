@@ -363,19 +363,28 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
 
     if (selectedPlan === '365') {
       validityDays = 365;
-      tier = "1 Year License";
+      tier = "1 Year (365 Days)";
     } else if (selectedPlan === '30') {
       validityDays = 30;
       tier = "Monthly (30 Days)";
     } else if (selectedPlan === '0') {
       validityDays = 0;
       tier = "Lifetime Access";
+    } else if (selectedPlan === '15') {
+      validityDays = 15;
+      tier = "Trial (15 Days)";
     } else if (selectedPlan === '7') {
       validityDays = 7;
-      tier = "7-Day Free Trial";
+      tier = "Trial (7 Days)";
+    } else if (selectedPlan === '3') {
+      validityDays = 3;
+      tier = "Trial (3 Days)";
+    } else if (selectedPlan === '1') {
+      validityDays = 1;
+      tier = "Trial (1 Day)";
     } else if (selectedPlan === 'custom') {
       validityDays = customDays > 0 ? customDays : 365;
-      tier = `${validityDays}-Day Custom Pass`;
+      tier = validityDays === 1 ? "Trial (1 Day)" : (validityDays <= 15 ? `Trial (${validityDays} Days)` : `${validityDays}-Day Custom Pass`);
     }
 
     try {
@@ -929,7 +938,10 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
                         <option value="365">1 Year License - 365 Days ($100)</option>
                         <option value="30">Monthly License - 30 Days ($10)</option>
                         <option value="0">Lifetime Unlimited Access (VIP)</option>
+                        <option value="15">15-Day Trial Pass</option>
                         <option value="7">7-Day Free Trial</option>
+                        <option value="3">3-Day Free Trial</option>
+                        <option value="1">1-Day Free Trial (24 Hours)</option>
                         <option value="custom">Custom Number of Days</option>
                       </select>
                     </div>

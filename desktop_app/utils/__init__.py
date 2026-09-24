@@ -10,11 +10,18 @@ from .ai_spinner import (
     get_ai_spinner
 )
 
+from .listings_tracker import (
+    ListingsTracker,
+    get_listings_tracker
+)
+
 __all__ = [
     "AntiDuplicateImageProcessor",
     "AntiDuplicateConfig",
     "process_image_batch",
     "SpintaxEngine",
     "GeminiAISpinner",
-    "get_ai_spinner"
+    "get_ai_spinner",
+    "ListingsTracker",
+    "get_listings_tracker"
 ]

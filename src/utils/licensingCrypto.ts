@@ -227,7 +227,19 @@ export async function verifyLicenseKey(
       }
     }
 
-    const tierName = tierCode === 'MTH' ? 'Monthly Pass' : (tierCode === 'YR' ? '1 Year Pass' : (tierCode === 'LFT' ? 'Lifetime Pro' : (tierCode === 'TRL' ? 'Trial' : 'Pro License')));
+    let totalDays = 0;
+    if (expiryTs > 0 && expiryTs > nowTs) {
+      totalDays = Math.max(1, Math.round((expiryTs - nowTs) / 86400));
+    }
+    const tierName = tierCode === 'LFT' || expiryTs === 0 
+      ? 'Lifetime Access' 
+      : (tierCode === 'YR' || totalDays >= 365 
+          ? '1 Year (365 Days)' 
+          : (tierCode === 'MTH' || totalDays === 30 
+              ? 'Monthly (30 Days)' 
+              : (tierCode === 'TRL' || totalDays <= 15
+                  ? (totalDays === 1 ? 'Trial (1 Day)' : `Trial (${totalDays} Days)`)
+                  : `${totalDays}-Day Pass`)));
     const payload: LicensePayload = {
       customer: customerSlug,
       hwid: expectedHwid ? normalizeHwid(expectedHwid).full : `FBAUTO-${hwidSegment.slice(0, 4)}-${hwidSegment.slice(4, 8)}-${hwidSegment.slice(8, 12)}`,

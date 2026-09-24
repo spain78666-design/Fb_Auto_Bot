@@ -20,14 +20,112 @@ from datetime import datetime
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QStackedWidget, QPushButton, QLabel, QLineEdit, QTextEdit,
-    QComboBox, QSpinBox, QCheckBox, QTableWidget, QTableWidgetItem,
+    QComboBox, QSpinBox, QDoubleSpinBox, QCheckBox, QTableWidget, QTableWidgetItem,
     QHeaderView, QFileDialog, QProgressBar, QFrame, QSplitter,
     QMessageBox, QScrollArea, QSizePolicy, QInputDialog,
     QListWidget, QListWidgetItem, QTabWidget, QDialog,
     QAbstractItemView, QScrollBar, QGroupBox, QRadioButton, QButtonGroup, QSlider
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize, QTimer
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize, QTimer, QObject, QEvent
 from PyQt5.QtGui import QFont, QColor, QIcon, QTextCursor, QPixmap
+
+# ==============================================================================
+# Non-Scroll Form Controls (Prevents Accidental Mouse Wheel Value Changes)
+# Ensures mouse wheel scrolling always scrolls the parent page up/down,
+# and form controls (dropdowns/spinboxes) only change when clicked or typed.
+# ==============================================================================
+def _forward_wheel_to_parent_scroll(widget, event):
+    """
+    Forwards mouse wheel scroll events to the enclosing QScrollArea so the
+    page scrolls up or down smoothly instead of modifying the input column's value.
+    The column value can ONLY be changed when clicked or edited directly by the user.
+    """
+    try:
+        curr = widget.parent()
+        target_scroll = None
+        while curr:
+            if isinstance(curr, QScrollArea):
+                vbar = curr.verticalScrollBar()
+                if vbar and vbar.maximum() > 0:
+                    target_scroll = curr
+                    break
+                elif target_scroll is None:
+                    target_scroll = curr
+            curr = curr.parent()
+
+        if target_scroll:
+            vbar = target_scroll.verticalScrollBar()
+            if vbar and vbar.maximum() > 0:
+                delta = event.angleDelta().y()
+                if delta != 0:
+                    scroll_amount = int(abs(delta) * 0.6)
+                    if scroll_amount < 15 and abs(delta) >= 60:
+                        scroll_amount = 30
+                    elif scroll_amount < 5:
+                        scroll_amount = max(5, vbar.singleStep())
+
+                    if delta > 0:
+                        vbar.setValue(vbar.value() - scroll_amount)
+                    else:
+                        vbar.setValue(vbar.value() + scroll_amount)
+                    event.accept()
+                    return True
+            else:
+                target_scroll.wheelEvent(event)
+                event.accept()
+                return True
+    except Exception:
+        pass
+    event.ignore()
+    return False
+
+class SafeComboBox(QComboBox):
+    def wheelEvent(self, event):
+        # Allow scrolling only inside the opened dropdown popup list
+        if self.view() and self.view().isVisible():
+            super().wheelEvent(event)
+        else:
+            _forward_wheel_to_parent_scroll(self, event)
+
+class SafeSpinBox(QSpinBox):
+    def wheelEvent(self, event):
+        _forward_wheel_to_parent_scroll(self, event)
+
+class SafeDoubleSpinBox(QDoubleSpinBox):
+    def wheelEvent(self, event):
+        _forward_wheel_to_parent_scroll(self, event)
+
+class SafeSlider(QSlider):
+    def wheelEvent(self, event):
+        _forward_wheel_to_parent_scroll(self, event)
+
+class GlobalWheelScrollFilter(QObject):
+    """
+    Global Application Event Filter that intercepts wheel events on all
+    ComboBoxes, SpinBoxes, and Sliders to ensure the parent page scrolls up/down
+    instead of altering form values when mouse cursor hovers over them.
+    """
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Wheel:
+            target = watched
+            if isinstance(target, QWidget):
+                p = target.parent()
+                if isinstance(p, (SafeSpinBox, SafeDoubleSpinBox, SafeComboBox, SafeSlider, QSpinBox, QDoubleSpinBox, QComboBox, QSlider)):
+                    target = p
+
+            if isinstance(target, (SafeComboBox, SafeSpinBox, SafeDoubleSpinBox, SafeSlider, QComboBox, QSpinBox, QDoubleSpinBox, QSlider)):
+                if isinstance(target, QComboBox) and target.view() and target.view().isVisible():
+                    return False
+                _forward_wheel_to_parent_scroll(target, event)
+                return True
+        return super().eventFilter(watched, event)
+
+# Globally reassign classes so all existing and future instances use Safe controls:
+QComboBox = SafeComboBox
+QSpinBox = SafeSpinBox
+QDoubleSpinBox = SafeDoubleSpinBox
+QSlider = SafeSlider
+
 
 def handle_exception(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
@@ -230,6 +328,17 @@ except ImportError:
     except ImportError:
         HAS_LICENSING = False
 
+# Marketplace Listings Tracker & Persistent History Subsystem
+try:
+    from utils.listings_tracker import ListingsTracker, get_listings_tracker
+    HAS_LISTINGS_TRACKER = True
+except ImportError:
+    try:
+        from desktop_app.utils.listings_tracker import ListingsTracker, get_listings_tracker
+        HAS_LISTINGS_TRACKER = True
+    except ImportError:
+        HAS_LISTINGS_TRACKER = False
+
 # ------------------------------------------------------------------------------
 # Facebook Marketplace Native Radius Options
 # Matches exact options in Facebook Marketplace "Change location" dialog:
@@ -372,12 +481,12 @@ QPushButton.navBtn {
     background-color: rgba(255, 255, 255, 0.04);
     color: #cbd5e1;
     text-align: left;
-    padding: 11px 18px;
+    padding: 10px 14px;
     border-radius: 11px;
     font-size: 13px;
     font-weight: 500;
     border: 1px solid rgba(255, 255, 255, 0.05);
-    margin: 2px 4px;
+    margin: 2px 2px;
 }
 
 QPushButton.navBtn:hover {
@@ -1702,6 +1811,26 @@ class AutomationWorker(QThread):
                 await bot.create_marketplace_listing(resolved_payload)
                 method_succeeded = True
 
+            if method_succeeded:
+                try:
+                    if HAS_LISTINGS_TRACKER:
+                        tracker = get_listings_tracker()
+                        proj_tabs = resolved_payload.get("project_tabs") or []
+                        tabs_cnt = len(proj_tabs) if proj_tabs else int(resolved_payload.get("tabs_count", 1))
+                        tracker.record_listing(
+                            account_name=account_name,
+                            account_id=acc_id,
+                            title=resolved_payload.get("title", "Marketplace Item"),
+                            listing_type=resolved_payload.get("listing_type", "Item for sale"),
+                            category=resolved_payload.get("category", "General"),
+                            price=str(resolved_payload.get("price", "0")),
+                            location=resolved_payload.get("id_location") or resolved_payload.get("location", ""),
+                            mode="Project" if proj_tabs else ("Batch" if self.payload.get("is_batch") else "Standard"),
+                            count=max(1, tabs_cnt)
+                        )
+                except Exception:
+                    pass
+
             if not self.payload.get("is_batch") and self._is_running and method_succeeded:
                 if self.logger:
                     self.logger.success("Listing published successfully!")
@@ -1851,6 +1980,27 @@ class AutomationWorker(QThread):
         await asyncio.sleep(1.0 * delay_factor)
 
         self.log_signal.emit("SUCCESS", f"Marketplace listing '{title}' successfully broadcast to Facebook Marketplace!")
+        try:
+            if HAS_LISTINGS_TRACKER:
+                tracker = get_listings_tracker()
+                acc_data = self.payload.get("account_data", {})
+                acc_name = self.payload.get("account") or acc_data.get("name") or "Default Profile"
+                acc_id = acc_data.get("id") or acc_name
+                proj_tabs = self.payload.get("project_tabs") or []
+                tabs_cnt = len(proj_tabs) if proj_tabs else int(self.payload.get("tabs_count", 1))
+                tracker.record_listing(
+                    account_name=acc_name,
+                    account_id=acc_id,
+                    title=title,
+                    listing_type=self.payload.get("listing_type", "Item for sale"),
+                    category=self.payload.get("category", "General"),
+                    price=str(self.payload.get("price", "0")),
+                    location=self.payload.get("id_location") or self.payload.get("location", ""),
+                    mode="Project" if proj_tabs else ("Batch" if self.payload.get("is_batch") else "Standard"),
+                    count=max(1, tabs_cnt)
+                )
+        except Exception:
+            pass
         self.finished_signal.emit(True, "Listing published successfully!")
 
     def stop(self):
@@ -1895,6 +2045,298 @@ class ClientIPWorker(QThread):
                 continue
 
         self.ip_ready.emit(local_ip, public_ip)
+
+
+class ListingsHistoryDialog(QDialog):
+    """
+    Detailed Marketplace Listings History & Statistics Dialog.
+    Displays all listings performed by each account/user over 10 days, 15 days, 30 days, or all time,
+    with search filtering and export capabilities.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent_app = parent
+        self.setWindowTitle("📊 Facebook Marketplace Listings History & Audit")
+        self.resize(960, 600)
+        self.setModal(True)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #0f172a;
+                color: #f8fafc;
+            }
+            QLabel {
+                color: #e2e8f0;
+            }
+            QTableWidget {
+                background-color: #1e293b;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                gridline-color: rgba(255, 255, 255, 0.05);
+                color: #f8fafc;
+            }
+            QHeaderView::section {
+                background-color: #0f172a;
+                color: #94a3b8;
+                font-weight: 700;
+                padding: 6px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+            }
+            QLineEdit, QComboBox {
+                background-color: #1e293b;
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 6px;
+                color: #f8fafc;
+                padding: 4px 8px;
+            }
+        """)
+        self.init_ui()
+        self.populate_data()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        # Header with title and subtitle
+        hdr_layout = QHBoxLayout()
+        title_box = QVBoxLayout()
+        title = QLabel("📊 Marketplace Listings Audit & History")
+        title.setStyleSheet("font-size: 18px; font-weight: 800; color: #38bdf8;")
+        sub = QLabel("Comprehensive record of all published Marketplace ads across each user profile.")
+        sub.setStyleSheet("font-size: 12px; color: #94a3b8;")
+        title_box.addWidget(title)
+        title_box.addWidget(sub)
+        hdr_layout.addLayout(title_box)
+        hdr_layout.addStretch()
+        layout.addLayout(hdr_layout)
+
+        # Metrics Summary Strip
+        metrics_box = QFrame()
+        metrics_box.setStyleSheet("background-color: #1e293b; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08); padding: 4px;")
+        m_lay = QHBoxLayout(metrics_box)
+        m_lay.setContentsMargins(14, 8, 14, 8)
+        
+        self.lbl_stat_total = QLabel("Total: 0")
+        self.lbl_stat_total.setStyleSheet("color: #10b981; font-weight: 700; font-size: 13px;")
+        self.lbl_stat_15d = QLabel("Last 15 Days: 0")
+        self.lbl_stat_15d.setStyleSheet("color: #38bdf8; font-weight: 700; font-size: 13px;")
+        self.lbl_stat_10d = QLabel("Last 10 Days: 0")
+        self.lbl_stat_10d.setStyleSheet("color: #f59e0b; font-weight: 700; font-size: 13px;")
+        self.lbl_stat_today = QLabel("Today: 0")
+        self.lbl_stat_today.setStyleSheet("color: #a855f7; font-weight: 700; font-size: 13px;")
+
+        m_lay.addWidget(self.lbl_stat_total)
+        m_lay.addStretch()
+        m_lay.addWidget(self.lbl_stat_15d)
+        m_lay.addStretch()
+        m_lay.addWidget(self.lbl_stat_10d)
+        m_lay.addStretch()
+        m_lay.addWidget(self.lbl_stat_today)
+        layout.addWidget(metrics_box)
+
+        # Filter bar
+        filter_bar = QHBoxLayout()
+        filter_bar.addWidget(QLabel("Account:"))
+        self.combo_acc = QComboBox()
+        self.combo_acc.setFixedHeight(30)
+        self.combo_acc.addItem("All Accounts")
+        if self.parent_app and hasattr(self.parent_app, 'accounts_list'):
+            for a in self.parent_app.accounts_list:
+                name = a.get("name") or a.get("uid") or a.get("id")
+                if name:
+                    self.combo_acc.addItem(name)
+        self.combo_acc.currentIndexChanged.connect(self.populate_data)
+        filter_bar.addWidget(self.combo_acc)
+
+        filter_bar.addWidget(QLabel("Time Range:"))
+        self.combo_period = QComboBox()
+        self.combo_period.setFixedHeight(30)
+        self.combo_period.addItems(["All Time", "Last 15 Days", "Last 10 Days", "Last 7 Days", "Today"])
+        self.combo_period.currentIndexChanged.connect(self.populate_data)
+        filter_bar.addWidget(self.combo_period)
+
+        self.search_input = QLineEdit()
+        self.search_input.setFixedHeight(30)
+        self.search_input.setPlaceholderText("Search title, location, category...")
+        self.search_input.textChanged.connect(self.populate_data)
+        filter_bar.addWidget(self.search_input)
+
+        filter_bar.addStretch()
+
+        btn_export = QPushButton("📥 Export CSV")
+        btn_export.setFixedHeight(30)
+        btn_export.setStyleSheet("background-color: #2563eb; color: white; font-weight: 700; font-size: 11px; padding: 4px 12px; border-radius: 6px;")
+        btn_export.setCursor(Qt.PointingHandCursor)
+        btn_export.clicked.connect(self.export_csv)
+        filter_bar.addWidget(btn_export)
+
+        btn_clear = QPushButton("🗑️ Clear History")
+        btn_clear.setFixedHeight(30)
+        btn_clear.setStyleSheet("background-color: #dc2626; color: white; font-weight: 700; font-size: 11px; padding: 4px 12px; border-radius: 6px;")
+        btn_clear.setCursor(Qt.PointingHandCursor)
+        btn_clear.clicked.connect(self.clear_history)
+        filter_bar.addWidget(btn_clear)
+
+        layout.addLayout(filter_bar)
+
+        # Table of listings
+        self.table = QTableWidget(0, 8)
+        self.table.setHorizontalHeaderLabels([
+            "#", "Date & Time", "Account", "Listing Title", "Type & Category", "Price", "Location", "Status"
+        ])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.table.setColumnWidth(0, 40)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
+        self.table.setColumnWidth(1, 140)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        layout.addWidget(self.table)
+
+        # Bottom close button
+        btn_close = QPushButton("Close")
+        btn_close.setFixedHeight(34)
+        btn_close.setStyleSheet("background-color: #334155; color: white; font-weight: 700; border-radius: 6px;")
+        btn_close.setCursor(Qt.PointingHandCursor)
+        btn_close.clicked.connect(self.accept)
+        layout.addWidget(btn_close)
+
+    def populate_data(self):
+        if not HAS_LISTINGS_TRACKER:
+            return
+        tracker = get_listings_tracker()
+        target_acc = self.combo_acc.currentText()
+        if target_acc == "All Accounts":
+            target_acc = None
+
+        stats = tracker.get_stats(account_name=target_acc)
+        self.lbl_stat_total.setText(f"Total: {stats['total']}")
+        self.lbl_stat_15d.setText(f"Last 15 Days: {stats['last_15_days']}")
+        self.lbl_stat_10d.setText(f"Last 10 Days: {stats['last_10_days']}")
+        self.lbl_stat_today.setText(f"Today: {stats['today']}")
+
+        period = self.combo_period.currentText()
+        search_txt = self.search_input.text().strip().lower()
+
+        now_epoch = time.time()
+        today_str = datetime.now().strftime("%Y-%m-%d")
+
+        listings = stats.get("listings", [])
+        listings = sorted(listings, key=lambda x: x.get("timestamp", ""), reverse=True)
+
+        filtered = []
+        for item in listings:
+            item_epoch = item.get("epoch") or now_epoch
+            diff_days = max(0, now_epoch - item_epoch) / 86400.0
+
+            if period == "Last 10 Days" and diff_days > 10.0:
+                continue
+            elif period == "Last 15 Days" and diff_days > 15.0:
+                continue
+            elif period == "Last 7 Days" and diff_days > 7.0:
+                continue
+            elif period == "Today" and item.get("date") != today_str and diff_days > 1.0:
+                continue
+
+            if search_txt:
+                match_txt = f"{item.get('title', '')} {item.get('location', '')} {item.get('category', '')} {item.get('account_name', '')}".lower()
+                if search_txt not in match_txt:
+                    continue
+
+            filtered.append(item)
+
+        self.table.setRowCount(len(filtered))
+        for row, item in enumerate(filtered):
+            num_item = QTableWidgetItem(str(row + 1))
+            num_item.setTextAlignment(Qt.AlignCenter)
+            num_item.setForeground(QColor("#38bdf8"))
+
+            dt_str = f"{item.get('date', '')} {item.get('time', '')}"
+            dt_item = QTableWidgetItem(dt_str)
+            dt_item.setForeground(QColor("#94a3b8"))
+
+            acc_item = QTableWidgetItem(item.get("account_name", "Account"))
+            acc_item.setForeground(QColor("#a855f7"))
+
+            title_item = QTableWidgetItem(item.get("title", ""))
+            cat_item = QTableWidgetItem(f"{item.get('listing_type', '')} / {item.get('category', '')}")
+            cat_item.setForeground(QColor("#cbd5e1"))
+
+            price_item = QTableWidgetItem(f"${item.get('price', '0')}")
+            price_item.setForeground(QColor("#10b981"))
+            price_item.setTextAlignment(Qt.AlignCenter)
+
+            loc_item = QTableWidgetItem(item.get("location", "Local"))
+            status_item = QTableWidgetItem(f"● {item.get('status', 'Published')}")
+            status_item.setForeground(QColor("#10b981"))
+
+            self.table.setItem(row, 0, num_item)
+            self.table.setItem(row, 1, dt_item)
+            self.table.setItem(row, 2, acc_item)
+            self.table.setItem(row, 3, title_item)
+            self.table.setItem(row, 4, cat_item)
+            self.table.setItem(row, 5, price_item)
+            self.table.setItem(row, 6, loc_item)
+            self.table.setItem(row, 7, status_item)
+
+    def export_csv(self):
+        if not HAS_LISTINGS_TRACKER:
+            return
+        tracker = get_listings_tracker()
+        listings = tracker.get_all_listings()
+        if not listings:
+            QMessageBox.information(self, "Export Notice", "No listings recorded yet to export.")
+            return
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Listings History to CSV",
+            os.path.join(get_base_dir(), "marketplace_listings_export.csv"),
+            "CSV Files (*.csv)"
+        )
+        if not filepath:
+            return
+
+        try:
+            import csv
+            with open(filepath, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["ID", "Timestamp", "Date", "Time", "Account Name", "Account ID", "Title", "Type", "Category", "Price", "Location", "Mode", "Status"])
+                for item in listings:
+                    writer.writerow([
+                        item.get("id", ""),
+                        item.get("timestamp", ""),
+                        item.get("date", ""),
+                        item.get("time", ""),
+                        item.get("account_name", ""),
+                        item.get("account_id", ""),
+                        item.get("title", ""),
+                        item.get("listing_type", ""),
+                        item.get("category", ""),
+                        item.get("price", ""),
+                        item.get("location", ""),
+                        item.get("mode", ""),
+                        item.get("status", "")
+                    ])
+            QMessageBox.information(self, "Export Successful", f"Listings exported successfully to:\n{filepath}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Failed to export listings: {e}")
+
+    def clear_history(self):
+        reply = QMessageBox.question(
+            self,
+            "Confirm Clear History",
+            "Are you sure you want to clear all recorded listings history?\nThis action cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            if HAS_LISTINGS_TRACKER:
+                get_listings_tracker().clear_history()
+            self.populate_data()
+            if self.parent_app and hasattr(self.parent_app, 'refresh_dashboard_metrics'):
+                self.parent_app.refresh_dashboard_metrics()
+            QMessageBox.information(self, "History Cleared", "Marketplace listings audit history has been cleared.")
 
 
 class FewFeedSetupDialog(QDialog):
@@ -2229,6 +2671,13 @@ class FBAutoBotMainWindow(QMainWindow):
         if logo_file and os.path.isfile(logo_file):
             self.setWindowIcon(QIcon(logo_file))
 
+        # Install Global Wheel Scroll Filter across the entire application
+        # Ensures scrolling over any combobox or spinbox scrolls the page instead of changing values
+        app_inst = QApplication.instance()
+        if app_inst:
+            self.global_wheel_filter = GlobalWheelScrollFilter(self)
+            app_inst.installEventFilter(self.global_wheel_filter)
+
         # License & Activity State Management
         self.license_info = initial_license_info or {}
         self.saved_license_key = ""
@@ -2265,6 +2714,8 @@ class FBAutoBotMainWindow(QMainWindow):
         self.project_tab_images = []
 
         self.init_ui()
+        self.update_dashboard_account_filter()
+        self.refresh_dashboard_metrics()
 
         # Live Countdown Timer running every 1 second (1000ms)
         self.countdown_timer = QTimer(self)
@@ -2526,9 +2977,9 @@ class FBAutoBotMainWindow(QMainWindow):
     def create_sidebar(self):
         frame = QFrame()
         frame.setObjectName("sidebarFrame")
-        frame.setFixedWidth(240)
+        frame.setFixedWidth(252)
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(14, 20, 14, 20)
+        layout.setContentsMargins(12, 20, 12, 20)
         layout.setSpacing(8)
 
         # Brand Logo Header
@@ -2567,8 +3018,8 @@ class FBAutoBotMainWindow(QMainWindow):
             ("⚡ Standard & Bulk Listing", 2),
             ("📁 Project Listing", 3),
             ("📢 FB Group Posting", 4),
-            ("📄 Create FB Page", 5),
-            ("🤝 Auto FB Request Accept", 6),
+            ("📄 Create FB Pages", 5),
+            ("🤝 Auto FB Friend Accept", 6),
             ("🧠 AI Content Spinner", 7),
             ("⚙️ Settings & Stealth", 8),
             ("👤 User Profile & Logs", 9),
@@ -2617,8 +3068,8 @@ class FBAutoBotMainWindow(QMainWindow):
             "Standard & Bulk Listing Marketplace",
             "Project Listing Marketplace",
             "Facebook Group Automation",
-            "Create FB Page",
-            "Auto FB Friend Request Accept & Reject",
+            "Create FB Pages",
+            "Auto FB Friend Accept & Reject",
             "AI Content Spinner & Intelligence",
             "Settings & Stealth Parameters",
             "User Profile & Activity Logs"
@@ -2810,21 +3261,53 @@ class FBAutoBotMainWindow(QMainWindow):
         cl1.addWidget(s1)
         metrics_row.addWidget(c1)
 
-        # Card 2: Listings Published (Real Dynamic)
+        # Card 2: Total Listings (Real Dynamic with Account & 10/15-Day Timeframes)
         c2 = QFrame()
         c2.setProperty("class", "glassCard")
         cl2 = QVBoxLayout(c2)
-        cl2.setContentsMargins(16, 14, 16, 14)
-        cl2.setSpacing(6)
-        t2 = QLabel("Listings Broadcast")
-        t2.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: 600;")
+        cl2.setContentsMargins(14, 12, 14, 12)
+        cl2.setSpacing(4)
+
+        t2_row = QHBoxLayout()
+        t2 = QLabel("Total Listings")
+        t2.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: 700;")
+        t2_row.addWidget(t2)
+        t2_row.addStretch()
+
+        self.dash_period_filter = QComboBox()
+        self.dash_period_filter.setFixedHeight(22)
+        self.dash_period_filter.setStyleSheet("background-color: #1e293b; color: #38bdf8; font-size: 11px; font-weight: 600; padding: 1px 4px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3);")
+        self.dash_period_filter.addItems(["All Time", "Last 15 Days", "Last 10 Days", "Last 7 Days", "Today"])
+        self.dash_period_filter.currentIndexChanged.connect(self.refresh_dashboard_metrics)
+        t2_row.addWidget(self.dash_period_filter)
+
+        self.dash_acc_filter = QComboBox()
+        self.dash_acc_filter.setFixedHeight(22)
+        self.dash_acc_filter.setMaximumWidth(125)
+        self.dash_acc_filter.setStyleSheet("background-color: #1e293b; color: #e2e8f0; font-size: 11px; font-weight: 600; padding: 1px 4px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.1);")
+        self.dash_acc_filter.addItem("👥 All Accounts")
+        self.dash_acc_filter.currentIndexChanged.connect(self.refresh_dashboard_metrics)
+        t2_row.addWidget(self.dash_acc_filter)
+        cl2.addLayout(t2_row)
+
+        val_row = QHBoxLayout()
         self.dash_listings_val = QLabel("0 Completed")
-        self.dash_listings_val.setStyleSheet("color: #10b981; font-size: 20px; font-weight: 800;")
-        s2 = QLabel("Successful Marketplace Ads")
-        s2.setStyleSheet("color: #64748b; font-size: 11px;")
-        cl2.addWidget(t2)
-        cl2.addWidget(self.dash_listings_val)
-        cl2.addWidget(s2)
+        self.dash_listings_val.setStyleSheet("color: #10b981; font-size: 19px; font-weight: 800;")
+        val_row.addWidget(self.dash_listings_val)
+        val_row.addStretch()
+
+        btn_hist = QPushButton("📜 History")
+        btn_hist.setFixedHeight(22)
+        btn_hist.setStyleSheet("background-color: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.3);")
+        btn_hist.setCursor(Qt.PointingHandCursor)
+        btn_hist.setToolTip("View full detailed log of all marketplace listings with dates and accounts")
+        btn_hist.clicked.connect(self.show_listings_history_dialog)
+        val_row.addWidget(btn_hist)
+        cl2.addLayout(val_row)
+
+        self.dash_listings_sub = QLabel("🕒 Last 10 Days: 0 | 15 Days: 0 | Total: 0")
+        self.dash_listings_sub.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 500;")
+        cl2.addWidget(self.dash_listings_sub)
         metrics_row.addWidget(c2)
 
         # Card 3: Anti-Duplicate Shield
@@ -2885,11 +3368,11 @@ class FBAutoBotMainWindow(QMainWindow):
         b_grp.setProperty("class", "secondaryBtn")
         b_grp.clicked.connect(lambda: self.switch_tab(4))
 
-        b_page = QPushButton("📄 Create FB Page")
+        b_page = QPushButton("📄 Create FB Pages")
         b_page.setProperty("class", "secondaryBtn")
         b_page.clicked.connect(lambda: self.switch_tab(5))
 
-        b_req = QPushButton("🤝 Auto FB Request Accept")
+        b_req = QPushButton("🤝 Auto FB Friend Accept")
         b_req.setProperty("class", "secondaryBtn")
         b_req.clicked.connect(lambda: self.switch_tab(6))
 
@@ -4794,13 +5277,79 @@ class FBAutoBotMainWindow(QMainWindow):
             self.refresh_dashboard_metrics()
             self.log_message("SUCCESS", f"Profile '{name}' deleted from vault.")
 
+    def update_dashboard_account_filter(self):
+        """Updates the account dropdown in Dashboard Total Listings card."""
+        if not hasattr(self, 'dash_acc_filter'):
+            return
+        current_sel = self.dash_acc_filter.currentText()
+        self.dash_acc_filter.blockSignals(True)
+        self.dash_acc_filter.clear()
+        self.dash_acc_filter.addItem("👥 All Accounts")
+        for acc in self.accounts_list:
+            name = acc.get("name") or acc.get("uid") or acc.get("id")
+            if name:
+                self.dash_acc_filter.addItem(f"👤 {name}")
+        
+        # Restore selection if it existed
+        idx = self.dash_acc_filter.findText(current_sel)
+        if idx >= 0:
+            self.dash_acc_filter.setCurrentIndex(idx)
+        else:
+            self.dash_acc_filter.setCurrentIndex(0)
+        self.dash_acc_filter.blockSignals(False)
+
     def refresh_dashboard_metrics(self):
+        """Refreshes active profiles count and dynamic Total Listings counts."""
         if hasattr(self, 'dash_acc_val'):
             cnt = len(self.accounts_list)
             self.dash_acc_val.setText(f"{cnt} Saved")
+
         if hasattr(self, 'dash_listings_val'):
-            cnt = getattr(self, 'published_count', 0)
-            self.dash_listings_val.setText(f"{cnt} Completed")
+            try:
+                if HAS_LISTINGS_TRACKER:
+                    tracker = get_listings_tracker()
+
+                    # Check chosen account filter
+                    target_acc = None
+                    if hasattr(self, 'dash_acc_filter'):
+                        acc_text = self.dash_acc_filter.currentText()
+                        if acc_text and not acc_text.startswith("👥 All Accounts") and not acc_text.startswith("All Accounts"):
+                            target_acc = acc_text.replace("👤 ", "").strip()
+
+                    # Check chosen timeframe
+                    period_text = "All Time"
+                    if hasattr(self, 'dash_period_filter'):
+                        period_text = self.dash_period_filter.currentText()
+
+                    stats = tracker.get_stats(account_name=target_acc)
+
+                    if "10 Days" in period_text:
+                        display_val = stats["last_10_days"]
+                    elif "15 Days" in period_text:
+                        display_val = stats["last_15_days"]
+                    elif "7 Days" in period_text:
+                        display_val = stats["last_7_days"]
+                    elif "Today" in period_text:
+                        display_val = stats["today"]
+                    else:
+                        display_val = stats["total"]
+
+                    self.dash_listings_val.setText(f"{display_val} Completed")
+
+                    if hasattr(self, 'dash_listings_sub'):
+                        self.dash_listings_sub.setText(
+                            f"🕒 Last 10 Days: {stats['last_10_days']} | 15 Days: {stats['last_15_days']} | Total: {stats['total']}"
+                        )
+                else:
+                    cnt = getattr(self, 'published_count', 0)
+                    self.dash_listings_val.setText(f"{cnt} Completed")
+            except Exception as e:
+                pass
+
+    def show_listings_history_dialog(self):
+        """Opens detailed Marketplace Listings History & Analytics dialog."""
+        dlg = ListingsHistoryDialog(self)
+        dlg.exec_()
 
     def save_account(self):
         try:
@@ -6082,6 +6631,8 @@ class FBAutoBotMainWindow(QMainWindow):
         self.populate_page_creation_accounts_checklist()
         self.populate_req_accounts_checklist()
         self.refresh_project_accounts_checklist()
+        self.update_dashboard_account_filter()
+        self.refresh_dashboard_metrics()
         if hasattr(self, 'target_acc_select'):
             self.target_acc_select.clear()
             active_accounts = self.get_active_accounts()
@@ -8358,6 +8909,7 @@ class FBAutoBotMainWindow(QMainWindow):
             self.proj_btn_stop_automation.setEnabled(False)
         self.engine_status_lbl.setText("● READY FOR TASKS")
         self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
+        self.refresh_dashboard_metrics()
         if success:
             self.progress_bar.setValue(100)
             # Automatically uncheck all finished accounts from checklist
@@ -9117,12 +9669,12 @@ class FBAutoBotMainWindow(QMainWindow):
         acc_bottom_row.addWidget(pages_acc_lbl)
 
         self.page_count_per_account = QSpinBox()
-        self.page_count_per_account.setRange(1, 50)
-        self.page_count_per_account.setValue(5)
+        self.page_count_per_account.setRange(1, 5)
+        self.page_count_per_account.setValue(3)
         self.page_count_per_account.setSuffix(" pages")
         self.page_count_per_account.setFixedWidth(105)
         self.page_count_per_account.setStyleSheet("font-weight: 800; color: #f59e0b; background: #0f172a; border: 1px solid #f59e0b; border-radius: 4px; padding: 2px 4px;")
-        self.page_count_per_account.setToolTip("Example: Set to 5. The bot opens 5 tabs simultaneously in the browser and creates 5 pages concurrently.")
+        self.page_count_per_account.setToolTip("Select 1 to 5 pages per account (Max 5). The bot opens all tabs simultaneously and fires a synchronized microsecond atomic click across all tabs to bypass Facebook's rate limit.")
         acc_bottom_row.addWidget(self.page_count_per_account)
 
         # Delay
@@ -9961,7 +10513,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Header Title
         title_box = QVBoxLayout()
-        title = QLabel("Auto FB Request Accept Engine (آٹو ایف بی ریکویسٹ ایکسیپٹ)")
+        title = QLabel("Auto FB Friend Request Automation Engine")
         title.setProperty("class", "pageTitle")
         sub = QLabel("Automate Facebook Friend Requests in bulk across multiple accounts. Automatically accept or reject hundreds of incoming requests with auto-scrolling and automatic Chrome browser closure.")
         sub.setProperty("class", "pageSubtitle")
@@ -10096,7 +10648,7 @@ class FBAutoBotMainWindow(QMainWindow):
         mode_card_layout = QVBoxLayout(mode_card)
         mode_card_layout.setSpacing(10)
 
-        mode_hdr = QLabel("⚙️ Action Selection (دو کالمز: ایکسیپٹ یا ریجیکٹ):")
+        mode_hdr = QLabel("⚙️ Action Selection (Accept vs Reject Mode):")
         mode_hdr.setStyleSheet("font-size: 13px; font-weight: 700; color: #f8fafc;")
         mode_card_layout.addWidget(mode_hdr)
 
@@ -10117,7 +10669,7 @@ class FBAutoBotMainWindow(QMainWindow):
         col_acc_v = QVBoxLayout(self.col_accept_frame)
         col_acc_v.setSpacing(8)
 
-        self.radio_req_accept = QRadioButton("✅ ایکسیپٹ کریں (Confirm & Accept All)")
+        self.radio_req_accept = QRadioButton("✅ Confirm & Accept All Incoming Requests")
         self.radio_req_accept.setChecked(True)
         self.radio_req_accept.setStyleSheet("""
             QRadioButton {
@@ -10158,7 +10710,7 @@ class FBAutoBotMainWindow(QMainWindow):
         col_rej_v = QVBoxLayout(self.col_reject_frame)
         col_rej_v.setSpacing(8)
 
-        self.radio_req_reject = QRadioButton("🗑️ ریجیکٹ کریں (Delete & Reject All)")
+        self.radio_req_reject = QRadioButton("🗑️ Delete & Reject All Incoming Requests")
         self.radio_req_reject.setStyleSheet("""
             QRadioButton {
                 color: #f43f5e;
@@ -10241,7 +10793,7 @@ class FBAutoBotMainWindow(QMainWindow):
         btn_box = QHBoxLayout()
         btn_box.setSpacing(12)
 
-        self.btn_start_req_bot = QPushButton("🚀 Start Request Automation (سٹارٹ آٹومیشن)")
+        self.btn_start_req_bot = QPushButton("🚀 Start Request Automation")
         self.btn_start_req_bot.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10b981);
