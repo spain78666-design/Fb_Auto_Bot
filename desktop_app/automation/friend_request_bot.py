@@ -105,9 +105,10 @@ class FacebookFriendRequestBot:
     def __init__(
         self,
         account_data: Dict[str, Any],
-        mode: str = "accept",  # "accept" or "reject"
+        mode: str = "accept",  # "accept", "reject", or "send"
         max_requests: int = 0, # 0 = unlimited / all pending
         click_delay: float = 0.8,
+        target_urls: Optional[List[str]] = None,
         log_callback: Optional[Callable[[str, str], None]] = None,
         progress_callback: Optional[Callable[[int], None]] = None,
         counter_callback: Optional[Callable[[str, int], None]] = None
@@ -116,6 +117,7 @@ class FacebookFriendRequestBot:
         self.mode = mode.lower().strip() or "accept"
         self.max_requests = max_requests
         self.click_delay = max(0.2, click_delay)
+        self.target_urls = list(target_urls or [])
         self.log_cb = log_callback
         self.prog_cb = progress_callback
         self.counter_cb = counter_callback
@@ -279,14 +281,190 @@ class FacebookFriendRequestBot:
         else:
             self.page = await self.context.new_page()
 
+    async def _run_send_requests(self) -> Dict[str, Any]:
+        """
+        Navigates to each target Facebook profile URL, clicks 'Add Friend', and records sent requests.
+        """
+        self.log("INFO", f"🚀 Starting Outbound Friend Request sender for {len(self.target_urls)} target profile(s)...")
+        self.processed_count = 0
+
+        try:
+            await self._init_browser()
+            if self._cancelled or not self.page:
+                return {"success": False, "count": 0, "message": "Cancelled"}
+
+            # Verify session login
+            try:
+                await self.page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=45000)
+                await asyncio.sleep(2.0)
+            except Exception:
+                pass
+
+            curr_url = self.page.url.lower()
+            if "login" in curr_url or "checkpoint" in curr_url:
+                self.log("ERROR", "❌ Account requires login or updated cookies in Accounts Manager.")
+                return {"success": False, "count": 0, "message": "Account not logged in"}
+
+            for idx, raw_target_url in enumerate(self.target_urls, start=1):
+                if self._cancelled:
+                    break
+
+                target_url = raw_target_url.strip()
+                if not target_url.startswith("http"):
+                    target_url = "https://" + target_url
+
+                self.log("INFO", f"[{idx}/{len(self.target_urls)}] Navigating to profile: {target_url}")
+                try:
+                    await self.page.goto(target_url, wait_until="domcontentloaded", timeout=40000)
+                    await asyncio.sleep(2.5)
+                except Exception as ex:
+                    self.log("WARNING", f"Could not load {target_url}: {ex}")
+                    continue
+
+                if self._cancelled:
+                    break
+
+                # Check if already friends or request already sent
+                try:
+                    page_text = (await self.page.evaluate("() => (document.body.innerText || '').toLowerCase()"))
+                except Exception:
+                    page_text = ""
+
+                if "cancel request" in page_text or "request sent" in page_text:
+                    self.log("INFO", f"ℹ️ Friend request already pending for {target_url}. Skipping.")
+                    continue
+
+                # Locate 'Add friend' button
+                clicked = False
+                add_selectors = [
+                    'div[aria-label="Add friend"][role="button"]',
+                    'div[aria-label="Add Friend"][role="button"]',
+                    'div[aria-label*="Add friend" i][role="button"]',
+                    'div[aria-label*="Add Friend" i]',
+                    'button:has-text("Add friend")',
+                    'div[role="button"]:has-text("Add friend")',
+                    'button:has-text("Add Friend")',
+                    'div[role="button"]:has-text("Add Friend")',
+                    'span:has-text("Add friend")',
+                    'span:has-text("Add Friend")',
+                    'div[aria-label="دوست بنائیں"][role="button"]',
+                    'span:has-text("دوست بنائیں")',
+                    'div[aria-label*="Añadir a amigos" i]',
+                    'div[aria-label*="Ajouter" i]',
+                    'div[aria-label*="Freund hinzufügen" i]'
+                ]
+
+                for sel in add_selectors:
+                    try:
+                        btn = self.page.locator(sel).first
+                        if await btn.count() > 0 and await btn.is_visible():
+                            await btn.scroll_into_view_if_needed()
+                            await asyncio.sleep(0.3)
+                            await btn.click()
+                            clicked = True
+                            break
+                    except Exception:
+                        pass
+
+                # DOM fallback click
+                if not clicked:
+                    try:
+                        clicked = await self.page.evaluate("""() => {
+                            const keywords = [
+                                'add friend', 'دوست بنائیں', 'añadir a amigos', 'ajouter',
+                                'freund hinzufügen', 'adicionar aos amigos', 'aggiungi agli amici',
+                                'tambah teman', 'thêm bạn bè'
+                            ];
+                            const btns = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"], a[role="button"]'));
+                            for (const b of btns) {
+                                if (!b.offsetParent && b.offsetWidth === 0 && b.offsetHeight === 0) continue;
+                                const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+                                const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
+                                if (keywords.some(k => txt === k || txt.startsWith(k) || aria.includes(k))) {
+                                    b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+                                        b.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+                                    });
+                                    b.click();
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }""")
+                    except Exception:
+                        pass
+
+                if clicked:
+                    self.processed_count += 1
+                    self.log("SUCCESS", f"✅ Sent Friend Request to: {target_url} ({self.processed_count}/{len(self.target_urls)})")
+                    if self.counter_cb:
+                        self.counter_cb(self.account_id, self.processed_count)
+
+                    # Handle any confirmation popup (e.g. "Do you know this person?")
+                    await asyncio.sleep(1.0)
+                    try:
+                        await self.page.evaluate("""() => {
+                            const dialogs = document.querySelectorAll('div[role="dialog"]');
+                            for (const d of dialogs) {
+                                const btns = Array.from(d.querySelectorAll('button, div[role="button"]'));
+                                for (const b of btns) {
+                                    const t = (b.innerText || '').trim().toLowerCase();
+                                    if (t === 'send request' || t === 'confirm' || t === 'send') {
+                                        b.click();
+                                        return true;
+                                    }
+                                }
+                            }
+                            return false;
+                        }""")
+                    except Exception:
+                        pass
+                else:
+                    self.log("WARNING", f"⚠️ 'Add friend' button not available on: {target_url} (May have private privacy or already friends)")
+
+                # Speed delay between requests
+                await asyncio.sleep(self.click_delay)
+
+            self.log("SUCCESS", f"✨ Finished sending requests! Total sent: {self.processed_count} requests.")
+            return {
+                "success": True,
+                "count": self.processed_count,
+                "message": f"Successfully sent {self.processed_count} friend requests"
+            }
+
+        except Exception as e:
+            self.log("ERROR", f"Error in send requests: {str(e)}")
+            return {"success": False, "count": self.processed_count, "message": str(e)}
+
+        finally:
+            self.log("INFO", f"Closing Chrome browser cleanly for {self.account_name}...")
+            try:
+                if self.context:
+                    await self.context.close()
+            except Exception:
+                pass
+            try:
+                if self.browser:
+                    await self.browser.close()
+            except Exception:
+                pass
+            try:
+                if self.playwright:
+                    await self.playwright.stop()
+            except Exception:
+                pass
+            self.log("INFO", f"🔒 Chrome closed for {self.account_name}.")
+
     async def run(self) -> Dict[str, Any]:
         """
         Main execution flow:
-        1. Opens Facebook friend requests page
-        2. Loops through requests clicking Confirm (Accept) or Delete (Reject)
-        3. Auto-scrolls to load all pending items
-        4. Closes browser when all requests are processed or max reached
+        1. If mode == 'send', sends friend requests to target_urls
+        2. If mode == 'accept' or 'reject', loops through incoming requests
+        3. Closes browser when all requests are processed or max reached
         """
+        if self.mode == "send":
+            return await self._run_send_requests()
+
         action_verb = "Accepting" if self.mode == "accept" else "Rejecting"
         self.log("INFO", f"🚀 Starting Auto Friend Request {action_verb} engine...")
         self.processed_count = 0

@@ -1001,13 +1001,94 @@ class SessionManager:
                     except Exception as ce:
                         log("WARNING", f"Cookie injection notice: {str(ce)}")
 
-                # Navigate: if cookies exist go straight to Facebook, else login page
-                dest_url = "https://www.facebook.com" if existing_cookies else "https://www.facebook.com/login"
+                # Navigate: if full cookies exist go straight to Facebook, else login page
+                dest_url = "https://www.facebook.com" if (existing_cookies and "xs=" in existing_cookies) else "https://www.facebook.com/login"
                 log("INFO", f"Navigating to {dest_url}...")
                 try:
                     await page.goto(dest_url, wait_until="domcontentloaded", timeout=45000)
                 except Exception as ne:
                     log("WARNING", f"Navigation notice: {str(ne)}. Browser window is active.")
+
+                # If account has saved UID & Password, auto-fill login credentials into Facebook
+                uid_or_email = account.get("uid") or account.get("email") or ""
+                password = account.get("password") or ""
+                two_factor_secret = account.get("two_factor_secret") or ""
+
+                if uid_or_email and password:
+                    await asyncio.sleep(1.5)
+                    live_c = await context.cookies()
+                    has_live_c_user = any(c.get("name") == "c_user" for c in live_c)
+                    has_live_xs = any(c.get("name") == "xs" for c in live_c)
+
+                    if not (has_live_c_user and has_live_xs):
+                        log("INFO", f"🔑 Auto-Filling credentials for UID/Email: {uid_or_email}...")
+                        try:
+                            # Dismiss cookie consent dialog if shown
+                            cookie_consent_selectors = [
+                                'button[data-cookiebanner="accept_button"]',
+                                'button[data-cookiebanner="accept_only_essential_button"]',
+                                'button[title="Allow all cookies"]',
+                                'button[title="Accept all"]',
+                                'button:has-text("Allow all cookies")',
+                                'button:has-text("Accept all")',
+                                'button:has-text("Only allow essential cookies")',
+                                'button:has-text("Decline optional cookies")',
+                            ]
+                            for c_sel in cookie_consent_selectors:
+                                c_btn = await page.query_selector(c_sel)
+                                if c_btn and await c_btn.is_visible():
+                                    await c_btn.click()
+                                    await asyncio.sleep(0.5)
+                                    break
+                        except Exception:
+                            pass
+
+                        try:
+                            # Enter email / UID
+                            email_selectors = [
+                                'input[name="email"]',
+                                'input#email',
+                                'input[type="text"][autocomplete="username"]',
+                                'input[data-testid="royal_email"]',
+                                'input[aria-label*="Email" i]',
+                                'input[placeholder*="Email" i]'
+                            ]
+                            email_field = None
+                            for es in email_selectors:
+                                email_field = await page.query_selector(es)
+                                if email_field and await email_field.is_visible():
+                                    break
+
+                            if email_field:
+                                await email_field.fill(uid_or_email)
+                                await asyncio.sleep(0.3)
+
+                            # Enter password
+                            pass_selectors = [
+                                'input[name="pass"]',
+                                'input#pass',
+                                'input[type="password"]',
+                                'input[data-testid="royal_pass"]',
+                                'input[aria-label*="Password" i]',
+                                'input[placeholder*="Password" i]'
+                            ]
+                            pass_field = None
+                            for ps in pass_selectors:
+                                pass_field = await page.query_selector(ps)
+                                if pass_field and await pass_field.is_visible():
+                                    break
+
+                            if pass_field:
+                                await pass_field.fill(password)
+                                await asyncio.sleep(0.3)
+
+                            # Click Login button
+                            l_btn = await page.query_selector('button[name="login"], button#loginbutton, button[data-testid="royal_login_button"], button[type="submit"], input[type="submit"]')
+                            if l_btn and await l_btn.is_visible():
+                                log("INFO", "🚀 Submitting Facebook login credentials...")
+                                await l_btn.click()
+                        except Exception as af_err:
+                            log("WARNING", f"Auto-fill notice: {af_err}")
 
                 log("INFO", "🟢 Browser window is open! You can browse Facebook, Marketplace, or log in.")
                 log("INFO", "Close the browser window whenever you are done.")

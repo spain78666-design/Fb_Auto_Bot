@@ -309,6 +309,17 @@ except ImportError:
     except ImportError:
         HAS_FRIEND_REQUEST_BOT = False
 
+# Phase 10: Facebook Reels Bulk Uploader Engine
+try:
+    from automation.reels_uploader_bot import FacebookReelsUploaderBot, resolve_spintax
+    HAS_REELS_BOT = True
+except ImportError:
+    try:
+        from desktop_app.automation.reels_uploader_bot import FacebookReelsUploaderBot, resolve_spintax
+        HAS_REELS_BOT = True
+    except ImportError:
+        HAS_REELS_BOT = False
+
 # Licensing Subsystem & Anti-Tamper Protection
 try:
     from utils.licensing import (
@@ -1381,11 +1392,18 @@ class PageCreationWorker(QThread):
         effective_browsers = min(concurrent_browsers, total_accs)
         semaphore = asyncio.Semaphore(effective_browsers)
 
-        name_pointer = 0
+        profile_photos = self.payload.get("profile_photos", [])
+        if not profile_photos and self.payload.get("profile_photo_path"):
+            profile_photos = [self.payload.get("profile_photo_path")]
+
+        cover_photos = self.payload.get("cover_photos", [])
+        if not cover_photos and self.payload.get("cover_photo_path"):
+            cover_photos = [self.payload.get("cover_photo_path")]
+
         total_created = 0
 
         async def _process_account(acc, acc_idx):
-            nonlocal name_pointer, total_created
+            nonlocal total_created
             if not self._is_running:
                 return
 
@@ -1399,16 +1417,27 @@ class PageCreationWorker(QThread):
                 # Assign page configs for this account
                 acc_page_configs = []
                 for i in range(pages_per_acc):
+                    global_page_idx = acc_idx * pages_per_acc + i
+
                     if all_page_names:
-                        p_name = all_page_names[(name_pointer + i) % len(all_page_names)]
+                        p_name = all_page_names[global_page_idx % len(all_page_names)]
                     else:
-                        p_name = f"Page {i + 1}"
+                        p_name = f"Page {global_page_idx + 1}"
 
                     p_bio = ""
                     if bios:
-                        p_bio = bios[(name_pointer + i) % len(bios)]
+                        p_bio = bios[global_page_idx % len(bios)]
                     elif default_bio:
                         p_bio = default_bio
+
+                    # Pick sequential profile & cover photos from loaded pool
+                    p_profile_photo = ""
+                    if profile_photos:
+                        p_profile_photo = profile_photos[global_page_idx % len(profile_photos)]
+
+                    p_cover_photo = ""
+                    if cover_photos:
+                        p_cover_photo = cover_photos[global_page_idx % len(cover_photos)]
 
                     acc_page_configs.append({
                         "name": p_name,
@@ -1417,11 +1446,17 @@ class PageCreationWorker(QThread):
                         "contact": self.payload.get("contact", {}),
                         "location": self.payload.get("location", {}),
                         "hours_mode": self.payload.get("hours_mode", "always_open"),
-                        "profile_photo_path": self.payload.get("profile_photo_path", ""),
-                        "cover_photo_path": self.payload.get("cover_photo_path", "")
+                        "profile_photo_path": p_profile_photo,
+                        "cover_photo_path": p_cover_photo
                     })
 
-                name_pointer += pages_per_acc
+                if profile_photos or cover_photos:
+                    summary_parts = []
+                    for c_item in acc_page_configs:
+                        p_b = os.path.basename(c_item['profile_photo_path']) if c_item['profile_photo_path'] else 'None'
+                        c_b = os.path.basename(c_item['cover_photo_path']) if c_item['cover_photo_path'] else 'None'
+                        summary_parts.append(f"{c_item['name']} (Profile: {p_b}, Cover: {c_b})")
+                    self.log_signal.emit("INFO", f"📷 {tag} Photos Assigned: " + " | ".join(summary_parts))
 
                 acc_copy = dict(acc)
                 acc_copy["network_mode"] = self.payload.get("network_mode", "direct")
@@ -1473,6 +1508,7 @@ class FriendRequestWorker(QThread):
     log_signal = pyqtSignal(str, str)
     progress_signal = pyqtSignal(int)
     counter_signal = pyqtSignal(str, int)  # (account_id, processed_count)
+    account_completed_signal = pyqtSignal(str)  # (account_id) unchecks completed account in UI
     finished_signal = pyqtSignal(bool, str)
 
     def __init__(self, payload: Dict[str, Any]):
@@ -1530,13 +1566,18 @@ class FriendRequestWorker(QThread):
             return
 
         mode = self.payload.get("mode", "accept")
+        target_urls = self.payload.get("target_urls", [])
+        requests_per_acc = int(self.payload.get("requests_per_account", 30))
         max_requests = int(self.payload.get("max_requests", 0))
         click_delay = float(self.payload.get("click_delay", 0.8))
         concurrent_browsers = max(1, int(self.payload.get("concurrent_browsers", 2)))
         network_mode = self.payload.get("network_mode", "direct")
 
-        verb = "Accept" if mode == "accept" else "Reject"
-        self.log_signal.emit("INFO", f"🚀 Starting Friend Request {verb} automation on {len(accounts)} account(s) (Concurrency: {concurrent_browsers})...")
+        if mode == "send":
+            verb_title = f"Outbound Friend Request Sending ({len(target_urls)} URLs loaded, {requests_per_acc}/account)"
+        else:
+            verb_title = "Accept" if mode == "accept" else "Reject"
+        self.log_signal.emit("INFO", f"🚀 Starting Friend Request {verb_title} automation on {len(accounts)} account(s) (Concurrency: {concurrent_browsers})...")
 
         sem = asyncio.Semaphore(concurrent_browsers)
         total_accs = len(accounts)
@@ -1552,11 +1593,28 @@ class FriendRequestWorker(QThread):
                 acc_copy = dict(acc)
                 acc_copy["network_mode"] = network_mode
 
+                acc_target_urls = []
+                if mode == "send" and target_urls:
+                    start_idx = acc_idx * requests_per_acc
+                    if start_idx + requests_per_acc <= len(target_urls):
+                        acc_target_urls = target_urls[start_idx:start_idx + requests_per_acc]
+                    elif len(target_urls) >= requests_per_acc:
+                        import random
+                        # Pick random sample without replacement
+                        acc_target_urls = random.sample(target_urls, requests_per_acc)
+                    else:
+                        acc_target_urls = list(target_urls)
+                    self.log_signal.emit(
+                        "INFO",
+                        f"[{acc.get('name')}] Assigned {len(acc_target_urls)} target profile URLs to send requests."
+                    )
+
                 bot = FacebookFriendRequestBot(
                     account_data=acc_copy,
                     mode=mode,
-                    max_requests=max_requests,
+                    max_requests=max_requests if mode != "send" else len(acc_target_urls),
                     click_delay=click_delay,
+                    target_urls=acc_target_urls,
                     log_callback=self._log_bridge,
                     progress_callback=self._progress_bridge,
                     counter_callback=self._counter_bridge
@@ -1576,13 +1634,165 @@ class FriendRequestWorker(QThread):
                 completed_accs += 1
                 percent = int((completed_accs / total_accs) * 100)
                 self.progress_signal.emit(percent)
+                # Uncheck account in UI upon finishing
+                acc_id = str(acc.get("id", ""))
+                if acc_id:
+                    self.account_completed_signal.emit(acc_id)
 
         tasks = [_process_account(acc, idx) for idx, acc in enumerate(accounts)]
         await asyncio.gather(*tasks, return_exceptions=True)
 
         if self._is_running:
-            action_past = "accepted" if mode == "accept" else "rejected"
+            if mode == "send":
+                action_past = "sent"
+            elif mode == "accept":
+                action_past = "accepted"
+            else:
+                action_past = "rejected"
             msg = f"🎉 Friend Request Automation completed! Successfully {action_past} {total_processed} requests across {len(accounts)} account(s)."
+            self.log_signal.emit("SUCCESS", msg)
+            self.progress_signal.emit(100)
+            self.finished_signal.emit(True, msg)
+
+
+# ------------------------------------------------------------------------------
+# Asynchronous Reels Uploader Worker Thread (Phase 10: Playwright Reels Engine)
+# ------------------------------------------------------------------------------
+class ReelsUploaderWorker(QThread):
+    """
+    Asynchronous background worker that orchestrates bulk Facebook Reels uploads
+    across target accounts with multi-browser concurrency, automatic spintax captioning,
+    and automatic Chrome browser cleanup.
+    """
+    log_signal = pyqtSignal(str, str)
+    progress_signal = pyqtSignal(int)
+    counter_signal = pyqtSignal(str, int)  # (account_id, uploaded_count)
+    account_completed_signal = pyqtSignal(str)  # (account_id) unchecks account in UI
+    finished_signal = pyqtSignal(bool, str)
+
+    def __init__(self, payload: Dict[str, Any]):
+        super().__init__()
+        self.payload = payload
+        self.active_bots: List[Any] = []
+        self.loop = None
+        self._is_running = True
+
+    def _log_bridge(self, level: str, message: str):
+        self.log_signal.emit(level, message)
+
+    def _progress_bridge(self, percent: int):
+        self.progress_signal.emit(percent)
+
+    def _counter_bridge(self, account_id: str, count: int):
+        self.counter_signal.emit(account_id, count)
+
+    def stop(self):
+        self._is_running = False
+        self.log_signal.emit("WARNING", "🛑 Stop command received for Reels Automation...")
+        for bot in list(self.active_bots):
+            try:
+                bot.cancel()
+            except Exception:
+                pass
+        self.finished_signal.emit(False, "Reels upload stopped by user.")
+
+    def run(self):
+        setup_windows_asyncio()
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        try:
+            self.loop.run_until_complete(self._execute_task())
+        except Exception as e:
+            if self._is_running:
+                self.log_signal.emit("ERROR", f"Reels Uploader Worker error: {str(e)}")
+                self.finished_signal.emit(False, str(e))
+        finally:
+            try:
+                self.loop.close()
+            except Exception:
+                pass
+
+    async def _execute_task(self):
+        if not HAS_REELS_BOT:
+            self.log_signal.emit("ERROR", "Reels Uploader Bot engine module not found.")
+            self.finished_signal.emit(False, "Reels bot module missing.")
+            return
+
+        accounts = self.payload.get("accounts", [])
+        if not accounts:
+            self.log_signal.emit("ERROR", "No target Facebook accounts selected.")
+            self.finished_signal.emit(False, "No accounts selected.")
+            return
+
+        video_files = self.payload.get("video_files", [])
+        if not video_files:
+            self.log_signal.emit("ERROR", "No video files found in the media pool.")
+            self.finished_signal.emit(False, "No video files in pool.")
+            return
+
+        reels_per_acc = int(self.payload.get("reels_per_account", 5))
+        delay_seconds = float(self.payload.get("delay_seconds", 15.0))
+        caption_template = self.payload.get("caption_template", "")
+        selection_mode = self.payload.get("selection_mode", "Random Pool (No Dup)")
+        concurrent_browsers = max(1, int(self.payload.get("concurrent_browsers", 2)))
+        network_mode = self.payload.get("network_mode", "direct")
+
+        self.log_signal.emit(
+            "INFO",
+            f"🚀 Starting Bulk Reels Upload on {len(accounts)} account(s) "
+            f"({len(video_files)} video files, {reels_per_acc} reels/account, Concurrency: {concurrent_browsers})..."
+        )
+
+        sem = asyncio.Semaphore(concurrent_browsers)
+        total_accs = len(accounts)
+        completed_accs = 0
+        total_uploaded = 0
+
+        async def _process_account(acc: Dict[str, Any], acc_idx: int):
+            nonlocal completed_accs, total_uploaded
+            async with sem:
+                if not self._is_running:
+                    return
+
+                acc_copy = dict(acc)
+                acc_copy["network_mode"] = network_mode
+
+                bot = FacebookReelsUploaderBot(
+                    account_data=acc_copy,
+                    video_files=video_files,
+                    reels_per_account=reels_per_acc,
+                    delay_seconds=delay_seconds,
+                    caption_template=caption_template,
+                    selection_mode=selection_mode,
+                    log_callback=self._log_bridge,
+                    progress_callback=self._progress_bridge,
+                    counter_callback=self._counter_bridge
+                )
+                self.active_bots.append(bot)
+
+                try:
+                    res = await bot.run()
+                    c = res.get("count", 0)
+                    total_uploaded += c
+                except Exception as ex:
+                    self.log_signal.emit("ERROR", f"[{acc.get('name')}] Error: {str(ex)}")
+                finally:
+                    if bot in self.active_bots:
+                        self.active_bots.remove(bot)
+
+                completed_accs += 1
+                percent = int((completed_accs / total_accs) * 100)
+                self.progress_signal.emit(percent)
+                # Uncheck account in UI upon finishing
+                acc_id = str(acc.get("id", ""))
+                if acc_id:
+                    self.account_completed_signal.emit(acc_id)
+
+        tasks = [_process_account(acc, idx) for idx, acc in enumerate(accounts)]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        if self._is_running:
+            msg = f"🎉 Bulk Reels Automation finished! Successfully uploaded {total_uploaded} reels across {len(accounts)} account(s)."
             self.log_signal.emit("SUCCESS", msg)
             self.progress_signal.emit(100)
             self.finished_signal.emit(True, msg)
@@ -2701,7 +2911,11 @@ class FBAutoBotMainWindow(QMainWindow):
         self.worker = None
         self.group_worker = None
         self.page_creation_worker = None
+        self.page_profile_photos_list = []
+        self.page_cover_photos_list = []
         self.friend_request_worker = None
+        self.reels_worker = None
+        self.reels_media_pool = []
         self.health_worker = None
         self.manual_worker = None
         self.ai_worker = None
@@ -2810,6 +3024,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.page_project_listing = self.create_project_listing_page()
         self.page_group_posting = self.create_group_automation_page()
         self.page_create_fb_page = self.create_page_creation_page()
+        self.page_reels_upload = self.create_reels_page()
         self.page_friend_request = self.create_friend_request_page()
         self.page_ai = self.create_ai_page()
         self.page_settings = self.create_settings_page()
@@ -2821,10 +3036,11 @@ class FBAutoBotMainWindow(QMainWindow):
         self.pages_stack.addWidget(self.page_project_listing) # Index 3 (Project Listing Marketplace)
         self.pages_stack.addWidget(self.page_group_posting)   # Index 4 (FB Group Posting)
         self.pages_stack.addWidget(self.page_create_fb_page)  # Index 5 (Create FB Page)
-        self.pages_stack.addWidget(self.page_friend_request)  # Index 6 (Auto FB Request Accept)
-        self.pages_stack.addWidget(self.page_ai)              # Index 7 (AI Content Spinner)
-        self.pages_stack.addWidget(self.page_settings)        # Index 8 (Settings & Stealth)
-        self.pages_stack.addWidget(self.page_profile)         # Index 9 (User Profile & Activity Logs)
+        self.pages_stack.addWidget(self.page_reels_upload)    # Index 6 (Upload FB Reels)
+        self.pages_stack.addWidget(self.page_friend_request)  # Index 7 (Auto FB Request Accept)
+        self.pages_stack.addWidget(self.page_ai)              # Index 8 (AI Content Spinner)
+        self.pages_stack.addWidget(self.page_settings)        # Index 9 (Settings & Stealth)
+        self.pages_stack.addWidget(self.page_profile)         # Index 10 (User Profile & Activity Logs)
 
         content_layout.addWidget(self.pages_stack, stretch=7)
 
@@ -2897,7 +3113,7 @@ class FBAutoBotMainWindow(QMainWindow):
             font-weight: 700;
             padding: 4px 10px;
         """)
-        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(9)
+        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(10)
         right_layout.addWidget(self.header_countdown_pill)
 
         # User Profile Chip
@@ -2921,7 +3137,7 @@ class FBAutoBotMainWindow(QMainWindow):
                 border: 1px solid rgba(255, 255, 255, 0.25);
             }
         """)
-        self.header_user_chip.clicked.connect(lambda: self.switch_tab(9))
+        self.header_user_chip.clicked.connect(lambda: self.switch_tab(10))
         right_layout.addWidget(self.header_user_chip)
 
         # Quick Key Button
@@ -3010,7 +3226,7 @@ class FBAutoBotMainWindow(QMainWindow):
         version_lbl.setStyleSheet("font-size: 10px; font-weight: 700; color: #6366f1; letter-spacing: 1px; margin-bottom: 16px;")
         layout.addWidget(version_lbl)
 
-        # Navigation Buttons (10 Tabs)
+        # Navigation Buttons (11 Tabs)
         self.nav_buttons = []
         nav_items = [
             ("📊 Dashboard", 0),
@@ -3019,10 +3235,11 @@ class FBAutoBotMainWindow(QMainWindow):
             ("📁 Project Listing", 3),
             ("📢 FB Group Posting", 4),
             ("📄 Create FB Pages", 5),
-            ("🤝 Auto FB Friend Accept", 6),
-            ("🧠 AI Content Spinner", 7),
-            ("⚙️ Settings & Stealth", 8),
-            ("👤 User Profile & Logs", 9),
+            ("🎥 Upload FB Reels", 6),
+            ("🤝 Auto FB Friend Accept", 7),
+            ("🧠 AI Content Spinner", 8),
+            ("⚙️ Settings & Stealth", 9),
+            ("👤 User Profile & Logs", 10),
         ]
 
         for text, index in nav_items:
@@ -3069,6 +3286,7 @@ class FBAutoBotMainWindow(QMainWindow):
             "Project Listing Marketplace",
             "Facebook Group Automation",
             "Create FB Pages",
+            "Upload FB Reels Automation",
             "Auto FB Friend Accept & Reject",
             "AI Content Spinner & Intelligence",
             "Settings & Stealth Parameters",
@@ -3078,7 +3296,7 @@ class FBAutoBotMainWindow(QMainWindow):
             self.header_page_title.setText(tab_names[index])
 
         # If switching to profile page, ensure data is fresh
-        if index == 9 and hasattr(self, 'update_profile_page_data'):
+        if index == 10 and hasattr(self, 'update_profile_page_data'):
             self.update_profile_page_data()
 
     # --------------------------------------------------------------------------
@@ -3372,22 +3590,27 @@ class FBAutoBotMainWindow(QMainWindow):
         b_page.setProperty("class", "secondaryBtn")
         b_page.clicked.connect(lambda: self.switch_tab(5))
 
+        b_reels = QPushButton("🎥 Upload FB Reels")
+        b_reels.setProperty("class", "secondaryBtn")
+        b_reels.clicked.connect(lambda: self.switch_tab(6))
+
         b_req = QPushButton("🤝 Auto FB Friend Accept")
         b_req.setProperty("class", "secondaryBtn")
-        b_req.clicked.connect(lambda: self.switch_tab(6))
+        b_req.clicked.connect(lambda: self.switch_tab(7))
 
         b3 = QPushButton("🧠 AI Spinner")
         b3.setProperty("class", "secondaryBtn")
-        b3.clicked.connect(lambda: self.switch_tab(7))
+        b3.clicked.connect(lambda: self.switch_tab(8))
 
         b4 = QPushButton("👤 Profile")
         b4.setProperty("class", "secondaryBtn")
-        b4.clicked.connect(lambda: self.switch_tab(9))
+        b4.clicked.connect(lambda: self.switch_tab(10))
 
         btn_row.addWidget(b1)
         btn_row.addWidget(b2)
         btn_row.addWidget(b_grp)
         btn_row.addWidget(b_page)
+        btn_row.addWidget(b_reels)
         btn_row.addWidget(b_req)
         btn_row.addWidget(b3)
         btn_row.addWidget(b4)
@@ -3970,25 +4193,27 @@ class FBAutoBotMainWindow(QMainWindow):
         file_bar.addStretch()
         left_card_layout.addLayout(file_bar)
 
-        # Main Cookie Input Textarea
-        lbl_cookies = QLabel("Paste Facebook Cookies (Single or Bulk - 1, 10, 50, 100+ Accounts):")
+        # Main Cookie & Credential Input Textarea
+        lbl_cookies = QLabel("Paste Facebook Accounts (UID/Password or Cookies - 1, 10, 40, 100+ Accounts):")
         lbl_cookies.setStyleSheet("font-weight: 700; color: #f8fafc; font-size: 12px;")
         left_card_layout.addWidget(lbl_cookies)
 
         self.acc_cookies_input = QTextEdit()
         self.acc_cookies_input.setPlaceholderText(
-            "Paste Facebook cookies here...\n\n"
-            "Supported formats:\n"
-            "• Raw Cookie Strings (c_user=...; xs=...)\n"
-            "• EditThisCookie JSON Array\n"
-            "• Multiple cookie strings (1 per line or JSON objects)\n\n"
-            "Paste 1, 10, 20, or 100+ accounts at once!"
+            "Paste Facebook accounts here (Single or Bulk)...\n\n"
+            "Supported formats (1 account per line):\n"
+            "• UID/Password: 61594735472478/@broolove@\n"
+            "• UID|Password: 61594735472478|@broolove@\n"
+            "• UID/Pass/2FA: 61594735472478/@broolove@/JBSWY3DPEHPK3PXP\n"
+            "• Raw Cookies: c_user=...; xs=...; datr=...\n"
+            "• JSON Cookie Array: [{\"name\":\"c_user\",\"value\":\"...\"}]\n\n"
+            "Paste 1, 10, 40, or 100+ accounts at once & click 'Import / Add Account(s)'!"
         )
         self.acc_cookies_input.setMinimumHeight(150)
         left_card_layout.addWidget(self.acc_cookies_input)
 
         # Profile Alias (Optional)
-        lbl_alias = QLabel("Profile Alias / Name (Optional - Auto-detected from c_user):")
+        lbl_alias = QLabel("Profile Alias / Name (Optional - Auto-detected from UID/cookies):")
         lbl_alias.setStyleSheet("color: #94a3b8; font-size: 11px;")
         left_card_layout.addWidget(lbl_alias)
         self.acc_name_input = QLineEdit()
@@ -4040,10 +4265,10 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Action Buttons
         btn_action_row = QHBoxLayout()
-        btn_add_cookies = QPushButton("➕ Import / Add Cookie Account(s)")
+        btn_add_cookies = QPushButton("➕ Import / Add Account(s)")
         btn_add_cookies.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: 800; font-size: 12px; padding: 10px 14px; border-radius: 6px;")
         btn_add_cookies.setCursor(Qt.PointingHandCursor)
-        btn_add_cookies.setToolTip("Parses single or bulk cookies and adds all accounts directly to vault.")
+        btn_add_cookies.setToolTip("Parses single or bulk UID/Pass (e.g. 61594735472478/@broolove@) or cookies and adds all accounts directly to vault.")
         btn_add_cookies.clicked.connect(self.parse_and_save_bulk_cookies)
 
         btn_capture = QPushButton("🌐 Capture via Browser")
@@ -5362,15 +5587,34 @@ class FBAutoBotMainWindow(QMainWindow):
             two_fa = self.acc_2fa_input.text().strip() if hasattr(self, 'acc_2fa_input') else ""
             cookies = self.acc_cookies_input.toPlainText().strip() if hasattr(self, 'acc_cookies_input') else ""
 
+            # Check if user pasted multi-line input or UID/Pass formatted string into the cookies box
+            if cookies and (("\n" in cookies) or ("/" in cookies and not cookies.startswith("http")) or ("|" in cookies) or (cookies.startswith("[") and cookies.endswith("]"))):
+                self.parse_and_save_bulk_cookies()
+                return
+
             # Check if at least UID/Pass or Cookies is provided
             if not cookies and not (uid and pwd):
                 QMessageBox.warning(self, "Validation Notice", "Please provide either Facebook UID & Password OR Session Cookies.")
                 return
 
             if not uid and cookies:
-                c_match = re.search(r'c_user[":=\s]+(\d+)', cookies)
-                if c_match:
-                    uid = c_match.group(1)
+                # Check for UID/Pass format in single line (e.g. 61594735472478/@broolove@)
+                if "/" in cookies and not cookies.startswith("http"):
+                    sp = [p.strip() for p in cookies.split("/") if p.strip()]
+                    if len(sp) >= 2:
+                        uid = sp[0]
+                        pwd = sp[1]
+                        cookies = f"c_user={uid};"
+                elif "|" in cookies:
+                    sp = [p.strip() for p in cookies.split("|") if p.strip()]
+                    if len(sp) >= 2:
+                        uid = sp[0]
+                        pwd = sp[1]
+                        cookies = f"c_user={uid};"
+                else:
+                    c_match = re.search(r'c_user[":=\s]+(\d+)', cookies)
+                    if c_match:
+                        uid = c_match.group(1)
 
             if not name:
                 if uid:
@@ -5453,80 +5697,217 @@ class FBAutoBotMainWindow(QMainWindow):
             self.acc_mode_stack.setCurrentIndex(0)
 
     def parse_and_save_bulk_cookies(self):
-        """Parses single or bulk cookies (raw string or JSON) pasted into acc_cookies_input and saves all accounts."""
+        """Parses single or bulk credentials (UID/Pass, 61594735472478/@broolove@, UID|Pass) or cookies (raw string / JSON) pasted into acc_cookies_input and saves all accounts."""
         raw_text = self.acc_cookies_input.toPlainText().strip() if hasattr(self, 'acc_cookies_input') else ""
         if not raw_text:
-            QMessageBox.warning(self, "No Input", "Please paste Facebook cookies into the text box.")
+            QMessageBox.warning(self, "No Input", "Please paste Facebook cookies or UID/Password into the text box.")
             return
 
         proxy = self.proxy_host.text().strip() if hasattr(self, 'proxy_host') else "Direct (No Proxy)"
         ptype = self.proxy_type.currentText() if hasattr(self, 'proxy_type') else "HTTP"
         puser = self.proxy_user.text().strip() if hasattr(self, 'proxy_user') else ""
         ppass = self.proxy_pass.text().strip() if hasattr(self, 'proxy_pass') else ""
+        user_alias = self.acc_name_input.text().strip() if hasattr(self, 'acc_name_input') else ""
 
-        entries = []
-        if raw_text.startswith("[") and raw_text.endswith("]"):
+        parsed_accounts = []
+
+        # 1. JSON Parsing
+        if (raw_text.startswith("[") and raw_text.endswith("]")) or (raw_text.startswith("{") and raw_text.endswith("}")):
             try:
                 data = json.loads(raw_text)
-                if isinstance(data, list) and len(data) > 0 and isinstance(data[0], list):
-                    for item in data:
-                        entries.append(json.dumps(item))
-                elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
-                    if "cookies" in data[0] or any(x.get("name") == "c_user" for x in data if isinstance(x, dict)):
-                        entries.append(raw_text)
-                    else:
-                        for item in data:
-                            entries.append(json.dumps(item))
-                else:
-                    entries.append(raw_text)
+                if isinstance(data, list):
+                    if len(data) > 0 and isinstance(data[0], list):
+                        for idx, c_list in enumerate(data):
+                            c_str = json.dumps(c_list)
+                            c_match = re.search(r'c_user[":=\s]+(\d+)', c_str)
+                            uid = c_match.group(1) if c_match else ""
+                            parsed_accounts.append({
+                                "uid": uid,
+                                "password": "",
+                                "two_fa": "",
+                                "cookies": c_str,
+                                "name": f"FB_{uid}" if uid else f"FB_Acc_{idx+1}",
+                                "proxy": proxy,
+                                "status": "Healthy"
+                            })
+                    elif len(data) > 0 and isinstance(data[0], dict):
+                        if "cookies" in data[0] or "password" in data[0] or "pass" in data[0] or "uid" in data[0] or "email" in data[0]:
+                            for idx, item in enumerate(data):
+                                uid = str(item.get("uid") or item.get("email") or item.get("user") or item.get("username") or "")
+                                pwd = str(item.get("password") or item.get("pass") or "")
+                                two_fa = str(item.get("two_factor_secret") or item.get("2fa") or "")
+                                cookies = str(item.get("cookies") or item.get("cookie") or "")
+                                name = str(item.get("name") or item.get("alias") or (f"FB_{uid}" if uid else f"FB_Acc_{idx+1}"))
+                                pxy = str(item.get("proxy") or proxy)
+                                parsed_accounts.append({
+                                    "uid": uid,
+                                    "password": pwd,
+                                    "two_fa": two_fa,
+                                    "cookies": cookies or (f"c_user={uid};" if uid else ""),
+                                    "name": name,
+                                    "proxy": pxy,
+                                    "status": "Healthy"
+                                })
+                        elif any(x.get("name") == "c_user" for x in data if isinstance(x, dict)):
+                            c_match = re.search(r'c_user[":=\s]+(\d+)', raw_text)
+                            uid = c_match.group(1) if c_match else ""
+                            parsed_accounts.append({
+                                "uid": uid,
+                                "password": "",
+                                "two_fa": "",
+                                "cookies": raw_text,
+                                "name": user_alias or (f"FB_{uid}" if uid else "FB_Account"),
+                                "proxy": proxy,
+                                "status": "Healthy"
+                            })
             except Exception:
-                entries.append(raw_text)
-        else:
-            # Check if multiple lines each containing cookies
-            lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
-            if len(lines) > 1 and any("c_user=" in l or l.startswith("[") for l in lines):
-                entries = lines
-            else:
-                entries = [raw_text]
+                pass
+
+        # 2. Line-by-line parsing for single or multi accounts
+        if not parsed_accounts:
+            lines = [l.strip() for l in raw_text.splitlines() if l.strip() and not l.strip().startswith("#") and not l.strip().startswith("//")]
+            for idx, line in enumerate(lines):
+                uid = ""
+                pwd = ""
+                two_fa = ""
+                cookies = ""
+                name = ""
+                acc_proxy = proxy
+
+                # Case A: Standard cookie string
+                if ("c_user=" in line or "xs=" in line) and not ("/" in line and line.count("/") == 1 and not line.startswith("http")):
+                    cookies = line
+                    c_match = re.search(r'c_user[":=\s]+(\d+)', line)
+                    if c_match:
+                        uid = c_match.group(1)
+                else:
+                    # Case B: Delimited UID & Password format (e.g. 61594735472478/@broolove@ or UID|PASS)
+                    parts = None
+                    if "/" in line and not line.lower().startswith("http"):
+                        slash_parts = [p.strip() for p in line.split("/") if p.strip()]
+                        if len(slash_parts) >= 2:
+                            parts = slash_parts
+
+                    if not parts and "|" in line:
+                        pipe_parts = [p.strip() for p in line.split("|") if p.strip()]
+                        if len(pipe_parts) >= 2:
+                            parts = pipe_parts
+
+                    if not parts and ":::" in line:
+                        col3_parts = [p.strip() for p in line.split(":::") if p.strip()]
+                        if len(col3_parts) >= 2:
+                            parts = col3_parts
+
+                    if not parts and "\t" in line:
+                        tab_parts = [p.strip() for p in line.split("\t") if p.strip()]
+                        if len(tab_parts) >= 2:
+                            parts = tab_parts
+
+                    if not parts and ":" in line and not line.lower().startswith("http"):
+                        col_parts = [p.strip() for p in line.split(":", 1) if p.strip()]
+                        if len(col_parts) == 2 and not ("c_user=" in col_parts[1]):
+                            parts = col_parts
+
+                    if not parts and "," in line and not ("c_user=" in line):
+                        csv_parts = [p.strip() for p in line.split(",") if p.strip()]
+                        if len(csv_parts) >= 2:
+                            parts = csv_parts
+
+                    if parts and len(parts) >= 2:
+                        uid = parts[0]
+                        pwd = parts[1]
+                        if len(parts) >= 3 and len(parts[2]) > 3:
+                            if ":" in parts[2] or "http" in parts[2].lower() or "socks" in parts[2].lower():
+                                acc_proxy = parts[2]
+                            else:
+                                two_fa = parts[2]
+                        if len(parts) >= 4:
+                            if ":" in parts[3] or "http" in parts[3].lower() or "socks" in parts[3].lower():
+                                acc_proxy = parts[3]
+                        if uid:
+                            clean_u = "".join(c for c in uid if c.isdigit())
+                            cookies = f"c_user={clean_u};" if clean_u else f"c_user={uid};"
+                    else:
+                        if "c_user" in line:
+                            cookies = line
+                            c_match = re.search(r'c_user[":=\s]+(\d+)', line)
+                            if c_match:
+                                uid = c_match.group(1)
+                        elif line.isdigit() or "@" in line:
+                            uid = line
+                            cookies = f"c_user={uid};"
+                        else:
+                            cookies = line
+
+                if user_alias and len(lines) == 1:
+                    name = user_alias
+                elif uid:
+                    name = f"FB_{uid}"
+                else:
+                    name = f"FB_Account_{datetime.now().strftime('%M%S')}_{idx+1}"
+
+                parsed_accounts.append({
+                    "uid": uid,
+                    "password": pwd,
+                    "two_fa": two_fa,
+                    "cookies": cookies,
+                    "name": name,
+                    "proxy": acc_proxy,
+                    "status": "Healthy"
+                })
+
+        if not parsed_accounts:
+            QMessageBox.warning(self, "No Accounts Found", "Could not parse valid accounts, credentials, or cookies.")
+            return
 
         added_count = 0
-        for idx, entry_str in enumerate(entries):
-            if not entry_str.strip():
-                continue
+        for acc_info in parsed_accounts:
+            name = acc_info.get("name") or "FB_Account"
+            uid = acc_info.get("uid", "")
+            pwd = acc_info.get("password", "")
+            two_fa = acc_info.get("two_fa", "")
+            cookies = acc_info.get("cookies", "")
+            acc_proxy = acc_info.get("proxy", proxy)
 
-            c_match = re.search(r'c_user[":=\s]+(\d+)', entry_str)
-            uid = c_match.group(1) if c_match else ""
-
-            user_alias = self.acc_name_input.text().strip() if hasattr(self, 'acc_name_input') else ""
-            if user_alias and len(entries) == 1:
-                acc_name = user_alias
-            elif uid:
-                acc_name = f"FB_{uid}"
-            else:
-                acc_name = f"FB_Account_{datetime.now().strftime('%M%S')}_{idx+1}"
-
-            clean_slug = re.sub(r'[^a-zA-Z0-9_-]', '_', acc_name).lower()
+            clean_slug = re.sub(r'[^a-zA-Z0-9_-]', '_', str(name)).lower()
             acc_id = f"acc_{clean_slug}_{uuid.uuid4().hex[:4]}"
 
             if self.session_manager:
                 self.session_manager.save_account(
                     account_id=acc_id,
-                    name=acc_name,
+                    name=name,
                     uid=uid,
-                    email="",
-                    password="",
-                    two_factor_secret="",
-                    cookies=entry_str,
-                    proxy=proxy or "Direct (No Proxy)",
+                    email=uid if "@" in uid else "",
+                    password=pwd,
+                    two_factor_secret=two_fa,
+                    cookies=cookies,
+                    proxy=acc_proxy or "Direct (No Proxy)",
                     proxy_type=ptype,
                     proxy_user=puser,
                     proxy_pass=ppass,
-                    notes="",
+                    notes="Imported Account (UID/Pass or Cookie)",
                     status="Healthy"
                 )
-                added_count += 1
+            else:
+                self.accounts_list.append({
+                    "id": acc_id,
+                    "name": name,
+                    "uid": uid,
+                    "email": uid if "@" in uid else "",
+                    "password": pwd,
+                    "two_factor_secret": two_fa,
+                    "proxy": acc_proxy or "Direct (No Proxy)",
+                    "proxy_type": ptype,
+                    "proxy_user": puser,
+                    "proxy_pass": ppass,
+                    "cookies": cookies,
+                    "notes": "Imported Account (UID/Pass or Cookie)",
+                    "status": "Healthy",
+                    "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
+            added_count += 1
 
-        self.log_message("SUCCESS", f"🎉 Successfully imported {added_count} Cookie Account(s) into vault!")
+        self.log_message("SUCCESS", f"🎉 Successfully added {added_count} Facebook Account(s) (UID/Pass & Cookies) with HEALTHY status into vault!")
         if hasattr(self, 'acc_cookies_input'):
             self.acc_cookies_input.clear()
         if hasattr(self, 'acc_name_input'):
@@ -5635,11 +6016,11 @@ class FBAutoBotMainWindow(QMainWindow):
                 name = ""
                 proxy = default_proxy
 
-                # Check delimiters: |, :::, :, tab, comma
+                # Check delimiters: /, |, :::, :, tab, comma
                 parts = []
-                for sep in ["|", ":::", "\t", ","]:
-                    if sep in line:
-                        parts = [p.strip() for p in line.split(sep)]
+                for sep in ["/", "|", ":::", "\t", ","]:
+                    if sep in line and not line.lower().startswith("http"):
+                        parts = [p.strip() for p in line.split(sep) if p.strip()]
                         break
 
                 if not parts and ":" in line and not line.lower().startswith("http"):
@@ -6553,7 +6934,13 @@ class FBAutoBotMainWindow(QMainWindow):
             self.accounts_list = self.session_manager.list_accounts()
         self.refresh_accounts_table()
         self.update_account_dropdown()
-        self.log_message("INFO", "🔄 Account list refreshed! Only Active accounts are displayed in posting forms.")
+        if hasattr(self, 'populate_reels_accounts_checklist'):
+            self.populate_reels_accounts_checklist()
+        if hasattr(self, 'populate_req_accounts_checklist'):
+            self.populate_req_accounts_checklist()
+        if hasattr(self, 'populate_page_creation_accounts_checklist'):
+            self.populate_page_creation_accounts_checklist()
+        self.log_message("INFO", "🔄 Account list refreshed across all automation forms!")
 
     def populate_accounts_checklist(self):
         """Populates the multi-account checkbox list with styled active account items."""
@@ -10153,25 +10540,32 @@ class FBAutoBotMainWindow(QMainWindow):
         cp_layout = QVBoxLayout(c_profile_card)
         cp_layout.setSpacing(8)
 
-        cp_hdr = QLabel("👤 Add Profile Picture")
+        cp_hdr = QLabel("👤 Add Profile Picture(s)")
         cp_hdr.setStyleSheet("font-size: 13px; font-weight: 700; color: #c084fc; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05);")
         cp_layout.addWidget(cp_hdr)
 
-        cp_sub = QLabel("Select profile picture file (e.g. logo or avatar). Bot will upload it to Facebook.")
+        cp_sub = QLabel("Select 1 or multiple profile pictures (choose 10, 50, 100+ images or a folder). The bot automatically distributes 1 unique photo per page sequentially.")
+        cp_sub.setWordWrap(True)
         cp_sub.setStyleSheet("font-size: 11px; color: #94a3b8;")
         cp_layout.addWidget(cp_sub)
 
         self.page_profile_photo_input = QLineEdit()
-        self.page_profile_photo_input.setPlaceholderText("No profile image chosen (Optional)")
+        self.page_profile_photo_input.setPlaceholderText("No profile images chosen (Optional - Select 1 or 100+ Images/Folder)")
         self.page_profile_photo_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; padding: 6px;")
         cp_layout.addWidget(self.page_profile_photo_input)
 
         cp_btns = QHBoxLayout()
-        btn_browse_p = QPushButton("📁 Browse Profile Picture")
-        btn_browse_p.setStyleSheet("background-color: #9333ea; color: white; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 5px;")
+        btn_browse_p = QPushButton("📁 Browse Images (Multi-Select)")
+        btn_browse_p.setStyleSheet("background-color: #9333ea; color: white; font-size: 11px; font-weight: 700; padding: 6px 10px; border-radius: 5px;")
         btn_browse_p.setCursor(Qt.PointingHandCursor)
-        btn_browse_p.clicked.connect(self.browse_profile_photo)
+        btn_browse_p.clicked.connect(self.browse_profile_photos)
         cp_btns.addWidget(btn_browse_p)
+
+        btn_folder_p = QPushButton("📂 Select Folder")
+        btn_folder_p.setStyleSheet("background-color: #7c3aed; color: white; font-size: 11px; font-weight: 700; padding: 6px 10px; border-radius: 5px;")
+        btn_folder_p.setCursor(Qt.PointingHandCursor)
+        btn_folder_p.clicked.connect(self.browse_profile_folder)
+        cp_btns.addWidget(btn_folder_p)
 
         btn_clear_p = QPushButton("❌ Clear")
         btn_clear_p.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 6px 10px; border-radius: 5px;")
@@ -10180,8 +10574,9 @@ class FBAutoBotMainWindow(QMainWindow):
         cp_btns.addWidget(btn_clear_p)
         cp_layout.addLayout(cp_btns)
 
-        self.page_profile_lbl = QLabel("Status: No profile photo selected (will skip)")
+        self.page_profile_lbl = QLabel("Status: No profile photos selected (will skip)")
         self.page_profile_lbl.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic;")
+        self.page_profile_lbl.setWordWrap(True)
         cp_layout.addWidget(self.page_profile_lbl)
         cp_layout.addStretch()
 
@@ -10193,25 +10588,32 @@ class FBAutoBotMainWindow(QMainWindow):
         ccover_layout = QVBoxLayout(c_cover_card)
         ccover_layout.setSpacing(8)
 
-        ccover_hdr = QLabel("🌄 Add Cover Photo")
+        ccover_hdr = QLabel("🌄 Add Cover Photo(s)")
         ccover_hdr.setStyleSheet("font-size: 13px; font-weight: 700; color: #38bdf8; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.05);")
         ccover_layout.addWidget(ccover_hdr)
 
-        ccover_sub = QLabel("Select cover banner image file. Bot will upload it to Facebook.")
+        ccover_sub = QLabel("Select 1 or multiple cover banner photos (choose 10, 50, 100+ images or a folder). The bot automatically distributes 1 unique cover per page sequentially.")
+        ccover_sub.setWordWrap(True)
         ccover_sub.setStyleSheet("font-size: 11px; color: #94a3b8;")
         ccover_layout.addWidget(ccover_sub)
 
         self.page_cover_photo_input = QLineEdit()
-        self.page_cover_photo_input.setPlaceholderText("No cover image chosen (Optional)")
+        self.page_cover_photo_input.setPlaceholderText("No cover images chosen (Optional - Select 1 or 100+ Images/Folder)")
         self.page_cover_photo_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; padding: 6px;")
         ccover_layout.addWidget(self.page_cover_photo_input)
 
         ccover_btns = QHBoxLayout()
-        btn_browse_c = QPushButton("📁 Browse Cover Photo")
-        btn_browse_c.setStyleSheet("background-color: #0284c7; color: white; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 5px;")
+        btn_browse_c = QPushButton("📁 Browse Images (Multi-Select)")
+        btn_browse_c.setStyleSheet("background-color: #0284c7; color: white; font-size: 11px; font-weight: 700; padding: 6px 10px; border-radius: 5px;")
         btn_browse_c.setCursor(Qt.PointingHandCursor)
-        btn_browse_c.clicked.connect(self.browse_cover_photo)
+        btn_browse_c.clicked.connect(self.browse_cover_photos)
         ccover_btns.addWidget(btn_browse_c)
+
+        btn_folder_c = QPushButton("📂 Select Folder")
+        btn_folder_c.setStyleSheet("background-color: #0369a1; color: white; font-size: 11px; font-weight: 700; padding: 6px 10px; border-radius: 5px;")
+        btn_folder_c.setCursor(Qt.PointingHandCursor)
+        btn_folder_c.clicked.connect(self.browse_cover_folder)
+        ccover_btns.addWidget(btn_folder_c)
 
         btn_clear_c = QPushButton("❌ Clear")
         btn_clear_c.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 6px 10px; border-radius: 5px;")
@@ -10220,8 +10622,9 @@ class FBAutoBotMainWindow(QMainWindow):
         ccover_btns.addWidget(btn_clear_c)
         ccover_layout.addLayout(ccover_btns)
 
-        self.page_cover_lbl = QLabel("Status: No cover photo selected (will skip)")
+        self.page_cover_lbl = QLabel("Status: No cover photos selected (will skip)")
         self.page_cover_lbl.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic;")
+        self.page_cover_lbl.setWordWrap(True)
         ccover_layout.addWidget(self.page_cover_lbl)
         ccover_layout.addStretch()
 
@@ -10350,41 +10753,117 @@ class FBAutoBotMainWindow(QMainWindow):
         if hasattr(self, 'page_bios_bulk_input'):
             self.page_bios_bulk_input.setPlainText("\n\n".join(sample_bios))
 
-    def browse_profile_photo(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select Profile Picture", "", "Image Files (*.png *.jpg *.jpeg *.webp *.bmp)"
+    def browse_profile_photos(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select Profile Picture(s) (Choose 1, 10, or 100+ Images)", "", "Image Files (*.png *.jpg *.jpeg *.webp *.bmp);;All Files (*.*)"
         )
-        if path:
+        if paths:
+            self.page_profile_photos_list = list(paths)
+            self._update_profile_photos_ui()
+
+    def browse_profile_photo(self):
+        self.browse_profile_photos()
+
+    def browse_profile_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder Containing Profile Pictures")
+        if folder and os.path.isdir(folder):
+            valid_exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+            found = []
+            for root, _, files in os.walk(folder):
+                for f in sorted(files):
+                    if os.path.splitext(f.lower())[1] in valid_exts:
+                        found.append(os.path.join(root, f))
+            if found:
+                self.page_profile_photos_list = found
+                self._update_profile_photos_ui()
+            else:
+                QMessageBox.information(self, "No Images Found", "No valid image files (.png, .jpg, .jpeg, .webp, .bmp) found in the selected folder.")
+
+    def _update_profile_photos_ui(self):
+        count = len(self.page_profile_photos_list)
+        if count == 0:
             if hasattr(self, 'page_profile_photo_input'):
-                self.page_profile_photo_input.setText(path)
+                self.page_profile_photo_input.setText("")
+                self.page_profile_photo_input.setPlaceholderText("No profile images chosen (Optional - Select 1 or 100+ Images/Folder)")
             if hasattr(self, 'page_profile_lbl'):
-                self.page_profile_lbl.setText(f"✅ Selected: {os.path.basename(path)}")
+                self.page_profile_lbl.setText("Status: No profile photos selected (will skip)")
+                self.page_profile_lbl.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic;")
+        elif count == 1:
+            p = self.page_profile_photos_list[0]
+            if hasattr(self, 'page_profile_photo_input'):
+                self.page_profile_photo_input.setText(p)
+            if hasattr(self, 'page_profile_lbl'):
+                self.page_profile_lbl.setText(f"✅ 1 photo selected: {os.path.basename(p)} (will use on all pages)")
                 self.page_profile_lbl.setStyleSheet("color: #10b981; font-weight: 700; font-size: 11px;")
+        else:
+            names_preview = ", ".join([os.path.basename(x) for x in self.page_profile_photos_list[:3]])
+            if count > 3:
+                names_preview += f" ... (+{count - 3} more)"
+            if hasattr(self, 'page_profile_photo_input'):
+                self.page_profile_photo_input.setText(f"📁 {count} profile images loaded: {names_preview}")
+            if hasattr(self, 'page_profile_lbl'):
+                self.page_profile_lbl.setText(f"✅ {count} profile photos loaded! Bot will assign 1 unique photo per page sequentially (top to bottom).")
+                self.page_profile_lbl.setStyleSheet("color: #38bdf8; font-weight: 700; font-size: 11px;")
 
     def clear_profile_photo(self):
-        if hasattr(self, 'page_profile_photo_input'):
-            self.page_profile_photo_input.clear()
-        if hasattr(self, 'page_profile_lbl'):
-            self.page_profile_lbl.setText("Status: No profile photo selected (will skip)")
-            self.page_profile_lbl.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic;")
+        self.page_profile_photos_list = []
+        self._update_profile_photos_ui()
+
+    def browse_cover_photos(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Select Cover Photo(s) (Choose 1, 10, or 100+ Images)", "", "Image Files (*.png *.jpg *.jpeg *.webp *.bmp);;All Files (*.*)"
+        )
+        if paths:
+            self.page_cover_photos_list = list(paths)
+            self._update_cover_photos_ui()
 
     def browse_cover_photo(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select Cover Photo", "", "Image Files (*.png *.jpg *.jpeg *.webp *.bmp)"
-        )
-        if path:
+        self.browse_cover_photos()
+
+    def browse_cover_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder Containing Cover Banner Photos")
+        if folder and os.path.isdir(folder):
+            valid_exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+            found = []
+            for root, _, files in os.walk(folder):
+                for f in sorted(files):
+                    if os.path.splitext(f.lower())[1] in valid_exts:
+                        found.append(os.path.join(root, f))
+            if found:
+                self.page_cover_photos_list = found
+                self._update_cover_photos_ui()
+            else:
+                QMessageBox.information(self, "No Images Found", "No valid image files (.png, .jpg, .jpeg, .webp, .bmp) found in the selected folder.")
+
+    def _update_cover_photos_ui(self):
+        count = len(self.page_cover_photos_list)
+        if count == 0:
             if hasattr(self, 'page_cover_photo_input'):
-                self.page_cover_photo_input.setText(path)
+                self.page_cover_photo_input.setText("")
+                self.page_cover_photo_input.setPlaceholderText("No cover images chosen (Optional - Select 1 or 100+ Images/Folder)")
             if hasattr(self, 'page_cover_lbl'):
-                self.page_cover_lbl.setText(f"✅ Selected: {os.path.basename(path)}")
+                self.page_cover_lbl.setText("Status: No cover photos selected (will skip)")
+                self.page_cover_lbl.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic;")
+        elif count == 1:
+            p = self.page_cover_photos_list[0]
+            if hasattr(self, 'page_cover_photo_input'):
+                self.page_cover_photo_input.setText(p)
+            if hasattr(self, 'page_cover_lbl'):
+                self.page_cover_lbl.setText(f"✅ 1 cover photo selected: {os.path.basename(p)} (will use on all pages)")
                 self.page_cover_lbl.setStyleSheet("color: #10b981; font-weight: 700; font-size: 11px;")
+        else:
+            names_preview = ", ".join([os.path.basename(x) for x in self.page_cover_photos_list[:3]])
+            if count > 3:
+                names_preview += f" ... (+{count - 3} more)"
+            if hasattr(self, 'page_cover_photo_input'):
+                self.page_cover_photo_input.setText(f"📁 {count} cover images loaded: {names_preview}")
+            if hasattr(self, 'page_cover_lbl'):
+                self.page_cover_lbl.setText(f"✅ {count} cover photos loaded! Bot will assign 1 unique photo per page sequentially (top to bottom).")
+                self.page_cover_lbl.setStyleSheet("color: #38bdf8; font-weight: 700; font-size: 11px;")
 
     def clear_cover_photo(self):
-        if hasattr(self, 'page_cover_photo_input'):
-            self.page_cover_photo_input.clear()
-        if hasattr(self, 'page_cover_lbl'):
-            self.page_cover_lbl.setText("Status: No cover photo selected (will skip)")
-            self.page_cover_lbl.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic;")
+        self.page_cover_photos_list = []
+        self._update_cover_photos_ui()
 
     def start_page_creation(self):
         """Validates inputs and dispatches PageCreationWorker to create Facebook Pages across accounts and tabs."""
@@ -10431,9 +10910,18 @@ class FBAutoBotMainWindow(QMainWindow):
         elif hasattr(self, 'page_hours_none') and self.page_hours_none.isChecked():
             hours_mode = "no_hours"
 
-        # Step 2 setup: Photos
-        profile_photo = self.page_profile_photo_input.text().strip() if hasattr(self, 'page_profile_photo_input') else ""
-        cover_photo = self.page_cover_photo_input.text().strip() if hasattr(self, 'page_cover_photo_input') else ""
+        # Step 2 setup: Photos (Supports 1, 10 or 100+ images)
+        profile_photos = list(self.page_profile_photos_list) if hasattr(self, 'page_profile_photos_list') else []
+        if not profile_photos and hasattr(self, 'page_profile_photo_input'):
+            raw_p = self.page_profile_photo_input.text().strip()
+            if raw_p and os.path.isfile(raw_p):
+                profile_photos = [raw_p]
+
+        cover_photos = list(self.page_cover_photos_list) if hasattr(self, 'page_cover_photos_list') else []
+        if not cover_photos and hasattr(self, 'page_cover_photo_input'):
+            raw_c = self.page_cover_photo_input.text().strip()
+            if raw_c and os.path.isfile(raw_c):
+                cover_photos = [raw_c]
 
         # Network mode
         network_mode = "direct"
@@ -10453,8 +10941,10 @@ class FBAutoBotMainWindow(QMainWindow):
             "contact": contact_data,
             "location": location_data,
             "hours_mode": hours_mode,
-            "profile_photo_path": profile_photo,
-            "cover_photo_path": cover_photo
+            "profile_photos": profile_photos,
+            "cover_photos": cover_photos,
+            "profile_photo_path": profile_photos[0] if profile_photos else "",
+            "cover_photo_path": cover_photos[0] if cover_photos else ""
         }
 
         self.btn_start_create_pages.setEnabled(False)
@@ -10498,7 +10988,696 @@ class FBAutoBotMainWindow(QMainWindow):
             QMessageBox.warning(self, "Page Creation Notice", f"Facebook Page Creation notice:\n\n{message}")
 
     # --------------------------------------------------------------------------
-    # Tab 6: Auto FB Request Accept & Reject Engine (Phase 9)
+    # Tab 6: Upload FB Reels Automation Engine (Phase 10)
+    # --------------------------------------------------------------------------
+    def create_reels_page(self):
+        page = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        # Header Title
+        title_box = QVBoxLayout()
+        title = QLabel("Upload FB Reels Automation Engine")
+        title.setProperty("class", "pageTitle")
+        sub = QLabel("Automate Facebook Reels video uploading in bulk across multiple accounts. Supports multi-tab uploads, Spintax captions, hashtags, custom delay, and auto-closing Chrome.")
+        sub.setProperty("class", "pageSubtitle")
+        title_box.addWidget(title)
+        title_box.addWidget(sub)
+        layout.addLayout(title_box)
+
+        # ----------------------------------------------------------------------
+        # Card 1: Target Accounts Column (From Accounts Manager)
+        # ----------------------------------------------------------------------
+        acc_card = QFrame()
+        acc_card.setProperty("class", "glassCard")
+        acc_card_layout = QVBoxLayout(acc_card)
+        acc_card_layout.setSpacing(10)
+
+        acc_hdr = QHBoxLayout()
+        hdr_lbl = QLabel("👥 1. Accounts Manager Target Accounts:")
+        hdr_lbl.setStyleSheet("font-size: 13px; font-weight: 700; color: #f8fafc;")
+        acc_hdr.addWidget(hdr_lbl)
+
+        self.reels_acc_summary_lbl = QLabel("🎯 0 Account(s) Selected")
+        self.reels_acc_summary_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        acc_hdr.addWidget(self.reels_acc_summary_lbl)
+        acc_hdr.addStretch()
+
+        self.btn_reels_refresh_acc = QPushButton("🔄 Refresh")
+        self.btn_reels_refresh_acc.setStyleSheet("background-color: #059669; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
+        self.btn_reels_refresh_acc.setCursor(Qt.PointingHandCursor)
+        self.btn_reels_refresh_acc.clicked.connect(self.reload_accounts_from_manager)
+        acc_hdr.addWidget(self.btn_reels_refresh_acc)
+
+        self.btn_reels_select_all = QPushButton("⚡ Select All")
+        self.btn_reels_select_all.setStyleSheet("background-color: #3b82f6; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
+        self.btn_reels_select_all.setCursor(Qt.PointingHandCursor)
+        self.btn_reels_select_all.clicked.connect(self.select_all_reels_accounts)
+        acc_hdr.addWidget(self.btn_reels_select_all)
+
+        self.btn_reels_clear_acc = QPushButton("❌ Clear")
+        self.btn_reels_clear_acc.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
+        self.btn_reels_clear_acc.setCursor(Qt.PointingHandCursor)
+        self.btn_reels_clear_acc.clicked.connect(self.clear_all_reels_accounts)
+        acc_hdr.addWidget(self.btn_reels_clear_acc)
+        acc_card_layout.addLayout(acc_hdr)
+
+        # Accounts checklist scroll
+        self.reels_acc_scroll = QScrollArea()
+        self.reels_acc_scroll.setFixedHeight(115)
+        self.reels_acc_scroll.setWidgetResizable(True)
+        self.reels_acc_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(15, 23, 42, 0.7); border-radius: 6px; }")
+
+        self.reels_acc_widget = QWidget()
+        self.reels_acc_layout = QVBoxLayout(self.reels_acc_widget)
+        self.reels_acc_layout.setContentsMargins(8, 6, 8, 6)
+        self.reels_acc_layout.setSpacing(4)
+        self.reels_acc_scroll.setWidget(self.reels_acc_widget)
+        acc_card_layout.addWidget(self.reels_acc_scroll)
+
+        # Bottom Configuration Row inside Accounts Card
+        cfg_row = QHBoxLayout()
+        cfg_row.setSpacing(12)
+
+        c_lbl = QLabel("🖥️ Concurrent Browsers:")
+        c_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(c_lbl)
+        self.reels_concurrent_spin = QSpinBox()
+        self.reels_concurrent_spin.setRange(1, 10)
+        self.reels_concurrent_spin.setValue(2)
+        self.reels_concurrent_spin.setStyleSheet("font-weight: 800; color: #e2e8f0; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 4px;")
+        cfg_row.addWidget(self.reels_concurrent_spin)
+
+        d_lbl = QLabel("⏱️ Speed Delay (Sec):")
+        d_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(d_lbl)
+        self.reels_delay_spin = QDoubleSpinBox()
+        self.reels_delay_spin.setRange(2.0, 120.0)
+        self.reels_delay_spin.setSingleStep(1.0)
+        self.reels_delay_spin.setValue(15.0)
+        self.reels_delay_spin.setStyleSheet("font-weight: 800; color: #e2e8f0; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 4px;")
+        cfg_row.addWidget(self.reels_delay_spin)
+
+        net_lbl = QLabel("🌐 Network:")
+        net_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(net_lbl)
+        self.reels_network_combo = QComboBox()
+        self.reels_network_combo.addItems([
+            "⚡ Direct Connection (Recommended - Zero Proxy Errors)",
+            "🛡️ Use Account Proxy (If Configured & Live)"
+        ])
+        self.reels_network_combo.setStyleSheet("""
+            QComboBox {
+                font-weight: 700;
+                color: #10b981;
+                background: #0f172a;
+                border: 1px solid #10b981;
+                border-radius: 4px;
+                padding: 2px 8px;
+                font-size: 11px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #0f172a;
+                color: #f8fafc;
+                selection-background-color: #10b981;
+                selection-color: #000000;
+            }
+        """)
+        cfg_row.addWidget(self.reels_network_combo)
+        cfg_row.addStretch()
+
+        acc_card_layout.addLayout(cfg_row)
+        layout.addWidget(acc_card)
+
+        # ----------------------------------------------------------------------
+        # Two-Column Layout: Left = Media Pool & Settings, Right = Live Console
+        # ----------------------------------------------------------------------
+        cols_box = QHBoxLayout()
+        cols_box.setSpacing(14)
+
+        # Left Column: Media Pool & Distribution Settings (Image 2 style)
+        self.reels_pool_card = QFrame()
+        self.reels_pool_card.setProperty("class", "glassCard")
+        self.reels_pool_card.setStyleSheet("background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; padding: 14px;")
+        left_layout = QVBoxLayout(self.reels_pool_card)
+        left_layout.setSpacing(10)
+
+        # Header: Title + Add Buttons
+        p_hdr = QHBoxLayout()
+        p_title = QLabel("🎥 2. Reels Media Pool & Distribution Settings")
+        p_title.setStyleSheet("font-size: 13px; font-weight: 800; color: #38bdf8;")
+        p_hdr.addWidget(p_title)
+        p_hdr.addStretch()
+
+        self.btn_add_reels_files = QPushButton("➕ Add Reels Files")
+        self.btn_add_reels_files.setStyleSheet("background-color: #0284c7; color: white; font-size: 11px; font-weight: 700; padding: 5px 12px; border-radius: 6px;")
+        self.btn_add_reels_files.setCursor(Qt.PointingHandCursor)
+        self.btn_add_reels_files.clicked.connect(self.add_reels_files)
+        p_hdr.addWidget(self.btn_add_reels_files)
+
+        self.btn_add_reels_folder = QPushButton("📂 Add Folder")
+        self.btn_add_reels_folder.setStyleSheet("background-color: #0369a1; color: white; font-size: 11px; font-weight: 700; padding: 5px 12px; border-radius: 6px;")
+        self.btn_add_reels_folder.setCursor(Qt.PointingHandCursor)
+        self.btn_add_reels_folder.clicked.connect(self.add_reels_folder)
+        p_hdr.addWidget(self.btn_add_reels_folder)
+
+        self.btn_clear_reels_pool = QPushButton("🗑️ Clear Pool")
+        self.btn_clear_reels_pool.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 5px 10px; border-radius: 6px;")
+        self.btn_clear_reels_pool.setCursor(Qt.PointingHandCursor)
+        self.btn_clear_reels_pool.clicked.connect(self.clear_reels_pool)
+        p_hdr.addWidget(self.btn_clear_reels_pool)
+        left_layout.addLayout(p_hdr)
+
+        # Media pool scroll container
+        self.reels_pool_scroll = QScrollArea()
+        self.reels_pool_scroll.setFixedHeight(145)
+        self.reels_pool_scroll.setWidgetResizable(True)
+        self.reels_pool_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(15, 23, 42, 0.5); border-radius: 6px; }")
+
+        self.reels_pool_widget = QWidget()
+        self.reels_pool_layout = QVBoxLayout(self.reels_pool_widget)
+        self.reels_pool_layout.setContentsMargins(8, 6, 8, 6)
+        self.reels_pool_layout.setSpacing(4)
+        self.reels_pool_scroll.setWidget(self.reels_pool_widget)
+        left_layout.addWidget(self.reels_pool_scroll)
+
+        # Distribution Controls Row (Reels per Account, Delay, Selection Mode)
+        dist_row = QHBoxLayout()
+        dist_row.setSpacing(12)
+
+        c1 = QVBoxLayout()
+        lbl_rpa = QLabel("Reels per Account:")
+        lbl_rpa.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700;")
+        c1.addWidget(lbl_rpa)
+        self.reels_per_acc_spin = QSpinBox()
+        self.reels_per_acc_spin.setRange(1, 100)
+        self.reels_per_acc_spin.setValue(5)
+        self.reels_per_acc_spin.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-weight: 800; border: 1px solid rgba(255,255,255,0.2); border-radius: 5px; padding: 4px;")
+        c1.addWidget(self.reels_per_acc_spin)
+        dist_row.addLayout(c1)
+
+        c2 = QVBoxLayout()
+        lbl_delay = QLabel("Delay (Seconds):")
+        lbl_delay.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700;")
+        c2.addWidget(lbl_delay)
+        self.reels_item_delay_spin = QSpinBox()
+        self.reels_item_delay_spin.setRange(2, 180)
+        self.reels_item_delay_spin.setValue(15)
+        self.reels_item_delay_spin.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-weight: 800; border: 1px solid rgba(255,255,255,0.2); border-radius: 5px; padding: 4px;")
+        c2.addWidget(self.reels_item_delay_spin)
+        dist_row.addLayout(c2)
+
+        c3 = QVBoxLayout()
+        lbl_mode = QLabel("Selection Mode:")
+        lbl_mode.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700;")
+        c3.addWidget(lbl_mode)
+        self.reels_selection_combo = QComboBox()
+        self.reels_selection_combo.addItems([
+            "Random Pool (No Dup)",
+            "Sequential (Top to Bottom)",
+            "Loop All Videos"
+        ])
+        self.reels_selection_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #0f172a;
+                color: #38bdf8;
+                font-weight: 700;
+                font-size: 11px;
+                border: 1px solid rgba(56, 189, 248, 0.4);
+                border-radius: 5px;
+                padding: 4px 8px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #0f172a;
+                color: #f8fafc;
+                selection-background-color: #0284c7;
+            }
+        """)
+        c3.addWidget(self.reels_selection_combo)
+        dist_row.addLayout(c3)
+        left_layout.addLayout(dist_row)
+
+        # Caption / Description Section
+        cap_hdr = QHBoxLayout()
+        lbl_caption = QLabel("Reel Caption / Description (Spintax & Hashtags Supported):")
+        lbl_caption.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: 700;")
+        cap_hdr.addWidget(lbl_caption)
+        cap_hdr.addStretch()
+
+        btn_sample_cap = QPushButton("⚡ Sample Spintax")
+        btn_sample_cap.setStyleSheet("background-color: #6366f1; color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px;")
+        btn_sample_cap.setCursor(Qt.PointingHandCursor)
+        btn_sample_cap.clicked.connect(self.insert_sample_reels_caption)
+        cap_hdr.addWidget(btn_sample_cap)
+
+        btn_test_spin = QPushButton("🎲 Test Spin")
+        btn_test_spin.setStyleSheet("background-color: #8b5cf6; color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px;")
+        btn_test_spin.setCursor(Qt.PointingHandCursor)
+        btn_test_spin.clicked.connect(self.test_spin_caption)
+        cap_hdr.addWidget(btn_test_spin)
+        left_layout.addLayout(cap_hdr)
+
+        self.reels_caption_input = QTextEdit()
+        self.reels_caption_input.setPlaceholderText("Enter caption or Spintax syntax...\n{🔥 Amazing Reel|Must Watch Video|Check this out}! Drop a follow ❤️ #reels #viral #trending #fyp")
+        self.reels_caption_input.setText("{🔥 Amazing Reel|Must Watch Video|Check this out}! Drop a follow ❤️ #reels #viral #trending #fyp")
+        self.reels_caption_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 6px;")
+        self.reels_caption_input.setFixedHeight(75)
+        left_layout.addWidget(self.reels_caption_input)
+
+        # Action Buttons Row (Start / Stop)
+        action_row = QHBoxLayout()
+        action_row.setSpacing(10)
+
+        self.btn_start_reels = QPushButton("▶ Start Auto Reels Upload")
+        self.btn_start_reels.setFixedHeight(42)
+        self.btn_start_reels.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #0ea5e9);
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 800;
+                padding: 10px 24px;
+                border-radius: 8px;
+                border: none;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0ea5e9, stop:1 #38bdf8);
+            }
+            QPushButton:disabled {
+                background: #334155;
+                color: #94a3b8;
+            }
+        """)
+        self.btn_start_reels.setCursor(Qt.PointingHandCursor)
+        self.btn_start_reels.clicked.connect(self.start_reels_upload)
+        action_row.addWidget(self.btn_start_reels, stretch=3)
+
+        self.btn_stop_reels = QPushButton("🛑 Stop Upload")
+        self.btn_stop_reels.setFixedHeight(42)
+        self.btn_stop_reels.setStyleSheet("""
+            QPushButton {
+                background-color: #ef4444;
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 800;
+                padding: 10px 20px;
+                border-radius: 8px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #dc2626;
+            }
+            QPushButton:disabled {
+                background-color: #334155;
+                color: #64748b;
+            }
+        """)
+        self.btn_stop_reels.setEnabled(False)
+        self.btn_stop_reels.setCursor(Qt.PointingHandCursor)
+        self.btn_stop_reels.clicked.connect(self.stop_reels_upload)
+        action_row.addWidget(self.btn_stop_reels, stretch=1)
+        left_layout.addLayout(action_row)
+
+        cols_box.addWidget(self.reels_pool_card, stretch=6)
+
+        # Right Column: Live Reels Upload Console (matching Image 2!)
+        self.reels_console_card = QFrame()
+        self.reels_console_card.setProperty("class", "glassCard")
+        self.reels_console_card.setStyleSheet("background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 14px;")
+        right_layout = QVBoxLayout(self.reels_console_card)
+        right_layout.setSpacing(8)
+
+        c_hdr = QHBoxLayout()
+        c_title = QLabel(">_ Live Reels Upload Console")
+        c_title.setStyleSheet("font-size: 13px; font-weight: 800; color: #f8fafc; font-family: monospace;")
+        c_hdr.addWidget(c_title)
+        c_hdr.addStretch()
+
+        self.reels_total_uploaded_lbl = QLabel("🎯 Uploaded: 0")
+        self.reels_total_uploaded_lbl.setStyleSheet("color: #10b981; font-weight: 800; font-size: 11px; background: rgba(16, 185, 129, 0.1); padding: 2px 8px; border-radius: 4px;")
+        c_hdr.addWidget(self.reels_total_uploaded_lbl)
+
+        self.btn_clear_reels_logs = QPushButton("🗑️ Clear")
+        self.btn_clear_reels_logs.setStyleSheet("background-color: #334155; color: white; font-size: 10px; padding: 2px 8px; border-radius: 4px;")
+        self.btn_clear_reels_logs.setCursor(Qt.PointingHandCursor)
+        self.btn_clear_reels_logs.clicked.connect(lambda: self.reels_console_text.clear())
+        c_hdr.addWidget(self.btn_clear_reels_logs)
+        right_layout.addLayout(c_hdr)
+
+        self.reels_status_lbl = QLabel("● READY TO UPLOAD REELS")
+        self.reels_status_lbl.setStyleSheet("color: #10b981; font-weight: 800; font-size: 11px;")
+        right_layout.addWidget(self.reels_status_lbl)
+
+        # Progress bar
+        self.reels_progress_bar = QProgressBar()
+        self.reels_progress_bar.setValue(0)
+        self.reels_progress_bar.setFixedHeight(14)
+        self.reels_progress_bar.setTextVisible(True)
+        self.reels_progress_bar.setStyleSheet("""
+            QProgressBar {
+                background: #0f172a;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 7px;
+                text-align: center;
+                color: #ffffff;
+                font-size: 9px;
+                font-weight: 700;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #38bdf8);
+                border-radius: 7px;
+            }
+        """)
+        right_layout.addWidget(self.reels_progress_bar)
+
+        # Console text area
+        self.reels_console_text = QTextEdit()
+        self.reels_console_text.setReadOnly(True)
+        self.reels_console_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #090d16;
+                color: #38bdf8;
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: 11px;
+                line-height: 1.4;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 6px;
+                padding: 8px;
+            }
+        """)
+        self.reels_console_text.setPlainText("Ready to upload reels. Click Start above...\n")
+        right_layout.addWidget(self.reels_console_text, stretch=1)
+
+        cols_box.addWidget(self.reels_console_card, stretch=5)
+        layout.addLayout(cols_box)
+
+        layout.addStretch()
+        scroll.setWidget(container)
+        outer_layout = QVBoxLayout(page)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(scroll)
+
+        # Populate accounts and empty media pool
+        self.populate_reels_accounts_checklist()
+        self.update_reels_pool_ui()
+
+        return page
+
+    # --------------------------------------------------------------------------
+    # FB Reels Bulk Uploader Account Selection & Media Pool Helpers
+    # --------------------------------------------------------------------------
+    def populate_reels_accounts_checklist(self):
+        """Populates the multi-account checkbox list for Reels automation with active accounts."""
+        if not hasattr(self, 'reels_acc_layout'):
+            return
+
+        while self.reels_acc_layout.count():
+            item = self.reels_acc_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self.reels_acc_checkboxes = []
+        self.reels_acc_counter_labels = {}
+        active_accounts = self.get_active_accounts()
+
+        if not active_accounts:
+            lbl = QLabel("⚠️ No Active Facebook accounts found. (Add accounts in Accounts Manager tab)")
+            lbl.setStyleSheet("color: #94a3b8; font-style: italic; font-size: 11px;")
+            self.reels_acc_layout.addWidget(lbl)
+            self.update_reels_account_selection_summary()
+            return
+
+        for idx, acc in enumerate(active_accounts, start=1):
+            row_widget = QWidget()
+            r_layout = QHBoxLayout(row_widget)
+            r_layout.setContentsMargins(2, 2, 2, 2)
+
+            name = acc.get("name", "Account")
+            status = acc.get("status", "Healthy")
+            proxy = acc.get("proxy", "Direct")
+            acc_id = str(acc.get("id", str(idx)))
+            icon = "🟢" if status in ("Healthy", "Active", "Ready", "Logged in") else "🟡"
+
+            chk = QCheckBox(f"#{idx}  {icon} {name}  [{status}]  •  Proxy: {proxy}")
+            chk.setStyleSheet("font-size: 12px; color: #f8fafc; font-weight: 600;")
+            chk.setProperty("account_data", acc)
+            chk.setChecked(True)
+            chk.stateChanged.connect(self.update_reels_account_selection_summary)
+            r_layout.addWidget(chk)
+
+            r_layout.addStretch()
+
+            cnt_lbl = QLabel("Uploaded: 0")
+            cnt_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.05); padding: 1px 6px; border-radius: 4px;")
+            r_layout.addWidget(cnt_lbl)
+
+            self.reels_acc_layout.addWidget(row_widget)
+            self.reels_acc_checkboxes.append(chk)
+            self.reels_acc_counter_labels[acc_id] = cnt_lbl
+
+        self.reels_acc_layout.addStretch()
+        self.update_reels_account_selection_summary()
+
+    def select_all_reels_accounts(self):
+        if hasattr(self, 'reels_acc_checkboxes'):
+            for chk in self.reels_acc_checkboxes:
+                chk.setChecked(True)
+            self.update_reels_account_selection_summary()
+
+    def clear_all_reels_accounts(self):
+        if hasattr(self, 'reels_acc_checkboxes'):
+            for chk in self.reels_acc_checkboxes:
+                chk.setChecked(False)
+            self.update_reels_account_selection_summary()
+
+    def update_reels_account_selection_summary(self):
+        if not hasattr(self, 'reels_acc_summary_lbl'):
+            return
+        selected = self.get_selected_reels_accounts()
+        count = len(selected)
+        total = len(self.reels_acc_checkboxes) if hasattr(self, 'reels_acc_checkboxes') else 0
+        self.reels_acc_summary_lbl.setText(f"🎯 {count} of {total} Account(s) Selected")
+
+    def get_selected_reels_accounts(self) -> List[Dict[str, Any]]:
+        selected = []
+        if hasattr(self, 'reels_acc_checkboxes'):
+            for chk in self.reels_acc_checkboxes:
+                if chk.isChecked():
+                    data = chk.property("account_data")
+                    if data:
+                        selected.append(data)
+        return selected
+
+    def add_reels_files(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Reel Video Files (Choose 1, 5, 20+ Videos)",
+            "",
+            "Video Files (*.mp4 *.mov *.avi *.m4v *.webm *.mkv);;All Files (*.*)"
+        )
+        if paths:
+            for p in paths:
+                if p not in self.reels_media_pool and os.path.isfile(p):
+                    self.reels_media_pool.append(p)
+            self.update_reels_pool_ui()
+
+    def add_reels_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder Containing Reel Videos")
+        if folder and os.path.isdir(folder):
+            valid_exts = {".mp4", ".mov", ".avi", ".m4v", ".webm", ".mkv"}
+            found = 0
+            for root, _, files in os.walk(folder):
+                for f in sorted(files):
+                    if os.path.splitext(f.lower())[1] in valid_exts:
+                        full_p = os.path.join(root, f)
+                        if full_p not in self.reels_media_pool:
+                            self.reels_media_pool.append(full_p)
+                            found += 1
+            if found > 0:
+                self.update_reels_pool_ui()
+            else:
+                QMessageBox.information(self, "No Videos Found", "No valid video files (.mp4, .mov, etc.) found in the selected folder.")
+
+    def clear_reels_pool(self):
+        self.reels_media_pool = []
+        self.update_reels_pool_ui()
+
+    def update_reels_pool_ui(self):
+        if not hasattr(self, 'reels_pool_layout'):
+            return
+
+        while self.reels_pool_layout.count():
+            item = self.reels_pool_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not self.reels_media_pool:
+            empty_lbl = QLabel("📂 No reels added yet. Click 'Add Reels Files' or 'Add Folder' to load .mp4 videos.")
+            empty_lbl.setStyleSheet("color: #94a3b8; font-style: italic; font-size: 11px; padding: 10px;")
+            self.reels_pool_layout.addWidget(empty_lbl)
+            return
+
+        for p in self.reels_media_pool:
+            row = QFrame()
+            row.setStyleSheet("background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 4px 8px;")
+            r_lay = QHBoxLayout(row)
+            r_lay.setContentsMargins(4, 2, 4, 2)
+
+            fname = os.path.basename(p)
+            try:
+                sz_mb = os.path.getsize(p) / (1024 * 1024)
+                sz_str = f"({sz_mb:.1f} MB)"
+            except Exception:
+                sz_str = ""
+
+            lbl = QLabel(f"📹 {fname}  <span style='color: #94a3b8;'>{sz_str}</span>")
+            lbl.setStyleSheet("font-size: 11px; color: #f1f5f9; font-weight: 600;")
+            r_lay.addWidget(lbl)
+            r_lay.addStretch()
+
+            ready_badge = QLabel("Ready")
+            ready_badge.setStyleSheet("color: #10b981; font-weight: 700; font-size: 10px; background: rgba(16, 185, 129, 0.12); padding: 1px 6px; border-radius: 4px;")
+            r_lay.addWidget(ready_badge)
+
+            self.reels_pool_layout.addWidget(row)
+
+        self.reels_pool_layout.addStretch()
+
+    def insert_sample_reels_caption(self):
+        samples = [
+            "{🔥 Amazing Reel|Must Watch Video|Check this out}! Drop a follow ❤️ #reels #viral #trending #fyp",
+            "{Best moments ever|Unbelievable clip|Daily inspiration}! Like & Share for more 🚀 #reelsfb #reelsvideo #viralpost",
+            "{Watch till the end|You won't believe this|Mind blowing}! Follow our page for daily reels 🌟 #fyp #explore #reels2026"
+        ]
+        if hasattr(self, 'reels_caption_input'):
+            import random
+            self.reels_caption_input.setText(random.choice(samples))
+
+    def test_spin_caption(self):
+        if not hasattr(self, 'reels_caption_input'):
+            return
+        raw = self.reels_caption_input.toPlainText().strip()
+        if not raw:
+            QMessageBox.information(self, "Empty Caption", "Please enter a caption template with Spintax like {A|B} first.")
+            return
+        spun = resolve_spintax(raw)
+        QMessageBox.information(self, "Spintax Preview Result", f"🎲 Spun Variant:\n\n{spun}")
+
+    def log_reels_console(self, level: str, message: str):
+        if hasattr(self, 'reels_console_text'):
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            color = "#38bdf8"
+            if level == "SUCCESS":
+                color = "#10b981"
+            elif level == "ERROR":
+                color = "#f43f5e"
+            elif level == "WARNING":
+                color = "#f59e0b"
+
+            html = f"<span style='color: #64748b;'>[{timestamp}]</span> <span style='color: {color}; font-weight: 600;'>{message}</span><br>"
+            self.reels_console_text.append(html)
+        self.log_message(level, message)
+
+    def start_reels_upload(self):
+        """Validates inputs and dispatches ReelsUploaderWorker to upload Reels across accounts and tabs."""
+        accounts = self.get_selected_reels_accounts()
+        if not accounts:
+            QMessageBox.warning(self, "No Accounts Selected", "Please select at least one Facebook account profile above.")
+            return
+
+        if not self.reels_media_pool:
+            QMessageBox.warning(self, "No Videos in Pool", "Please add at least one Reel video file (.mp4) using 'Add Reels Files' or 'Add Folder'.")
+            return
+
+        reels_per_acc = self.reels_per_acc_spin.value() if hasattr(self, 'reels_per_acc_spin') else 5
+        delay_seconds = float(self.reels_item_delay_spin.value()) if hasattr(self, 'reels_item_delay_spin') else 15.0
+        caption = self.reels_caption_input.toPlainText().strip() if hasattr(self, 'reels_caption_input') else ""
+        selection_mode = self.reels_selection_combo.currentText().strip() if hasattr(self, 'reels_selection_combo') else "Random Pool (No Dup)"
+        concurrent_browsers = self.reels_concurrent_spin.value() if hasattr(self, 'reels_concurrent_spin') else 2
+
+        network_mode = "direct"
+        if hasattr(self, 'reels_network_combo') and self.reels_network_combo.currentIndex() == 1:
+            network_mode = "proxy"
+
+        payload = {
+            "accounts": accounts,
+            "video_files": list(self.reels_media_pool),
+            "reels_per_account": reels_per_acc,
+            "delay_seconds": delay_seconds,
+            "caption_template": caption,
+            "selection_mode": selection_mode,
+            "concurrent_browsers": concurrent_browsers,
+            "network_mode": network_mode
+        }
+
+        self.btn_start_reels.setEnabled(False)
+        self.btn_stop_reels.setEnabled(True)
+        self.reels_status_lbl.setText("● UPLOADING REELS IN PROGRESS...")
+        self.reels_status_lbl.setStyleSheet("color: #38bdf8; font-weight: 800; font-size: 11px;")
+        self.engine_status_lbl.setText("● REELS UPLOADER ACTIVE")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #38bdf8;")
+        self.reels_progress_bar.setValue(0)
+        self.reels_total_uploaded_lbl.setText("🎯 Uploaded: 0")
+
+        self.reels_worker = ReelsUploaderWorker(payload=payload)
+        self.reels_worker.log_signal.connect(self.log_reels_console)
+        self.reels_worker.progress_signal.connect(self.update_reels_progress)
+        self.reels_worker.counter_signal.connect(self.on_reels_counter_update)
+        self.reels_worker.account_completed_signal.connect(self.on_reels_account_completed)
+        self.reels_worker.finished_signal.connect(self.on_reels_upload_finished)
+        self.reels_worker.start()
+
+    def stop_reels_upload(self):
+        if self.reels_worker:
+            self.reels_worker.stop()
+            self.btn_stop_reels.setEnabled(False)
+
+    def update_reels_progress(self, percent: int):
+        if hasattr(self, 'reels_progress_bar'):
+            self.reels_progress_bar.setValue(percent)
+        self.update_progress(percent)
+
+    def on_reels_counter_update(self, account_id: str, count: int):
+        if hasattr(self, 'reels_acc_counter_labels') and account_id in self.reels_acc_counter_labels:
+            lbl = self.reels_acc_counter_labels[account_id]
+            lbl.setText(f"Uploaded: {count}")
+            lbl.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 800; background: rgba(16, 185, 129, 0.15); padding: 1px 6px; border-radius: 4px;")
+
+    def on_reels_account_completed(self, account_id: str):
+        """When an account completes uploading its reels, uncheck it in the checklist."""
+        if hasattr(self, 'reels_acc_checkboxes'):
+            for chk in self.reels_acc_checkboxes:
+                acc_data = chk.property("account_data")
+                if acc_data and str(acc_data.get("id")) == str(account_id):
+                    chk.setChecked(False)
+                    break
+        self.update_reels_account_selection_summary()
+
+    def on_reels_upload_finished(self, success: bool, message: str):
+        self.btn_start_reels.setEnabled(True)
+        self.btn_stop_reels.setEnabled(False)
+        self.engine_status_lbl.setText("● READY FOR TASKS")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
+        if hasattr(self, 'reels_status_lbl'):
+            self.reels_status_lbl.setText("● READY TO UPLOAD REELS")
+            self.reels_status_lbl.setStyleSheet("color: #10b981; font-weight: 800; font-size: 11px;")
+
+        if success:
+            if hasattr(self, 'reels_progress_bar'):
+                self.reels_progress_bar.setValue(100)
+            QMessageBox.information(self, "Reels Upload Complete", f"Facebook Reels Bulk Upload Complete!\n\n{message}")
+        else:
+            QMessageBox.warning(self, "Reels Upload Notice", f"Facebook Reels Bulk Upload notice:\n\n{message}")
+
+    # --------------------------------------------------------------------------
+    # Tab 7: Auto FB Request Accept & Reject Engine (Phase 9)
     # --------------------------------------------------------------------------
     def create_friend_request_page(self):
         page = QWidget()
@@ -10652,7 +11831,7 @@ class FBAutoBotMainWindow(QMainWindow):
         mode_hdr.setStyleSheet("font-size: 13px; font-weight: 700; color: #f8fafc;")
         mode_card_layout.addWidget(mode_hdr)
 
-        # Two Columns Layout
+        # Three Columns Layout (Accept vs Reject vs Send Request)
         cols_layout = QHBoxLayout()
         cols_layout.setSpacing(14)
 
@@ -10669,12 +11848,12 @@ class FBAutoBotMainWindow(QMainWindow):
         col_acc_v = QVBoxLayout(self.col_accept_frame)
         col_acc_v.setSpacing(8)
 
-        self.radio_req_accept = QRadioButton("✅ Confirm & Accept All Incoming Requests")
+        self.radio_req_accept = QRadioButton("✅ Confirm Accept All")
         self.radio_req_accept.setChecked(True)
         self.radio_req_accept.setStyleSheet("""
             QRadioButton {
                 color: #10b981;
-                font-size: 14px;
+                font-size: 13px;
                 font-weight: 800;
             }
             QRadioButton::indicator {
@@ -10685,10 +11864,10 @@ class FBAutoBotMainWindow(QMainWindow):
         col_acc_v.addWidget(self.radio_req_accept)
 
         desc_accept = QLabel(
-            "• Automatically clicks 'Confirm' on all incoming friend requests.\n"
-            "• Scales account friends towards the 5,000 maximum limit.\n"
-            "• Auto-scrolls through dynamic lists until 100% requests are accepted.\n"
-            "• Automatically closes Chrome browser when finished."
+            "• Clicks 'Confirm' on all incoming friend requests.\n"
+            "• Scales account friends towards 5,000 maximum.\n"
+            "• Auto-scrolls until 100% requests are accepted.\n"
+            "• Automatically closes Chrome when finished."
         )
         desc_accept.setStyleSheet("color: #cbd5e1; font-size: 11px; line-height: 1.4;")
         desc_accept.setWordWrap(True)
@@ -10710,11 +11889,11 @@ class FBAutoBotMainWindow(QMainWindow):
         col_rej_v = QVBoxLayout(self.col_reject_frame)
         col_rej_v.setSpacing(8)
 
-        self.radio_req_reject = QRadioButton("🗑️ Delete & Reject All Incoming Requests")
+        self.radio_req_reject = QRadioButton("🗑️ Delete Reject All")
         self.radio_req_reject.setStyleSheet("""
             QRadioButton {
                 color: #f43f5e;
-                font-size: 14px;
+                font-size: 13px;
                 font-weight: 800;
             }
             QRadioButton::indicator {
@@ -10725,10 +11904,10 @@ class FBAutoBotMainWindow(QMainWindow):
         col_rej_v.addWidget(self.radio_req_reject)
 
         desc_reject = QLabel(
-            "• Automatically clicks 'Delete' / Remove on all incoming friend requests.\n"
-            "• Instantly clears cluttered pending request queues in bulk.\n"
-            "• Auto-scrolls through dynamic lists until 100% requests are purged.\n"
-            "• Automatically closes Chrome browser when finished."
+            "• Clicks 'Delete' / Remove on incoming requests.\n"
+            "• Instantly clears cluttered pending request queues.\n"
+            "• Auto-scrolls until 100% requests are purged.\n"
+            "• Automatically closes Chrome when finished."
         )
         desc_reject.setStyleSheet("color: #cbd5e1; font-size: 11px; line-height: 1.4;")
         desc_reject.setWordWrap(True)
@@ -10737,13 +11916,131 @@ class FBAutoBotMainWindow(QMainWindow):
 
         cols_layout.addWidget(self.col_reject_frame, stretch=1)
 
+        # Column 3: Send Request Mode (Purple / Blue theme)
+        self.col_send_frame = QFrame()
+        self.col_send_frame.setStyleSheet("""
+            QFrame {
+                background: rgba(168, 85, 247, 0.08);
+                border: 2px solid #a855f7;
+                border-radius: 10px;
+                padding: 12px;
+            }
+        """)
+        col_send_v = QVBoxLayout(self.col_send_frame)
+        col_send_v.setSpacing(8)
+
+        self.radio_req_send = QRadioButton("🚀 Send Friend Requests")
+        self.radio_req_send.setStyleSheet("""
+            QRadioButton {
+                color: #c084fc;
+                font-size: 13px;
+                font-weight: 800;
+            }
+            QRadioButton::indicator {
+                width: 18px;
+                height: 18px;
+            }
+        """)
+        col_send_v.addWidget(self.radio_req_send)
+
+        desc_send = QLabel(
+            "• Sends friend requests to target Facebook profile URLs.\n"
+            "• Opens target profile, clicks 'Add Friend', and confirms.\n"
+            "• Distributes URLs evenly across selected accounts.\n"
+            "• Automatically closes Chrome when finished."
+        )
+        desc_send.setStyleSheet("color: #cbd5e1; font-size: 11px; line-height: 1.4;")
+        desc_send.setWordWrap(True)
+        col_send_v.addWidget(desc_send)
+        col_send_v.addStretch()
+
+        cols_layout.addWidget(self.col_send_frame, stretch=1)
+
         # Connect radio buttons
         self.req_mode_btn_group = QButtonGroup(self)
         self.req_mode_btn_group.addButton(self.radio_req_accept)
         self.req_mode_btn_group.addButton(self.radio_req_reject)
+        self.req_mode_btn_group.addButton(self.radio_req_send)
+
+        self.radio_req_accept.toggled.connect(self.on_req_mode_changed)
+        self.radio_req_reject.toggled.connect(self.on_req_mode_changed)
+        self.radio_req_send.toggled.connect(self.on_req_mode_changed)
 
         mode_card_layout.addLayout(cols_layout)
         layout.addWidget(mode_card)
+
+        # ----------------------------------------------------------------------
+        # Card 2.5: Outbound Send Request URLs & Config (Visible only in Send mode)
+        # ----------------------------------------------------------------------
+        self.send_request_panel = QFrame()
+        self.send_request_panel.setProperty("class", "glassCard")
+        self.send_request_panel.setStyleSheet("background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 10px; padding: 14px;")
+        send_layout = QVBoxLayout(self.send_request_panel)
+        send_layout.setSpacing(10)
+
+        send_hdr_row = QHBoxLayout()
+        send_hdr = QLabel("📋 Target Profile URLs for Outbound Friend Requests:")
+        send_hdr.setStyleSheet("font-size: 13px; font-weight: 700; color: #c084fc;")
+        send_hdr_row.addWidget(send_hdr)
+
+        self.send_req_urls_count_lbl = QLabel("📊 Total URLs: 0")
+        self.send_req_urls_count_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700; background: rgba(56, 189, 248, 0.1); padding: 2px 8px; border-radius: 4px;")
+        send_hdr_row.addWidget(self.send_req_urls_count_lbl)
+        send_hdr_row.addStretch()
+
+        # Requests per account spinbox
+        rpa_lbl = QLabel("👥 Requests Per Account:")
+        rpa_lbl.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: 700;")
+        send_hdr_row.addWidget(rpa_lbl)
+
+        self.send_req_per_acc_spin = QSpinBox()
+        self.send_req_per_acc_spin.setRange(1, 1000)
+        self.send_req_per_acc_spin.setValue(30)
+        self.send_req_per_acc_spin.setStyleSheet("font-weight: 800; color: #e2e8f0; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 6px;")
+        self.send_req_per_acc_spin.setToolTip("Number of friend requests each selected account will send (e.g. 30)")
+        send_hdr_row.addWidget(self.send_req_per_acc_spin)
+
+        # Quick action buttons
+        btn_import_urls = QPushButton("📁 Import .txt")
+        btn_import_urls.setStyleSheet("background-color: #7c3aed; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 5px;")
+        btn_import_urls.setCursor(Qt.PointingHandCursor)
+        btn_import_urls.clicked.connect(self.import_send_req_urls_from_txt)
+        send_hdr_row.addWidget(btn_import_urls)
+
+        btn_sample_urls = QPushButton("⚡ Sample URLs")
+        btn_sample_urls.setStyleSheet("background-color: #0284c7; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 5px;")
+        btn_sample_urls.setCursor(Qt.PointingHandCursor)
+        btn_sample_urls.clicked.connect(self.insert_sample_send_req_urls)
+        send_hdr_row.addWidget(btn_sample_urls)
+
+        btn_clear_urls = QPushButton("❌ Clear")
+        btn_clear_urls.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 4px 8px; border-radius: 5px;")
+        btn_clear_urls.setCursor(Qt.PointingHandCursor)
+        btn_clear_urls.clicked.connect(self.clear_send_req_urls)
+        send_hdr_row.addWidget(btn_clear_urls)
+
+        send_layout.addLayout(send_hdr_row)
+
+        sub_info = QLabel("Paste target Facebook profile URLs (one URL per line). The bot will distribute them evenly across selected accounts without repeating.")
+        sub_info.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic;")
+        send_layout.addWidget(sub_info)
+
+        self.send_req_urls_input = QTextEdit()
+        self.send_req_urls_input.setPlaceholderText(
+            "Paste target Facebook profile URLs here (one URL per line):\n"
+            "https://www.facebook.com/username1\n"
+            "https://www.facebook.com/profile.php?id=100012345678\n"
+            "https://www.facebook.com/profile.php?id=100087654321\n"
+            "...\n"
+            "(Load 50, 100, 200+ URLs. Each account will send the specified number of requests)"
+        )
+        self.send_req_urls_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 8px;")
+        self.send_req_urls_input.setFixedHeight(120)
+        self.send_req_urls_input.textChanged.connect(self.update_send_req_urls_count)
+        send_layout.addWidget(self.send_req_urls_input)
+
+        self.send_request_panel.setVisible(False)
+        layout.addWidget(self.send_request_panel)
 
         # ----------------------------------------------------------------------
         # Card 3: Execution Controls, Live Progress & Status
@@ -10939,17 +12236,140 @@ class FBAutoBotMainWindow(QMainWindow):
                         selected.append(data)
         return selected
 
+    def on_req_mode_changed(self):
+        """Switches UI state and shows/hides Target Profile URLs panel when 'Send Friend Requests' is selected."""
+        if not hasattr(self, 'send_request_panel'):
+            return
+        is_send = self.radio_req_send.isChecked() if hasattr(self, 'radio_req_send') else False
+        is_accept = self.radio_req_accept.isChecked() if hasattr(self, 'radio_req_accept') else False
+        is_reject = self.radio_req_reject.isChecked() if hasattr(self, 'radio_req_reject') else False
+
+        # Only show Target Profile URLs panel when Send Friend Requests is selected
+        self.send_request_panel.setVisible(is_send)
+
+        if is_send:
+            if hasattr(self, 'col_send_frame'):
+                self.col_send_frame.setStyleSheet("background: rgba(168, 85, 247, 0.16); border: 2px solid #c084fc; border-radius: 10px; padding: 12px;")
+            if hasattr(self, 'col_accept_frame'):
+                self.col_accept_frame.setStyleSheet("background: rgba(16, 185, 129, 0.04); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 10px; padding: 12px;")
+            if hasattr(self, 'col_reject_frame'):
+                self.col_reject_frame.setStyleSheet("background: rgba(244, 63, 94, 0.04); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: 10px; padding: 12px;")
+            if hasattr(self, 'btn_start_req_bot'):
+                self.btn_start_req_bot.setText("🚀 Start Sending Friend Requests")
+            if hasattr(self, 'req_status_lbl'):
+                self.req_status_lbl.setText("● READY TO SEND OUTBOUND FRIEND REQUESTS")
+                self.req_status_lbl.setStyleSheet("color: #c084fc; font-weight: 800; font-size: 12px;")
+        elif is_accept:
+            if hasattr(self, 'col_send_frame'):
+                self.col_send_frame.setStyleSheet("background: rgba(168, 85, 247, 0.04); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 10px; padding: 12px;")
+            if hasattr(self, 'col_accept_frame'):
+                self.col_accept_frame.setStyleSheet("background: rgba(16, 185, 129, 0.16); border: 2px solid #10b981; border-radius: 10px; padding: 12px;")
+            if hasattr(self, 'col_reject_frame'):
+                self.col_reject_frame.setStyleSheet("background: rgba(244, 63, 94, 0.04); border: 1px solid rgba(244, 63, 94, 0.25); border-radius: 10px; padding: 12px;")
+            if hasattr(self, 'btn_start_req_bot'):
+                self.btn_start_req_bot.setText("✅ Start Confirming All Incoming Requests")
+            if hasattr(self, 'req_status_lbl'):
+                self.req_status_lbl.setText("● READY TO ACCEPT FRIEND REQUESTS")
+                self.req_status_lbl.setStyleSheet("color: #10b981; font-weight: 800; font-size: 12px;")
+        else:
+            if hasattr(self, 'col_send_frame'):
+                self.col_send_frame.setStyleSheet("background: rgba(168, 85, 247, 0.04); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 10px; padding: 12px;")
+            if hasattr(self, 'col_accept_frame'):
+                self.col_accept_frame.setStyleSheet("background: rgba(16, 185, 129, 0.04); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 10px; padding: 12px;")
+            if hasattr(self, 'col_reject_frame'):
+                self.col_reject_frame.setStyleSheet("background: rgba(244, 63, 94, 0.16); border: 2px solid #f43f5e; border-radius: 10px; padding: 12px;")
+            if hasattr(self, 'btn_start_req_bot'):
+                self.btn_start_req_bot.setText("🗑️ Start Rejecting / Deleting All Requests")
+            if hasattr(self, 'req_status_lbl'):
+                self.req_status_lbl.setText("● READY TO REJECT FRIEND REQUESTS")
+                self.req_status_lbl.setStyleSheet("color: #f43f5e; font-weight: 800; font-size: 12px;")
+
+    def import_send_req_urls_from_txt(self):
+        """Allows user to import hundreds of Facebook profile URLs from a .txt file."""
+        file_path, _ = QFileDialog.getOpenFileName(self, "Import Target Facebook Profile URLs (.txt)", "", "Text Files (*.txt);;All Files (*.*)")
+        if file_path and os.path.isfile(file_path):
+            try:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    urls = [line.strip() for line in f if line.strip()]
+                if hasattr(self, 'send_req_urls_input'):
+                    existing = self.send_req_urls_input.toPlainText().strip()
+                    if existing:
+                        self.send_req_urls_input.setPlainText(existing + "\n" + "\n".join(urls))
+                    else:
+                        self.send_req_urls_input.setPlainText("\n".join(urls))
+                    self.update_send_req_urls_count()
+                    QMessageBox.information(self, "URLs Imported", f"Successfully imported {len(urls)} profile URL(s) from:\n{os.path.basename(file_path)}")
+            except Exception as e:
+                QMessageBox.warning(self, "Import Error", f"Could not read text file:\n{str(e)}")
+
+    def insert_sample_send_req_urls(self):
+        """Loads sample profile URLs for testing outbound friend requests."""
+        samples = [
+            "https://www.facebook.com/zuck",
+            "https://www.facebook.com/profile.php?id=100085432198765",
+            "https://www.facebook.com/profile.php?id=100092345678901",
+            "https://www.facebook.com/profile.php?id=100078901234567",
+            "https://www.facebook.com/profile.php?id=100065432109876"
+        ]
+        if hasattr(self, 'send_req_urls_input'):
+            self.send_req_urls_input.setPlainText("\n".join(samples))
+            self.update_send_req_urls_count()
+
+    def clear_send_req_urls(self):
+        """Clears the target profile URLs text area."""
+        if hasattr(self, 'send_req_urls_input'):
+            self.send_req_urls_input.clear()
+            self.update_send_req_urls_count()
+
+    def update_send_req_urls_count(self):
+        """Updates the total URLs counter badge in real-time."""
+        if not hasattr(self, 'send_req_urls_count_lbl') or not hasattr(self, 'send_req_urls_input'):
+            return
+        raw = self.send_req_urls_input.toPlainText().strip()
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        self.send_req_urls_count_lbl.setText(f"📊 Total URLs: {len(lines)}")
+
+    def on_req_account_completed(self, account_id: str):
+        """
+        When an account finishes its assigned friend requests and closes its Chrome browser,
+        it automatically unchecks that account's checkbox in the list so the next batch is clear.
+        """
+        if hasattr(self, 'req_acc_checkboxes'):
+            for chk in self.req_acc_checkboxes:
+                acc_data = chk.property("account_data")
+                if acc_data and str(acc_data.get("id")) == str(account_id):
+                    chk.setChecked(False)
+                    break
+        self.update_req_account_selection_summary()
+
     def start_request_automation(self):
-        """Dispatches FriendRequestWorker to accept or reject pending friend requests."""
+        """Dispatches FriendRequestWorker to accept, reject, or send friend requests."""
         accounts = self.get_selected_req_accounts()
         if not accounts:
             QMessageBox.warning(self, "No Accounts Selected", "Please select at least one Facebook account to run friend request automation.")
             return
 
-        mode = "accept" if self.radio_req_accept.isChecked() else "reject"
-        concurrent_browsers = self.req_concurrent_spin.value()
-        click_delay = self.req_delay_spin.value()
-        max_requests = self.req_max_spin.value()
+        if hasattr(self, 'radio_req_send') and self.radio_req_send.isChecked():
+            mode = "send"
+        elif hasattr(self, 'radio_req_accept') and self.radio_req_accept.isChecked():
+            mode = "accept"
+        else:
+            mode = "reject"
+
+        target_urls = []
+        requests_per_acc = 30
+        if mode == "send":
+            raw_urls = self.send_req_urls_input.toPlainText().strip() if hasattr(self, 'send_req_urls_input') else ""
+            target_urls = [line.strip() for line in raw_urls.splitlines() if line.strip()]
+            if not target_urls:
+                QMessageBox.warning(self, "Target URLs Required", "Please enter or import target Facebook profile URLs in the Target Profile URLs field.")
+                return
+            if hasattr(self, 'send_req_per_acc_spin'):
+                requests_per_acc = self.send_req_per_acc_spin.value()
+
+        concurrent_browsers = self.req_concurrent_spin.value() if hasattr(self, 'req_concurrent_spin') else 2
+        click_delay = self.req_delay_spin.value() if hasattr(self, 'req_delay_spin') else 0.8
+        max_requests = self.req_max_spin.value() if hasattr(self, 'req_max_spin') else 0
 
         network_mode = "direct"
         if hasattr(self, 'req_network_combo') and self.req_network_combo.currentIndex() == 1:
@@ -10961,13 +12381,21 @@ class FBAutoBotMainWindow(QMainWindow):
             "concurrent_browsers": concurrent_browsers,
             "click_delay": click_delay,
             "max_requests": max_requests,
-            "network_mode": network_mode
+            "network_mode": network_mode,
+            "target_urls": target_urls,
+            "requests_per_account": requests_per_acc
         }
 
         self.btn_start_req_bot.setEnabled(False)
         self.btn_stop_req_bot.setEnabled(True)
 
-        mode_verb = "ACCEPTING" if mode == "accept" else "REJECTING"
+        if mode == "send":
+            mode_verb = "SENDING"
+        elif mode == "accept":
+            mode_verb = "ACCEPTING"
+        else:
+            mode_verb = "REJECTING"
+
         self.req_status_lbl.setText(f"● {mode_verb} FRIEND REQUESTS IN PROGRESS...")
         self.req_status_lbl.setStyleSheet("color: #38bdf8; font-weight: 800; font-size: 12px;")
         self.engine_status_lbl.setText(f"● REQUEST {mode_verb} ACTIVE")
@@ -10979,6 +12407,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.friend_request_worker.log_signal.connect(self.log_message)
         self.friend_request_worker.progress_signal.connect(self.update_req_progress)
         self.friend_request_worker.counter_signal.connect(self.on_req_counter_update)
+        self.friend_request_worker.account_completed_signal.connect(self.on_req_account_completed)
         self.friend_request_worker.finished_signal.connect(self.on_req_automation_finished)
         self.friend_request_worker.start()
 
@@ -11520,6 +12949,10 @@ def main():
 
     app = QApplication(sys.argv)
     app.setStyleSheet(GLASS_STYLESHEET)
+
+    # Install Global Wheel Filter so scrolling mouse wheel over form controls always scrolls page smoothly
+    global_wheel_filter = GlobalWheelScrollFilter(app)
+    app.installEventFilter(global_wheel_filter)
 
     # Set Application Icon across all windows & taskbar
     logo_file = get_best_logo_path()

@@ -752,18 +752,73 @@ class FacebookPageCreatorBot:
             self.log("WARNING", f"⚠️ [Tab #{tab_index}] Could not find or click 'Create Page' button.")
             return False
 
-    async def _step1_finish_setup(self, page, tab_index: int, cfg: Dict[str, Any]) -> bool:
-        """
-        Handles 'Step 1 of 5: Finish setting up your Page' (Image 1):
-          - Contact: Website, Phone number, Email
-          - Location: Address, City/town, ZIP code
-          - Hours: Always open / Open at selected hours / No hours available
-          - Clicks 'Next' button
-        All fields are optional; if filled, bot enters them; if empty, skipped cleanly.
-        """
-        self.log("INFO", f"[Tab #{tab_index}] Processing 'Finish setting up your Page' (Contact, Location, Hours)...")
-        await asyncio.sleep(1.5)
+    async def _find_input_locator(self, page, terms: List[str]):
+        """Finds input element matching any search term by aria, placeholder, name, or parent label."""
+        for t in terms:
+            for sel in [
+                f'label:has-text("{t}") input',
+                f'div:has-text("{t}") input',
+                f'input[aria-label*="{t}" i]',
+                f'input[placeholder*="{t}" i]',
+                f'input[name*="{t}" i]'
+            ]:
+                try:
+                    loc = page.locator(sel).first
+                    if await loc.count() > 0 and await loc.is_visible():
+                        return loc
+                except Exception:
+                    pass
+        return None
 
+    async def _fill_input_smart(self, page, terms: List[str], value: str):
+        """Fills input with real typing and dispatches change events to update React form state."""
+        if not value:
+            return False
+        loc = await self._find_input_locator(page, terms)
+        if loc:
+            try:
+                await loc.scroll_into_view_if_needed()
+                await loc.click()
+                await loc.fill("")
+                await loc.type(value, delay=25)
+                await page.evaluate("""(inp) => {
+                    if (inp) {
+                        inp.dispatchEvent(new Event('input', { bubbles: true }));
+                        inp.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }""", loc)
+                return True
+            except Exception:
+                pass
+
+        # Fallback DOM evaluation
+        try:
+            return await page.evaluate("""({ terms, val }) => {
+                const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"])'));
+                for (const inp of inputs) {
+                    const aria = (inp.getAttribute('aria-label') || '').toLowerCase();
+                    const pl = (inp.getAttribute('placeholder') || '').toLowerCase();
+                    const name = (inp.getAttribute('name') || '').toLowerCase();
+                    const lbl = (inp.closest('label') || inp.parentElement || inp).innerText.toLowerCase();
+                    if (terms.some(t => aria.includes(t) || pl.includes(t) || name.includes(t) || lbl.includes(t))) {
+                        inp.focus();
+                        inp.value = val;
+                        inp.dispatchEvent(new Event('input', { bubbles: true }));
+                        inp.dispatchEvent(new Event('change', { bubbles: true }));
+                        inp.blur();
+                        return true;
+                    }
+                }
+                return false;
+            }""", {"terms": [t.lower() for t in terms], "val": value})
+        except Exception:
+            return False
+
+    async def _fill_step1_fields(self, page, tab_index: int, cfg: Dict[str, Any]) -> bool:
+        """
+        Fills non-empty Step 1 setup fields (Website, Phone, Email, Address, City/Town, ZIP, Hours).
+        Skips empty fields cleanly without delaying or blocking.
+        """
         contact = cfg.get("contact", {})
         website = (contact.get("website") or "").strip()
         phone = (contact.get("phone") or "").strip()
@@ -776,185 +831,60 @@ class FacebookPageCreatorBot:
 
         hours_mode = cfg.get("hours_mode", "always_open")
 
-        # 1. Website
+        # 1. Website (only if provided)
         if website:
             self.log("INFO", f"[Tab #{tab_index}] Entering Website: {website}")
-            w_filled = False
-            for sel in ['input[placeholder*="Website" i]', 'input[aria-label*="Website" i]', 'input[name*="website" i]']:
-                el = page.locator(sel).first
-                if await el.count() > 0 and await el.is_visible():
-                    await el.click()
-                    await el.fill(website)
-                    w_filled = True
-                    break
-            if not w_filled:
-                await page.evaluate("""(val) => {
-                    const inps = Array.from(document.querySelectorAll('input'));
-                    for (const inp of inps) {
-                        const p = (inp.getAttribute('placeholder') || '').toLowerCase();
-                        const a = (inp.getAttribute('aria-label') || '').toLowerCase();
-                        if (p.includes('website') || a.includes('website')) {
-                            inp.focus();
-                            inp.value = val;
-                            inp.dispatchEvent(new Event('input', { bubbles: true }));
-                            inp.dispatchEvent(new Event('change', { bubbles: true }));
-                            return true;
-                        }
-                    }
-                    return false;
-                }""", website)
+            await self._fill_input_smart(page, ['website', 'web site'], website)
+            await asyncio.sleep(0.5)
 
-        # 2. Phone Number
+        # 2. Phone Number (only if provided)
         if phone:
-            self.log("INFO", f"[Tab #{tab_index}] Entering Phone number: {phone}")
-            p_filled = False
-            for sel in ['input[placeholder*="Phone number" i]', 'input[aria-label*="Phone number" i]', 'input[type="tel"]']:
-                el = page.locator(sel).first
-                if await el.count() > 0 and await el.is_visible():
-                    await el.click()
-                    await el.fill(phone)
-                    p_filled = True
-                    break
-            if not p_filled:
-                await page.evaluate("""(val) => {
-                    const inps = Array.from(document.querySelectorAll('input'));
-                    for (const inp of inps) {
-                        const p = (inp.getAttribute('placeholder') || '').toLowerCase();
-                        const a = (inp.getAttribute('aria-label') || '').toLowerCase();
-                        if (p.includes('phone') || a.includes('phone') || inp.type === 'tel') {
-                            inp.focus();
-                            inp.value = val;
-                            inp.dispatchEvent(new Event('input', { bubbles: true }));
-                            inp.dispatchEvent(new Event('change', { bubbles: true }));
-                            return true;
-                        }
-                    }
-                    return false;
-                }""", phone)
+            self.log("INFO", f"[Tab #{tab_index}] Entering Phone: {phone}")
+            await self._fill_input_smart(page, ['phone number', 'phone', 'contact number', 'mobile'], phone)
+            await asyncio.sleep(0.5)
 
-        # 3. Email
+        # 3. Email (only if provided)
         if email:
             self.log("INFO", f"[Tab #{tab_index}] Entering Email: {email}")
-            e_filled = False
-            for sel in ['input[placeholder*="Email" i]', 'input[aria-label*="Email" i]', 'input[type="email"]']:
-                el = page.locator(sel).first
-                if await el.count() > 0 and await el.is_visible():
-                    await el.click()
-                    await el.fill(email)
-                    e_filled = True
-                    break
-            if not e_filled:
-                await page.evaluate("""(val) => {
-                    const inps = Array.from(document.querySelectorAll('input'));
-                    for (const inp of inps) {
-                        const p = (inp.getAttribute('placeholder') || '').toLowerCase();
-                        const a = (inp.getAttribute('aria-label') || '').toLowerCase();
-                        if (p.includes('email') || a.includes('email') || inp.type === 'email') {
-                            inp.focus();
-                            inp.value = val;
-                            inp.dispatchEvent(new Event('input', { bubbles: true }));
-                            inp.dispatchEvent(new Event('change', { bubbles: true }));
-                            return true;
-                        }
-                    }
-                    return false;
-                }""", email)
+            await self._fill_input_smart(page, ['email address', 'email'], email)
+            await asyncio.sleep(0.5)
 
-        # 4. Location - Address
+        # 4. Location - Address (only if provided)
         if address:
             self.log("INFO", f"[Tab #{tab_index}] Entering Address: {address}")
-            a_filled = False
-            for sel in ['input[placeholder*="Address" i]', 'input[aria-label*="Address" i]']:
-                el = page.locator(sel).first
-                if await el.count() > 0 and await el.is_visible():
-                    await el.click()
-                    await el.fill(address)
-                    a_filled = True
-                    break
-            if not a_filled:
-                await page.evaluate("""(val) => {
-                    const inps = Array.from(document.querySelectorAll('input'));
-                    for (const inp of inps) {
-                        const p = (inp.getAttribute('placeholder') || '').toLowerCase();
-                        const a = (inp.getAttribute('aria-label') || '').toLowerCase();
-                        if (p.includes('address') || a.includes('address')) {
-                            inp.focus();
-                            inp.value = val;
-                            inp.dispatchEvent(new Event('input', { bubbles: true }));
-                            inp.dispatchEvent(new Event('change', { bubbles: true }));
-                            return true;
-                        }
-                    }
-                    return false;
-                }""", address)
+            await self._fill_input_smart(page, ['address', 'street address'], address)
+            await asyncio.sleep(0.5)
 
-        # 5. Location - City/town
+        # 5. Location - City/town (only if provided; requires suggestion selection!)
         if city:
             self.log("INFO", f"[Tab #{tab_index}] Entering City/town: {city}")
-            c_filled = False
-            for sel in ['input[placeholder*="City/town" i]', 'input[placeholder*="City" i]', 'input[aria-label*="City" i]']:
-                el = page.locator(sel).first
-                if await el.count() > 0 and await el.is_visible():
-                    await el.click()
-                    await el.fill("")
-                    await el.type(city, delay=35)
-                    c_filled = True
-                    await asyncio.sleep(1.2)
-                    try:
-                        sugg = page.locator('div[role="listbox"] div[role="option"], ul[role="listbox"] li, div[role="option"]').first
-                        if await sugg.count() > 0 and await sugg.is_visible():
-                            await sugg.click()
-                        else:
-                            await page.keyboard.press("ArrowDown")
-                            await asyncio.sleep(0.3)
-                            await page.keyboard.press("Enter")
-                    except Exception:
-                        pass
-                    break
-            if not c_filled:
-                await page.evaluate("""(val) => {
-                    const inps = Array.from(document.querySelectorAll('input'));
-                    for (const inp of inps) {
-                        const p = (inp.getAttribute('placeholder') || '').toLowerCase();
-                        const a = (inp.getAttribute('aria-label') || '').toLowerCase();
-                        if (p.includes('city') || a.includes('city')) {
-                            inp.focus();
-                            inp.value = val;
-                            inp.dispatchEvent(new Event('input', { bubbles: true }));
-                            inp.dispatchEvent(new Event('change', { bubbles: true }));
-                            return true;
-                        }
-                    }
-                    return false;
-                }""", city)
+            c_input = await self._find_input_locator(page, ['city/town', 'city', 'town'])
+            if c_input:
+                try:
+                    await c_input.scroll_into_view_if_needed()
+                    await c_input.click()
+                    await c_input.fill("")
+                    await c_input.type(city, delay=35)
+                    await asyncio.sleep(1.5)
 
-        # 6. Location - ZIP code
+                    # Look for Facebook autocomplete suggestion listbox
+                    sugg = page.locator('div[role="listbox"] div[role="option"], ul[role="listbox"] li, div[role="option"]').first
+                    if await sugg.count() > 0 and await sugg.is_visible():
+                        await sugg.click()
+                        self.log("INFO", f"[Tab #{tab_index}] Selected City suggestion for: {city}")
+                    else:
+                        await page.keyboard.press("ArrowDown")
+                        await asyncio.sleep(0.3)
+                        await page.keyboard.press("Enter")
+                except Exception as e:
+                    self.log("DEBUG", f"[Tab #{tab_index}] City entry notice: {e}")
+            await asyncio.sleep(0.5)
+
+        # 6. Location - ZIP code (only if provided)
         if zip_code:
             self.log("INFO", f"[Tab #{tab_index}] Entering ZIP code: {zip_code}")
-            z_filled = False
-            for sel in ['input[placeholder*="ZIP code" i]', 'input[placeholder*="ZIP" i]', 'input[aria-label*="ZIP" i]']:
-                el = page.locator(sel).first
-                if await el.count() > 0 and await el.is_visible():
-                    await el.click()
-                    await el.fill(zip_code)
-                    z_filled = True
-                    break
-            if not z_filled:
-                await page.evaluate("""(val) => {
-                    const inps = Array.from(document.querySelectorAll('input'));
-                    for (const inp of inps) {
-                        const p = (inp.getAttribute('placeholder') || '').toLowerCase();
-                        const a = (inp.getAttribute('aria-label') || '').toLowerCase();
-                        if (p.includes('zip') || a.includes('zip')) {
-                            inp.focus();
-                            inp.value = val;
-                            inp.dispatchEvent(new Event('input', { bubbles: true }));
-                            inp.dispatchEvent(new Event('change', { bubbles: true }));
-                            return true;
-                        }
-                    }
-                    return false;
-                }""", zip_code)
+            await self._fill_input_smart(page, ['zip code', 'zip', 'postcode', 'postal code'], zip_code)
+            await asyncio.sleep(0.5)
 
         # 7. Hours Selection (Always open / Open at selected hours / No hours available)
         target_hours_txt = "Always open"
@@ -963,57 +893,143 @@ class FacebookPageCreatorBot:
         elif hours_mode == "no_hours":
             target_hours_txt = "No hours available"
 
-        self.log("INFO", f"[Tab #{tab_index}] Selecting Hours: '{target_hours_txt}'")
-        h_clicked = False
+        self.log("INFO", f"[Tab #{tab_index}] Selecting Hours mode: '{target_hours_txt}'")
+        h_selected = False
         try:
             h_loc = page.locator(f'label:has-text("{target_hours_txt}"), div[role="radio"]:has-text("{target_hours_txt}"), span:has-text("{target_hours_txt}")').first
             if await h_loc.count() > 0 and await h_loc.is_visible():
+                await h_loc.scroll_into_view_if_needed()
                 await h_loc.click()
-                h_clicked = True
+                h_selected = True
         except Exception:
             pass
 
-        if not h_clicked:
-            await page.evaluate("""(txt) => {
-                const els = Array.from(document.querySelectorAll('label, div[role="radio"], span, div'));
-                for (const el of els) {
-                    if ((el.innerText || '').toLowerCase().includes(txt.toLowerCase())) {
-                        el.click();
-                        return true;
+        if not h_selected:
+            try:
+                await page.evaluate("""(targetTxt) => {
+                    const els = Array.from(document.querySelectorAll('label, div[role="radio"], span'));
+                    for (const el of els) {
+                        if ((el.innerText || '').toLowerCase().includes(targetTxt.toLowerCase())) {
+                            el.click();
+                            return true;
+                        }
                     }
-                }
-                return false;
-            }""", target_hours_txt)
+                    return false;
+                }""", target_hours_txt)
+            except Exception:
+                pass
 
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(0.8)
+        return True
 
-        # 8. Click 'Next' button to advance to Step 2
+    async def _step1_finish_setup(self, page, tab_index: int, cfg: Dict[str, Any]) -> bool:
+        """
+        Handles 'Step 1 of 5: Finish setting up your Page' (Image 1):
+          - Contact: Website, Phone number, Email
+          - Location: Address, City/town, ZIP code
+          - Hours: Always open / Open at selected hours / No hours available
+          - Clicks 'Next' button
+        All fields are optional; if filled, bot enters them; if empty, skipped cleanly.
+        """
+        self.log("INFO", f"[Tab #{tab_index}] Processing 'Finish setting up your Page' (Contact, Location, Hours)...")
+        await self._fill_step1_fields(page, tab_index, cfg)
+        await asyncio.sleep(0.5)
         self.log("INFO", f"[Tab #{tab_index}] Clicking 'Next' button to advance to Customize Page (Photos)...")
-        next_clicked = False
-        try:
-            for sel in ['button:has-text("Next")', 'div[role="button"]:has-text("Next")']:
-                btn = page.locator(sel).last
-                if await btn.count() > 0 and await btn.is_visible():
-                    await btn.click()
-                    next_clicked = True
-                    break
-        except Exception:
-            pass
-
-        if not next_clicked:
-            await page.evaluate("""() => {
-                const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
-                for (let i = btns.length - 1; i >= 0; i--) {
-                    const b = btns[i];
-                    if ((b.innerText || '').trim().toLowerCase() === 'next') {
-                        b.click();
-                        return true;
-                    }
-                }
-                return false;
-            }""")
-
+        await self._click_wizard_button(page, 'next')
         await asyncio.sleep(2.0)
+        return True
+
+    async def _upload_step2_photos(self, page, tab_index: int, cfg: Dict[str, Any]) -> bool:
+        """
+        Uploads assigned profile picture and cover photo if configured.
+        Supports both single photo and multi-photo automated sequential distribution.
+        """
+        profile_photo_path = (cfg.get("profile_photo_path") or "").strip()
+        cover_photo_path = (cfg.get("cover_photo_path") or "").strip()
+
+        if not profile_photo_path and not cover_photo_path:
+            self.log("INFO", f"[Tab #{tab_index}] No profile or cover photos assigned (will skip).")
+            return True
+
+        # 1. Profile Picture
+        if profile_photo_path and os.path.isfile(profile_photo_path):
+            self.log("INFO", f"[Tab #{tab_index}] 📷 Attaching Profile Picture: {os.path.basename(profile_photo_path)}")
+            p_ok = False
+            for p_sel in [
+                'div[aria-label*="profile picture" i][role="button"]',
+                'div[aria-label*="Add profile" i]',
+                'div[role="button"]:has-text("Add profile picture")',
+                'button:has-text("Add profile picture")',
+                'div:has-text("Add profile picture")'
+            ]:
+                try:
+                    btn = page.locator(p_sel).first
+                    if await btn.count() > 0 and await btn.is_visible():
+                        async with page.expect_file_chooser(timeout=4000) as fc_info:
+                            await btn.click()
+                        fc = await fc_info.value
+                        await fc.set_files(profile_photo_path)
+                        p_ok = True
+                        self.log("SUCCESS", f"✅ [Tab #{tab_index}] Profile picture uploaded via chooser: {os.path.basename(profile_photo_path)}")
+                        break
+                except Exception:
+                    pass
+
+            if not p_ok:
+                try:
+                    file_inputs = page.locator('input[type="file"]')
+                    if await file_inputs.count() > 0:
+                        await file_inputs.nth(0).set_input_files(profile_photo_path)
+                        p_ok = True
+                        self.log("SUCCESS", f"✅ [Tab #{tab_index}] Profile picture set via file input: {os.path.basename(profile_photo_path)}")
+                except Exception:
+                    pass
+
+            if p_ok:
+                await asyncio.sleep(2.5)
+
+        # 2. Cover Photo
+        if cover_photo_path and os.path.isfile(cover_photo_path):
+            self.log("INFO", f"[Tab #{tab_index}] 🖼️ Attaching Cover Photo: {os.path.basename(cover_photo_path)}")
+            c_ok = False
+            for c_sel in [
+                'div[aria-label*="cover photo" i][role="button"]',
+                'div[aria-label*="Add cover" i]',
+                'div[role="button"]:has-text("Add cover photo")',
+                'button:has-text("Add cover photo")',
+                'div:has-text("Add cover photo")'
+            ]:
+                try:
+                    btn = page.locator(c_sel).first
+                    if await btn.count() > 0 and await btn.is_visible():
+                        async with page.expect_file_chooser(timeout=4000) as fc_info:
+                            await btn.click()
+                        fc = await fc_info.value
+                        await fc.set_files(cover_photo_path)
+                        c_ok = True
+                        self.log("SUCCESS", f"✅ [Tab #{tab_index}] Cover photo uploaded via chooser: {os.path.basename(cover_photo_path)}")
+                        break
+                except Exception:
+                    pass
+
+            if not c_ok:
+                try:
+                    file_inputs = page.locator('input[type="file"]')
+                    cnt = await file_inputs.count()
+                    if cnt > 1:
+                        await file_inputs.nth(1).set_input_files(cover_photo_path)
+                        c_ok = True
+                        self.log("SUCCESS", f"✅ [Tab #{tab_index}] Cover photo set via second file input: {os.path.basename(cover_photo_path)}")
+                    elif cnt == 1:
+                        await file_inputs.nth(0).set_input_files(cover_photo_path)
+                        c_ok = True
+                        self.log("SUCCESS", f"✅ [Tab #{tab_index}] Cover photo set via file input: {os.path.basename(cover_photo_path)}")
+                except Exception:
+                    pass
+
+            if c_ok:
+                await asyncio.sleep(2.5)
+
         return True
 
     async def _step2_customize_photos(self, page, tab_index: int, cfg: Dict[str, Any]) -> bool:
@@ -1024,145 +1040,260 @@ class FacebookPageCreatorBot:
           - Clicks 'Next' button
         """
         self.log("INFO", f"[Tab #{tab_index}] Processing 'Customize your Page' (Profile & Cover Photos)...")
-        await asyncio.sleep(1.5)
-
-        profile_photo_path = (cfg.get("profile_photo_path") or "").strip()
-        cover_photo_path = (cfg.get("cover_photo_path") or "").strip()
-
-        # 1. Upload Profile Picture
-        if profile_photo_path and os.path.isfile(profile_photo_path):
-            self.log("INFO", f"[Tab #{tab_index}] 📷 Uploading Profile Picture: {os.path.basename(profile_photo_path)}")
-            p_uploaded = False
-            try:
-                # Direct file input check
-                file_inputs = page.locator('input[type="file"]')
-                if await file_inputs.count() > 0:
-                    await file_inputs.nth(0).set_input_files(profile_photo_path)
-                    p_uploaded = True
-                    self.log("INFO", f"[Tab #{tab_index}] Profile picture file attached.")
-                    await asyncio.sleep(2.0)
-            except Exception:
-                pass
-
-            if not p_uploaded:
-                try:
-                    p_btn = page.locator('div[aria-label*="Add profile picture" i], div:has-text("Add profile picture")').first
-                    if await p_btn.count() > 0 and await p_btn.is_visible():
-                        async with page.expect_file_chooser(timeout=6000) as fc_info:
-                            await p_btn.click()
-                        file_chooser = await fc_info.value
-                        await file_chooser.set_files(profile_photo_path)
-                        p_uploaded = True
-                        self.log("INFO", f"[Tab #{tab_index}] Profile picture uploaded via chooser.")
-                        await asyncio.sleep(2.0)
-                except Exception as ex:
-                    self.log("DEBUG", f"[Tab #{tab_index}] Profile photo chooser notice: {ex}")
-
-        # 2. Upload Cover Photo
-        if cover_photo_path and os.path.isfile(cover_photo_path):
-            self.log("INFO", f"[Tab #{tab_index}] 🖼️ Uploading Cover Photo: {os.path.basename(cover_photo_path)}")
-            c_uploaded = False
-            try:
-                file_inputs = page.locator('input[type="file"]')
-                count = await file_inputs.count()
-                if count > 1:
-                    await file_inputs.nth(1).set_input_files(cover_photo_path)
-                    c_uploaded = True
-                    self.log("INFO", f"[Tab #{tab_index}] Cover photo file attached.")
-                    await asyncio.sleep(2.0)
-                elif count == 1:
-                    await file_inputs.nth(0).set_input_files(cover_photo_path)
-                    c_uploaded = True
-                    await asyncio.sleep(2.0)
-            except Exception:
-                pass
-
-            if not c_uploaded:
-                try:
-                    c_btn = page.locator('div[aria-label*="Add cover photo" i], div:has-text("Add cover photo")').first
-                    if await c_btn.count() > 0 and await c_btn.is_visible():
-                        async with page.expect_file_chooser(timeout=6000) as fc_info:
-                            await c_btn.click()
-                        file_chooser = await fc_info.value
-                        await file_chooser.set_files(cover_photo_path)
-                        c_uploaded = True
-                        self.log("INFO", f"[Tab #{tab_index}] Cover photo uploaded via chooser.")
-                        await asyncio.sleep(2.0)
-                except Exception as ex:
-                    self.log("DEBUG", f"[Tab #{tab_index}] Cover photo chooser notice: {ex}")
-
-        await asyncio.sleep(1.0)
-
-        # 3. Click 'Next' button
+        await self._upload_step2_photos(page, tab_index, cfg)
+        await asyncio.sleep(0.5)
         self.log("INFO", f"[Tab #{tab_index}] Clicking 'Next' on Customize Page...")
-        next_clicked = False
-        try:
-            for sel in ['button:has-text("Next")', 'div[role="button"]:has-text("Next")']:
-                btn = page.locator(sel).last
-                if await btn.count() > 0 and await btn.is_visible():
-                    await btn.click()
-                    next_clicked = True
-                    break
-        except Exception:
-            pass
-
-        if not next_clicked:
-            await page.evaluate("""() => {
-                const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
-                for (let i = btns.length - 1; i >= 0; i--) {
-                    const b = btns[i];
-                    if ((b.innerText || '').trim().toLowerCase() === 'next') {
-                        b.click();
-                        return true;
-                    }
-                }
-                return false;
-            }""")
-
+        await self._click_wizard_button(page, 'next')
         await asyncio.sleep(2.0)
         return True
 
-    async def _complete_remaining_wizard(self, page, tab_index: int) -> bool:
+    async def _click_wizard_button(self, page, btn_type: str = 'next') -> bool:
         """
-        Completes remaining wizard steps (WhatsApp Connect skip, Build audience, Stay informed, Done).
-        Clicks 'Done', 'Skip', or 'Next' until the Facebook page is completely finalized!
+        Robustly clicks 'Next', 'Skip', or 'Done'/'Save' in the active wizard panel.
+        Scrolls the sidebar container into view and fires both Playwright click and DOM dispatch.
         """
-        self.log("INFO", f"[Tab #{tab_index}] Finalizing page setup wizard...")
-        for step in range(5):
-            await asyncio.sleep(1.8)
+        btn_type = btn_type.lower()
 
-            # Check if 'Done' is visible and clickable
-            done_clicked = await page.evaluate("""() => {
-                const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
-                for (const b of btns) {
-                    const txt = (b.innerText || '').trim().toLowerCase();
-                    if (txt === 'done') {
+        # First scroll wizard scrollable containers down to ensure button is in view
+        try:
+            await page.evaluate("""() => {
+                const containers = Array.from(document.querySelectorAll('div[role="dialog"], div[role="main"], div[class*="scroll"], div[data-nosnippet]'));
+                for (const c of containers) {
+                    if (c.scrollHeight > c.clientHeight) {
+                        c.scrollTop = c.scrollHeight;
+                    }
+                }
+            }""")
+        except Exception:
+            pass
+
+        # Strategy 1: Targeted Playwright locators
+        target_selectors = []
+        if btn_type == 'next':
+            target_selectors = [
+                'div[aria-label="Next"][role="button"]',
+                'button:has-text("Next")',
+                'div[role="button"]:has-text("Next")',
+                'span:has-text("Next")'
+            ]
+        elif btn_type == 'skip':
+            target_selectors = [
+                'div[aria-label="Skip"][role="button"]',
+                'button:has-text("Skip")',
+                'div[role="button"]:has-text("Skip")',
+                'span:has-text("Skip")'
+            ]
+        elif btn_type == 'done':
+            target_selectors = [
+                'div[aria-label="Done"][role="button"]',
+                'button:has-text("Done")',
+                'div[role="button"]:has-text("Done")',
+                'div[aria-label="Save"][role="button"]',
+                'button:has-text("Save")',
+                'div[role="button"]:has-text("Save")'
+            ]
+
+        for sel in target_selectors:
+            try:
+                btn = page.locator(sel).last
+                if await btn.count() > 0 and await btn.is_visible():
+                    aria_dis = await btn.get_attribute("aria-disabled")
+                    if aria_dis == "true":
+                        continue
+                    await btn.scroll_into_view_if_needed()
+                    await btn.click()
+                    return True
+            except Exception:
+                pass
+
+        # Strategy 2: DOM Javascript click dispatch
+        try:
+            clicked = await page.evaluate("""(targetType) => {
+                const candidates = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"]'));
+                for (let i = candidates.length - 1; i >= 0; i--) {
+                    const b = candidates[i];
+                    const txt = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase();
+                    const dis = b.getAttribute('aria-disabled') === 'true' || b.hasAttribute('disabled');
+                    if (dis) continue;
+
+                    if (targetType === 'done' && (txt === 'done' || txt === 'save')) {
+                        b.scrollIntoView({ block: 'center' });
+                        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+                            b.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+                        });
+                        b.click();
+                        return true;
+                    }
+                    if (targetType === 'skip' && txt === 'skip') {
+                        b.scrollIntoView({ block: 'center' });
+                        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+                            b.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+                        });
+                        b.click();
+                        return true;
+                    }
+                    if (targetType === 'next' && txt === 'next') {
+                        b.scrollIntoView({ block: 'center' });
+                        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(evt => {
+                            b.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+                        });
                         b.click();
                         return true;
                     }
                 }
                 return false;
+            }""", btn_type)
+            if clicked:
+                return True
+        except Exception:
+            pass
+
+        return False
+
+    async def _execute_autonomous_wizard(self, page, tab_index: int, cfg: Dict[str, Any]) -> bool:
+        """
+        Intelligently and autonomously guides the Facebook Page Setup through all wizard stages:
+          - Step 1: Finish setting up your Page (Contact, Location, Hours) -> auto fills non-empty fields & clicks Next
+          - Step 2: Customize your Page (Profile & Cover Photos) -> uploads assigned photos & clicks Next
+          - Step 3: Connect WhatsApp -> clicks 'Skip' or 'Next'
+          - Step 4: Build your Page audience -> clicks 'Next'
+          - Step 5: Stay informed about your Page -> clicks 'Done'
+          - Dismisses popups ('Take a tour', 'Not now')
+          - Continuously monitors screen state with retry loops until page is 100% created and loaded!
+        """
+        self.log("INFO", f"[Tab #{tab_index}] Launching Autonomous Page Setup Wizard...")
+
+        step1_done = False
+        step2_done = False
+        whatsapp_done = False
+        audience_done = False
+        max_checks = 35
+
+        for attempt in range(max_checks):
+            await asyncio.sleep(1.8)
+
+            # 1. Check if Facebook has navigated away from creation into active Page view
+            try:
+                curr_url = page.url.lower()
+                if "facebook.com" in curr_url and "pages/create" not in curr_url and "pages/creation" not in curr_url and "category=top" not in curr_url:
+                    self.log("SUCCESS", f"🎉 [Tab #{tab_index}] Facebook Page setup is 100% completed and active!")
+                    return True
+            except Exception:
+                pass
+
+            # 2. Check for popups (e.g., 'Take a tour', 'Not now', 'Welcome to your new page')
+            try:
+                popup_handled = await page.evaluate("""() => {
+                    const btns = Array.from(document.querySelectorAll('div[role="dialog"] button, div[role="dialog"] div[role="button"]'));
+                    for (const b of btns) {
+                        const txt = (b.innerText || '').trim().toLowerCase();
+                        if (txt === 'not now' || txt === 'close' || txt === 'skip') {
+                            b.click();
+                            return true;
+                        }
+                    }
+                    return false;
+                }""")
+                if popup_handled:
+                    self.log("INFO", f"[Tab #{tab_index}] Dismissed onboarding tour popup.")
+                    await asyncio.sleep(1.0)
+            except Exception:
+                pass
+
+            # 3. Read current page state
+            try:
+                body_text = (await page.evaluate("() => (document.body.innerText || '').toLowerCase()"))
+            except Exception:
+                body_text = ""
+
+            # 4. Check if on Step 1: Finish setting up your page (Contact, Location, Hours)
+            if ("finish setting up your page" in body_text) or ("contact" in body_text and "website" in body_text and not step1_done):
+                if not step1_done:
+                    self.log("INFO", f"[Tab #{tab_index}] 📝 Step 1 detected: Filling Contact, Location, and Hours...")
+                    await self._fill_step1_fields(page, tab_index, cfg)
+                    step1_done = True
+                    await asyncio.sleep(1.0)
+
+                self.log("INFO", f"[Tab #{tab_index}] Clicking 'Next' to advance from Step 1...")
+                await self._click_wizard_button(page, 'next')
+                await asyncio.sleep(2.0)
+                continue
+
+            # 5. Check if on Step 2: Customize your page (Profile & Cover Photos)
+            if ("customize your page" in body_text) or ("add profile picture" in body_text) or ("add cover photo" in body_text):
+                if not step2_done:
+                    self.log("INFO", f"[Tab #{tab_index}] 🖼️ Step 2 detected: Uploading Profile & Cover Photos...")
+                    await self._upload_step2_photos(page, tab_index, cfg)
+                    step2_done = True
+                    await asyncio.sleep(1.0)
+
+                self.log("INFO", f"[Tab #{tab_index}] Clicking 'Next' to advance from Step 2...")
+                await self._click_wizard_button(page, 'next')
+                await asyncio.sleep(2.0)
+                continue
+
+            # 6. Check if on WhatsApp step
+            if "whatsapp" in body_text:
+                self.log("INFO", f"[Tab #{tab_index}] ⏩ WhatsApp step detected: Clicking 'Skip'...")
+                skipped = await self._click_wizard_button(page, 'skip')
+                if not skipped:
+                    await self._click_wizard_button(page, 'next')
+                whatsapp_done = True
+                await asyncio.sleep(2.0)
+                continue
+
+            # 7. Check if on Audience / Invite friends step
+            if ("build your page audience" in body_text) or ("invite friends" in body_text):
+                self.log("INFO", f"[Tab #{tab_index}] 👥 Audience step detected: Clicking 'Next'...")
+                await self._click_wizard_button(page, 'next')
+                audience_done = True
+                await asyncio.sleep(2.0)
+                continue
+
+            # 8. Check if on 'Stay informed' or 'Done' / 'Save' is ready
+            done_found = await page.evaluate("""() => {
+                const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
+                for (const b of btns) {
+                    const txt = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase();
+                    if (txt === 'done' || txt === 'save') {
+                        return true;
+                    }
+                }
+                return false;
             }""")
-            if done_clicked:
+            if done_found or "stay informed" in body_text:
+                self.log("INFO", f"[Tab #{tab_index}] 🏁 Final wizard step detected: Clicking 'Done'...")
+                await self._click_wizard_button(page, 'done')
                 self.log("SUCCESS", f"🎉 [Tab #{tab_index}] Clicked 'Done'! Facebook Page setup is 100% complete!")
-                await asyncio.sleep(2.5)
+                await asyncio.sleep(3.0)
                 return True
 
-            # Check if 'Skip' (WhatsApp step) or 'Next' is available
-            progressed = await page.evaluate("""() => {
+            # 9. Generic Fallback: if Next or Skip or Done is available, click it
+            fallback_clicked = await page.evaluate("""() => {
                 const btns = Array.from(document.querySelectorAll('button, div[role="button"]'));
-                // Skip if WhatsApp dialog
                 for (const b of btns) {
                     const txt = (b.innerText || '').trim().toLowerCase();
+                    const dis = b.getAttribute('aria-disabled') === 'true' || b.hasAttribute('disabled');
+                    if (dis) continue;
+                    if (txt === 'done' || txt === 'save') {
+                        b.click();
+                        return 'Done';
+                    }
+                }
+                for (const b of btns) {
+                    const txt = (b.innerText || '').trim().toLowerCase();
+                    const dis = b.getAttribute('aria-disabled') === 'true' || b.hasAttribute('disabled');
+                    if (dis) continue;
                     if (txt === 'skip') {
                         b.click();
                         return 'Skip';
                     }
                 }
-                // Next for audience or stay informed
                 for (let i = btns.length - 1; i >= 0; i--) {
                     const b = btns[i];
                     const txt = (b.innerText || '').trim().toLowerCase();
+                    const dis = b.getAttribute('aria-disabled') === 'true' || b.hasAttribute('disabled');
+                    if (dis) continue;
                     if (txt === 'next') {
                         b.click();
                         return 'Next';
@@ -1170,16 +1301,19 @@ class FacebookPageCreatorBot:
                 }
                 return null;
             }""")
+            if fallback_clicked:
+                self.log("INFO", f"[Tab #{tab_index}] Wizard progressed via: '{fallback_clicked}'")
+                await asyncio.sleep(2.0)
 
-            if progressed:
-                self.log("INFO", f"[Tab #{tab_index}] Advanced wizard step: '{progressed}'...")
-            else:
-                curr_url = page.url.lower()
-                if "facebook.com" in curr_url and "pages/creation" not in curr_url:
-                    self.log("SUCCESS", f"🎉 [Tab #{tab_index}] Setup complete! Navigated to Facebook Page.")
-                    return True
-
+        self.log("INFO", f"✅ [Tab #{tab_index}] Wizard completed.")
         return True
+
+    async def _complete_remaining_wizard(self, page, tab_index: int) -> bool:
+        """
+        Completes remaining wizard steps (WhatsApp Connect skip, Build audience, Stay informed, Done).
+        Clicks 'Done', 'Skip', or 'Next' until the Facebook page is completely finalized!
+        """
+        return await self._execute_autonomous_wizard(page, tab_index, {})
 
     async def create_pages_workflow(
         self,
@@ -1277,30 +1411,13 @@ class FacebookPageCreatorBot:
         await asyncio.gather(*verify_tasks, return_exceptions=True)
         await asyncio.sleep(1.5)
 
-        # Step 6: Phase 4 - Concurrently Fill Step 1: Finish setting up your Page (Contact, Location, Hours)
-        self.log("INFO", "🌐 [Phase 4/5] Concurrently filling Contact, Location & Hours across all tabs...")
-        step1_tasks = []
+        # Step 6: Phase 4/5 - Autonomous Setup Wizard across all tabs (Step 1, Step 2 Photos, WhatsApp, Audience, Done)
+        self.log("INFO", "🧙 [Phase 4/5] Executing Autonomous Setup Wizard across all tabs simultaneously...")
+        wizard_tasks = []
         for idx, (p, cfg) in enumerate(zip(pages, page_configs)):
-            step1_tasks.append(self._step1_finish_setup(p, idx + 1, cfg))
+            wizard_tasks.append(self._execute_autonomous_wizard(p, idx + 1, cfg))
 
-        await asyncio.gather(*step1_tasks, return_exceptions=True)
-        await asyncio.sleep(2.0)
-
-        # Step 7: Phase 5 - Concurrently Fill Step 2: Customize your Page (Profile & Cover Photos) & Finish
-        self.log("INFO", "🖼️ [Phase 5/5] Concurrently uploading Profile/Cover Photos & finalizing Page Setup...")
-        photo_tasks = []
-        for idx, (p, cfg) in enumerate(zip(pages, page_configs)):
-            photo_tasks.append(self._step2_customize_photos(p, idx + 1, cfg))
-
-        await asyncio.gather(*photo_tasks, return_exceptions=True)
-        await asyncio.sleep(2.0)
-
-        # Step 8: Final wizard steps (WhatsApp, Invite, Done)
-        final_tasks = []
-        for idx, (p, cfg) in enumerate(zip(pages, page_configs)):
-            final_tasks.append(self._complete_remaining_wizard(p, idx + 1))
-
-        final_results = await asyncio.gather(*final_tasks, return_exceptions=True)
+        final_results = await asyncio.gather(*wizard_tasks, return_exceptions=True)
 
         for idx, (cfg, ok) in enumerate(zip(page_configs, final_results)):
             success = bool(ok is True)
