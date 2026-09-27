@@ -320,6 +320,17 @@ except ImportError:
     except ImportError:
         HAS_REELS_BOT = False
 
+# Phase 11: Facebook Profile & Cover Photo Bulk Updater Engine
+try:
+    from automation.profile_picture_bot import FacebookProfilePictureBot
+    HAS_PROFILE_PIC_BOT = True
+except ImportError:
+    try:
+        from desktop_app.automation.profile_picture_bot import FacebookProfilePictureBot
+        HAS_PROFILE_PIC_BOT = True
+    except ImportError:
+        HAS_PROFILE_PIC_BOT = False
+
 # Licensing Subsystem & Anti-Tamper Protection
 try:
     from utils.licensing import (
@@ -1411,6 +1422,13 @@ class PageCreationWorker(QThread):
                 if not self._is_running:
                     return
 
+                # Stagger concurrent browser launches to prevent CPU, disk I/O, and window focus contention
+                if acc_idx > 0 and effective_browsers > 1:
+                    stagger_s = min(4.5, (acc_idx % effective_browsers) * 2.5)
+                    if stagger_s > 0:
+                        self.log_signal.emit("INFO", f"⏳ Staggering browser #{acc_idx + 1} startup by {stagger_s:.1f}s for optimal stability...")
+                        await asyncio.sleep(stagger_s)
+
                 tag = f"[{acc.get('name', 'Account')}]"
                 self.log_signal.emit("INFO", f"▶️ {tag} Launching Desktop Chrome for Page Creation...")
 
@@ -1459,6 +1477,8 @@ class PageCreationWorker(QThread):
                     self.log_signal.emit("INFO", f"📷 {tag} Photos Assigned: " + " | ".join(summary_parts))
 
                 acc_copy = dict(acc)
+                if not acc_copy.get("id"):
+                    acc_copy["id"] = f"acc_{acc_idx}_{int(time.time())}"
                 acc_copy["network_mode"] = self.payload.get("network_mode", "direct")
 
                 bot = FacebookPageCreatorBot(
@@ -1732,6 +1752,7 @@ class ReelsUploaderWorker(QThread):
 
         reels_per_acc = int(self.payload.get("reels_per_account", 5))
         delay_seconds = float(self.payload.get("delay_seconds", 15.0))
+        account_delay_seconds = float(self.payload.get("account_delay_seconds", 10.0))
         caption_template = self.payload.get("caption_template", "")
         selection_mode = self.payload.get("selection_mode", "Random Pool (No Dup)")
         concurrent_browsers = max(1, int(self.payload.get("concurrent_browsers", 2)))
@@ -1754,31 +1775,61 @@ class ReelsUploaderWorker(QThread):
                 if not self._is_running:
                     return
 
+                # Stagger concurrent browser launches to prevent CPU, disk I/O, and window focus contention
+                if acc_idx > 0 and concurrent_browsers > 1:
+                    stagger_s = min(6.0, (acc_idx % concurrent_browsers) * 3.0)
+                    if stagger_s > 0:
+                        self.log_signal.emit("INFO", f"⏳ Staggering browser #{acc_idx + 1} startup by {stagger_s:.1f}s for optimal stability...")
+                        await asyncio.sleep(stagger_s)
+
                 acc_copy = dict(acc)
+                if not acc_copy.get("id"):
+                    acc_copy["id"] = f"acc_{acc_idx}_{int(time.time())}"
                 acc_copy["network_mode"] = network_mode
+                tag = f"[{acc.get('name', 'Account')}]"
 
-                bot = FacebookReelsUploaderBot(
-                    account_data=acc_copy,
-                    video_files=video_files,
-                    reels_per_account=reels_per_acc,
-                    delay_seconds=delay_seconds,
-                    caption_template=caption_template,
-                    selection_mode=selection_mode,
-                    log_callback=self._log_bridge,
-                    progress_callback=self._progress_bridge,
-                    counter_callback=self._counter_bridge
-                )
-                self.active_bots.append(bot)
+                # Automatic retry per account: if an account fails or uploads 0 reels, restart browser cleanly and retry
+                max_attempts = 2
+                for attempt in range(1, max_attempts + 1):
+                    if not self._is_running:
+                        break
 
-                try:
-                    res = await bot.run()
-                    c = res.get("count", 0)
-                    total_uploaded += c
-                except Exception as ex:
-                    self.log_signal.emit("ERROR", f"[{acc.get('name')}] Error: {str(ex)}")
-                finally:
-                    if bot in self.active_bots:
-                        self.active_bots.remove(bot)
+                    if attempt > 1:
+                        self.log_signal.emit("WARNING", f"🔁 {tag} Retrying Reels upload (Attempt {attempt}/{max_attempts}) - Opening fresh browser session...")
+                        await asyncio.sleep(4.0)
+
+                    bot = FacebookReelsUploaderBot(
+                        account_data=acc_copy,
+                        video_files=video_files,
+                        reels_per_account=reels_per_acc,
+                        delay_seconds=delay_seconds,
+                        caption_template=caption_template,
+                        selection_mode=selection_mode,
+                        log_callback=self._log_bridge,
+                        progress_callback=self._progress_bridge,
+                        counter_callback=self._counter_bridge
+                    )
+                    self.active_bots.append(bot)
+
+                    try:
+                        res = await bot.run()
+                        c = res.get("count", 0)
+                        total_uploaded += c
+                        if res.get("success", False) or c > 0:
+                            break
+                        elif attempt < max_attempts and self._is_running:
+                            self.log_signal.emit("WARNING", f"⚠️ {tag} Attempt {attempt} completed with 0 reels. Retrying with a clean browser...")
+                    except Exception as ex:
+                        self.log_signal.emit("ERROR", f"{tag} Attempt {attempt} error: {str(ex)}")
+                        if attempt < max_attempts and self._is_running:
+                            self.log_signal.emit("INFO", f"🔄 {tag} Restarting account browser for clean retry...")
+                    finally:
+                        if bot in self.active_bots:
+                            self.active_bots.remove(bot)
+                        try:
+                            await bot.close()
+                        except Exception:
+                            pass
 
                 completed_accs += 1
                 percent = int((completed_accs / total_accs) * 100)
@@ -1788,11 +1839,209 @@ class ReelsUploaderWorker(QThread):
                 if acc_id:
                     self.account_completed_signal.emit(acc_id)
 
+                # Inter-account pause if there are remaining accounts
+                if account_delay_seconds > 0 and completed_accs < total_accs and self._is_running:
+                    await asyncio.sleep(min(account_delay_seconds, 15.0))
+
         tasks = [_process_account(acc, idx) for idx, acc in enumerate(accounts)]
         await asyncio.gather(*tasks, return_exceptions=True)
 
         if self._is_running:
             msg = f"🎉 Bulk Reels Automation finished! Successfully uploaded {total_uploaded} reels across {len(accounts)} account(s)."
+            self.log_signal.emit("SUCCESS", msg)
+            self.progress_signal.emit(100)
+            self.finished_signal.emit(True, msg)
+
+
+# ------------------------------------------------------------------------------
+# Asynchronous FB Profile & Cover Photo Worker Thread (Phase 11: Bulk Photos)
+# ------------------------------------------------------------------------------
+class ProfilePictureWorker(QThread):
+    """
+    Asynchronous background worker that orchestrates Facebook Profile Picture
+    and Cover Photo uploads across multiple accounts using Playwright.
+    """
+    log_signal = pyqtSignal(str, str)  # (level, message)
+    progress_signal = pyqtSignal(int)
+    counter_signal = pyqtSignal(str, int)  # (acc_id, count)
+    account_completed_signal = pyqtSignal(str)  # (acc_id)
+    finished_signal = pyqtSignal(bool, str)
+
+    def __init__(self, payload: Dict[str, Any], parent=None):
+        super().__init__(parent)
+        self.payload = payload
+        self._is_running = True
+        self.loop = None
+        self.active_bots: List[Any] = []
+
+    def stop(self):
+        self._is_running = False
+        for b in list(self.active_bots):
+            try:
+                b.cancel()
+            except Exception:
+                pass
+        self.log_signal.emit("WARNING", "Stopping profile picture updater engine...")
+
+    def _log_bridge(self, level: str, msg: str):
+        if self._is_running:
+            self.log_signal.emit(level, msg)
+
+    def _progress_bridge(self, percent: int):
+        if self._is_running:
+            self.progress_signal.emit(percent)
+
+    def _counter_bridge(self, acc_id: str, count: int):
+        if self._is_running:
+            self.counter_signal.emit(acc_id, count)
+
+    def run(self):
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        try:
+            self.loop.run_until_complete(self._execute_task())
+        except Exception as e:
+            if self._is_running:
+                self.log_signal.emit("ERROR", f"Profile Picture Worker error: {str(e)}")
+                self.finished_signal.emit(False, str(e))
+        finally:
+            try:
+                self.loop.close()
+            except Exception:
+                pass
+
+    async def _execute_task(self):
+        if not HAS_PROFILE_PIC_BOT:
+            self.log_signal.emit("ERROR", "Profile Picture Bot engine module not found.")
+            self.finished_signal.emit(False, "Profile Picture bot module missing.")
+            return
+
+        accounts = self.payload.get("accounts", [])
+        if not accounts:
+            self.log_signal.emit("ERROR", "No target Facebook accounts selected.")
+            self.finished_signal.emit(False, "No accounts selected.")
+            return
+
+        profile_photos = self.payload.get("profile_photos", [])
+        cover_photos = self.payload.get("cover_photos", [])
+        update_profile = self.payload.get("update_profile", True) and bool(profile_photos)
+        update_cover = self.payload.get("update_cover", True) and bool(cover_photos)
+
+        if not update_profile and not update_cover:
+            self.log_signal.emit("ERROR", "Please add at least Profile Pictures or Cover Photos.")
+            self.finished_signal.emit(False, "No photos loaded to upload.")
+            return
+
+        selection_mode = self.payload.get("selection_mode", "Random (No Duplicate)")
+        concurrent_browsers = max(1, int(self.payload.get("concurrent_browsers", 2)))
+        action_delay = float(self.payload.get("action_delay", 5.0))
+        account_delay = float(self.payload.get("account_delay", 10.0))
+        network_mode = self.payload.get("network_mode", "direct")
+
+        self.log_signal.emit(
+            "INFO",
+            f"🚀 Starting Bulk Profile & Cover Photo Update on {len(accounts)} account(s) "
+            f"(Profile Photos: {len(profile_photos)}, Cover Photos: {len(cover_photos)}, Concurrency: {concurrent_browsers})..."
+        )
+
+        sem = asyncio.Semaphore(concurrent_browsers)
+        total_accs = len(accounts)
+        completed_accs = 0
+        total_successful = 0
+
+        profile_pool = list(profile_photos)
+        cover_pool = list(cover_photos)
+
+        async def _process_account(acc: Dict[str, Any], acc_idx: int):
+            nonlocal completed_accs, total_successful
+            async with sem:
+                if not self._is_running:
+                    return
+
+                if acc_idx > 0 and concurrent_browsers > 1:
+                    stagger_s = min(6.0, (acc_idx % concurrent_browsers) * 3.0)
+                    if stagger_s > 0:
+                        self.log_signal.emit("INFO", f"⏳ Staggering browser #{acc_idx + 1} startup by {stagger_s:.1f}s for optimal stability...")
+                        await asyncio.sleep(stagger_s)
+
+                acc_copy = dict(acc)
+                if not acc_copy.get("id"):
+                    acc_copy["id"] = f"acc_{acc_idx}_{int(time.time())}"
+                acc_copy["network_mode"] = network_mode
+                tag = f"[{acc.get('name', 'Account')}]"
+
+                p_photo = ""
+                if update_profile and profile_pool:
+                    if selection_mode == "Sequential (Top to Bottom)":
+                        p_photo = profile_pool[acc_idx % len(profile_pool)]
+                    else:
+                        p_photo = random.choice(profile_pool)
+
+                c_photo = ""
+                if update_cover and cover_pool:
+                    if selection_mode == "Sequential (Top to Bottom)":
+                        c_photo = cover_pool[acc_idx % len(cover_pool)]
+                    else:
+                        c_photo = random.choice(cover_pool)
+
+                p_name = os.path.basename(p_photo) if p_photo else 'None'
+                c_name = os.path.basename(c_photo) if c_photo else 'None'
+                self.log_signal.emit("INFO", f"🖼️ {tag} Assigned Photos: Profile: {p_name} | Cover: {c_name}")
+
+                max_attempts = 2
+                for attempt in range(1, max_attempts + 1):
+                    if not self._is_running:
+                        break
+
+                    if attempt > 1:
+                        self.log_signal.emit("WARNING", f"🔁 {tag} Retrying Photo Update (Attempt {attempt}/{max_attempts}) - Opening fresh browser session...")
+                        await asyncio.sleep(4.0)
+
+                    bot = FacebookProfilePictureBot(
+                        account_data=acc_copy,
+                        profile_photo_path=p_photo,
+                        cover_photo_path=c_photo,
+                        action_delay=action_delay,
+                        log_callback=self._log_bridge,
+                        progress_callback=self._progress_bridge,
+                        counter_callback=self._counter_bridge
+                    )
+                    self.active_bots.append(bot)
+
+                    try:
+                        res = await bot.run()
+                        if res.get("success", False):
+                            total_successful += 1
+                            break
+                        elif attempt < max_attempts and self._is_running:
+                            self.log_signal.emit("WARNING", f"⚠️ {tag} Attempt {attempt} was incomplete. Retrying with a clean browser...")
+                    except Exception as ex:
+                        self.log_signal.emit("ERROR", f"{tag} Attempt {attempt} error: {str(ex)}")
+                        if attempt < max_attempts and self._is_running:
+                            self.log_signal.emit("INFO", f"🔄 {tag} Restarting browser for clean retry...")
+                    finally:
+                        if bot in self.active_bots:
+                            self.active_bots.remove(bot)
+                        try:
+                            await bot.close()
+                        except Exception:
+                            pass
+
+                completed_accs += 1
+                percent = int((completed_accs / total_accs) * 100)
+                self.progress_signal.emit(percent)
+                acc_id = str(acc.get("id", ""))
+                if acc_id:
+                    self.account_completed_signal.emit(acc_id)
+
+                if account_delay > 0 and completed_accs < total_accs and self._is_running:
+                    await asyncio.sleep(min(account_delay, 15.0))
+
+        tasks = [_process_account(acc, idx) for idx, acc in enumerate(accounts)]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        if self._is_running:
+            msg = f"🎉 Profile & Cover Photo Automation finished! Successfully updated {total_successful} of {len(accounts)} account(s)."
             self.log_signal.emit("SUCCESS", msg)
             self.progress_signal.emit(100)
             self.finished_signal.emit(True, msg)
@@ -2916,6 +3165,11 @@ class FBAutoBotMainWindow(QMainWindow):
         self.friend_request_worker = None
         self.reels_worker = None
         self.reels_media_pool = []
+        self.profile_pic_worker = None
+        self.profile_photos_pool = []
+        self.cover_photos_pool = []
+        self.profile_pic_acc_checkboxes = []
+        self.profile_pic_counter_labels = {}
         self.health_worker = None
         self.manual_worker = None
         self.ai_worker = None
@@ -3026,21 +3280,23 @@ class FBAutoBotMainWindow(QMainWindow):
         self.page_create_fb_page = self.create_page_creation_page()
         self.page_reels_upload = self.create_reels_page()
         self.page_friend_request = self.create_friend_request_page()
+        self.page_profile_picture = self.create_profile_picture_page()
         self.page_ai = self.create_ai_page()
         self.page_settings = self.create_settings_page()
         self.page_profile = self.create_profile_page()
 
-        self.pages_stack.addWidget(self.page_dashboard)       # Index 0
-        self.pages_stack.addWidget(self.page_accounts)        # Index 1
-        self.pages_stack.addWidget(self.page_automation)      # Index 2 (Standard Listing Marketplace)
-        self.pages_stack.addWidget(self.page_project_listing) # Index 3 (Project Listing Marketplace)
-        self.pages_stack.addWidget(self.page_group_posting)   # Index 4 (FB Group Posting)
-        self.pages_stack.addWidget(self.page_create_fb_page)  # Index 5 (Create FB Page)
-        self.pages_stack.addWidget(self.page_reels_upload)    # Index 6 (Upload FB Reels)
-        self.pages_stack.addWidget(self.page_friend_request)  # Index 7 (Auto FB Request Accept)
-        self.pages_stack.addWidget(self.page_ai)              # Index 8 (AI Content Spinner)
-        self.pages_stack.addWidget(self.page_settings)        # Index 9 (Settings & Stealth)
-        self.pages_stack.addWidget(self.page_profile)         # Index 10 (User Profile & Activity Logs)
+        self.pages_stack.addWidget(self.page_dashboard)        # Index 0
+        self.pages_stack.addWidget(self.page_accounts)         # Index 1
+        self.pages_stack.addWidget(self.page_automation)       # Index 2 (Standard Listing Marketplace)
+        self.pages_stack.addWidget(self.page_project_listing)  # Index 3 (Project Listing Marketplace)
+        self.pages_stack.addWidget(self.page_group_posting)    # Index 4 (FB Group Posting)
+        self.pages_stack.addWidget(self.page_create_fb_page)   # Index 5 (Create FB Page)
+        self.pages_stack.addWidget(self.page_reels_upload)     # Index 6 (Upload FB Reels)
+        self.pages_stack.addWidget(self.page_friend_request)   # Index 7 (Auto FB Request Accept)
+        self.pages_stack.addWidget(self.page_profile_picture)  # Index 8 (Add Profile Picture)
+        self.pages_stack.addWidget(self.page_ai)               # Index 9 (AI Content Spinner)
+        self.pages_stack.addWidget(self.page_settings)         # Index 10 (Settings & Stealth)
+        self.pages_stack.addWidget(self.page_profile)          # Index 11 (User Profile & Activity Logs)
 
         content_layout.addWidget(self.pages_stack, stretch=7)
 
@@ -3113,7 +3369,7 @@ class FBAutoBotMainWindow(QMainWindow):
             font-weight: 700;
             padding: 4px 10px;
         """)
-        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(10)
+        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(11)
         right_layout.addWidget(self.header_countdown_pill)
 
         # User Profile Chip
@@ -3137,7 +3393,7 @@ class FBAutoBotMainWindow(QMainWindow):
                 border: 1px solid rgba(255, 255, 255, 0.25);
             }
         """)
-        self.header_user_chip.clicked.connect(lambda: self.switch_tab(10))
+        self.header_user_chip.clicked.connect(lambda: self.switch_tab(11))
         right_layout.addWidget(self.header_user_chip)
 
         # Quick Key Button
@@ -3226,7 +3482,7 @@ class FBAutoBotMainWindow(QMainWindow):
         version_lbl.setStyleSheet("font-size: 10px; font-weight: 700; color: #6366f1; letter-spacing: 1px; margin-bottom: 16px;")
         layout.addWidget(version_lbl)
 
-        # Navigation Buttons (11 Tabs)
+        # Navigation Buttons (12 Tabs)
         self.nav_buttons = []
         nav_items = [
             ("📊 Dashboard", 0),
@@ -3237,9 +3493,10 @@ class FBAutoBotMainWindow(QMainWindow):
             ("📄 Create FB Pages", 5),
             ("🎥 Upload FB Reels", 6),
             ("🤝 Auto FB Friend Accept", 7),
-            ("🧠 AI Content Spinner", 8),
-            ("⚙️ Settings & Stealth", 9),
-            ("👤 User Profile & Logs", 10),
+            ("🖼️ Add Profile Picture", 8),
+            ("🧠 AI Content Spinner", 9),
+            ("⚙️ Settings & Stealth", 10),
+            ("👤 User Profile & Logs", 11),
         ]
 
         for text, index in nav_items:
@@ -3288,6 +3545,7 @@ class FBAutoBotMainWindow(QMainWindow):
             "Create FB Pages",
             "Upload FB Reels Automation",
             "Auto FB Friend Accept & Reject",
+            "Add Profile Picture & Cover Photo",
             "AI Content Spinner & Intelligence",
             "Settings & Stealth Parameters",
             "User Profile & Activity Logs"
@@ -3296,7 +3554,7 @@ class FBAutoBotMainWindow(QMainWindow):
             self.header_page_title.setText(tab_names[index])
 
         # If switching to profile page, ensure data is fresh
-        if index == 10 and hasattr(self, 'update_profile_page_data'):
+        if index == 11 and hasattr(self, 'update_profile_page_data'):
             self.update_profile_page_data()
 
     # --------------------------------------------------------------------------
@@ -4927,10 +5185,35 @@ class FBAutoBotMainWindow(QMainWindow):
         if not checked_rows:
             for item in self.accounts_table.selectedItems():
                 checked_rows.add(item.row())
+            if not checked_rows and self.accounts_table.currentRow() >= 0:
+                checked_rows.add(self.accounts_table.currentRow())
+
+        # Build lookup table by ID and name
+        acc_by_id = {}
+        for acc in self.accounts_list:
+            aid = acc.get("id") or acc.get("name")
+            if aid:
+                acc_by_id[str(aid)] = acc
+            if acc.get("name"):
+                acc_by_id[str(acc.get("name"))] = acc
 
         for r in sorted(checked_rows):
-            if 0 <= r < len(self.accounts_list):
-                selected_accs.append(self.accounts_list[r])
+            name_item = self.accounts_table.item(r, 2)
+            chk_item = self.accounts_table.item(r, 0)
+            row_id = None
+            if name_item and name_item.data(Qt.UserRole):
+                row_id = str(name_item.data(Qt.UserRole))
+            elif chk_item and chk_item.data(Qt.UserRole):
+                row_id = str(chk_item.data(Qt.UserRole))
+
+            if row_id and row_id in acc_by_id:
+                matched = acc_by_id[row_id]
+                if matched not in selected_accs:
+                    selected_accs.append(matched)
+            elif 0 <= r < len(self.accounts_list):
+                matched = self.accounts_list[r]
+                if matched not in selected_accs:
+                    selected_accs.append(matched)
         return selected_accs
 
     def refresh_accounts_table(self):
@@ -5478,29 +5761,68 @@ class FBAutoBotMainWindow(QMainWindow):
         self.health_worker.start()
 
     def delete_selected_account(self):
-        """Removes the selected account and its isolated profile."""
-        acc = self._get_selected_account()
-        if not acc:
-            QMessageBox.information(self, "Select Account", "Please click an account in the table to delete it.")
+        """Removes all checked or selected accounts and their isolated profiles."""
+        selected_accs = self._get_selected_accounts()
+        if not selected_accs:
+            single = self._get_selected_account()
+            if single:
+                selected_accs = [single]
+
+        if not selected_accs:
+            QMessageBox.information(
+                self,
+                "Select Account(s)",
+                "Please select or check the account(s) you wish to remove.\n(Use '☑️ Select All' or check the box next to any profile)."
+            )
             return
 
-        name = acc.get("name", "Account")
-        acc_id = acc.get("id", name)
+        count = len(selected_accs)
+        if count == 1:
+            name = selected_accs[0].get("name", "Account")
+            msg = f"Are you sure you want to remove profile '{name}' and delete its isolated session cache?"
+            title = "Confirm Removal"
+        else:
+            msg = f"Are you sure you want to remove all {count} selected profiles and delete their session cache?"
+            title = f"Confirm Batch Removal ({count} Accounts)"
+
         reply = QMessageBox.question(
             self,
-            "Confirm Removal",
-            f"Are you sure you want to remove profile '{name}' and delete its isolated session cache?",
+            title,
+            msg,
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
-        if reply == QMessageBox.Yes:
-            if self.session_manager:
-                self.session_manager.delete_account(acc_id, purge_profile_data=True)
-            self.accounts_list = [a for a in self.accounts_list if a.get("id") != acc_id and a.get("name") != name]
-            self.refresh_accounts_table()
-            self.update_account_dropdown()
-            self.refresh_dashboard_metrics()
-            self.log_message("SUCCESS", f"Profile '{name}' deleted from vault.")
+        if reply != QMessageBox.Yes:
+            return
+
+        ids_to_purge = []
+        for acc in selected_accs:
+            acc_id = acc.get("id") or acc.get("name")
+            if acc_id:
+                ids_to_purge.append(str(acc_id))
+
+        if self.session_manager:
+            if hasattr(self.session_manager, "delete_accounts"):
+                self.session_manager.delete_accounts(ids_to_purge, purge_profile_data=True)
+            else:
+                for a_id in ids_to_purge:
+                    self.session_manager.delete_account(a_id, purge_profile_data=True)
+
+        purge_id_set = set(ids_to_purge)
+        names_set = {str(a.get("name")) for a in selected_accs if a.get("name")}
+        self.accounts_list = [
+            a for a in self.accounts_list
+            if str(a.get("id")) not in purge_id_set and str(a.get("name")) not in purge_id_set and str(a.get("name")) not in names_set
+        ]
+
+        self.refresh_accounts_table()
+        self.update_account_dropdown()
+        self.refresh_dashboard_metrics()
+
+        if count == 1:
+            self.log_message("SUCCESS", f"Profile '{selected_accs[0].get('name', 'Account')}' deleted from vault.")
+        else:
+            self.log_message("SUCCESS", f"Batch Removal: Successfully deleted {count} profiles from vault.")
 
     def update_dashboard_account_filter(self):
         """Updates the account dropdown in Dashboard Total Listings card."""
@@ -10070,10 +10392,11 @@ class FBAutoBotMainWindow(QMainWindow):
         acc_bottom_row.addWidget(delay_lbl)
 
         self.page_delay_spin = QSpinBox()
-        self.page_delay_spin.setRange(1, 20)
-        self.page_delay_spin.setValue(2)
+        self.page_delay_spin.setRange(1, 30)
+        self.page_delay_spin.setValue(5)
         self.page_delay_spin.setSuffix("s")
         self.page_delay_spin.setFixedWidth(75)
+        self.page_delay_spin.setToolTip("Action delay between form wizard steps and consecutive pages. Recommended: 5 - 10s for 100% stability and zero rate-limiting.")
         self.page_delay_spin.setStyleSheet("font-weight: 800; color: #e2e8f0; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 4px;")
         acc_bottom_row.addWidget(self.page_delay_spin)
 
@@ -11074,13 +11397,14 @@ class FBAutoBotMainWindow(QMainWindow):
         self.reels_concurrent_spin.setStyleSheet("font-weight: 800; color: #e2e8f0; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 4px;")
         cfg_row.addWidget(self.reels_concurrent_spin)
 
-        d_lbl = QLabel("⏱️ Speed Delay (Sec):")
+        d_lbl = QLabel("⏱️ Account Delay (Sec):")
         d_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700;")
         cfg_row.addWidget(d_lbl)
         self.reels_delay_spin = QDoubleSpinBox()
-        self.reels_delay_spin.setRange(2.0, 120.0)
+        self.reels_delay_spin.setRange(1.0, 120.0)
         self.reels_delay_spin.setSingleStep(1.0)
-        self.reels_delay_spin.setValue(15.0)
+        self.reels_delay_spin.setValue(10.0)
+        self.reels_delay_spin.setToolTip("Pause duration between processing consecutive accounts. Recommended: 5 - 10s for smooth operation.")
         self.reels_delay_spin.setStyleSheet("font-weight: 800; color: #e2e8f0; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 4px;")
         cfg_row.addWidget(self.reels_delay_spin)
 
@@ -11183,12 +11507,13 @@ class FBAutoBotMainWindow(QMainWindow):
         dist_row.addLayout(c1)
 
         c2 = QVBoxLayout()
-        lbl_delay = QLabel("Delay (Seconds):")
+        lbl_delay = QLabel("⏳ Delay Between Reels (Sec):")
         lbl_delay.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700;")
         c2.addWidget(lbl_delay)
         self.reels_item_delay_spin = QSpinBox()
         self.reels_item_delay_spin.setRange(2, 180)
         self.reels_item_delay_spin.setValue(15)
+        self.reels_item_delay_spin.setToolTip("Cooldown delay between consecutive reels on the same account. Recommended: 10 - 15s to let Facebook finalize video processing.")
         self.reels_item_delay_spin.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-weight: 800; border: 1px solid rgba(255,255,255,0.2); border-radius: 5px; padding: 4px;")
         c2.addWidget(self.reels_item_delay_spin)
         dist_row.addLayout(c2)
@@ -11598,6 +11923,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         reels_per_acc = self.reels_per_acc_spin.value() if hasattr(self, 'reels_per_acc_spin') else 5
         delay_seconds = float(self.reels_item_delay_spin.value()) if hasattr(self, 'reels_item_delay_spin') else 15.0
+        account_delay_seconds = float(self.reels_delay_spin.value()) if hasattr(self, 'reels_delay_spin') else 10.0
         caption = self.reels_caption_input.toPlainText().strip() if hasattr(self, 'reels_caption_input') else ""
         selection_mode = self.reels_selection_combo.currentText().strip() if hasattr(self, 'reels_selection_combo') else "Random Pool (No Dup)"
         concurrent_browsers = self.reels_concurrent_spin.value() if hasattr(self, 'reels_concurrent_spin') else 2
@@ -11611,6 +11937,7 @@ class FBAutoBotMainWindow(QMainWindow):
             "video_files": list(self.reels_media_pool),
             "reels_per_account": reels_per_acc,
             "delay_seconds": delay_seconds,
+            "account_delay_seconds": account_delay_seconds,
             "caption_template": caption,
             "selection_mode": selection_mode,
             "concurrent_browsers": concurrent_browsers,
@@ -12442,6 +12769,643 @@ class FBAutoBotMainWindow(QMainWindow):
             QMessageBox.information(self, "Request Automation Complete", f"Facebook Friend Request Automation Complete!\n\n{message}")
         else:
             QMessageBox.warning(self, "Request Automation Notice", f"Facebook Friend Request notice:\n\n{message}")
+
+    # --------------------------------------------------------------------------
+    # Tab: Add Profile Picture & Cover Photo Engine (Phase 11)
+    # --------------------------------------------------------------------------
+    def create_profile_picture_page(self):
+        page = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        # Header Title
+        title_box = QHBoxLayout()
+        v_title = QVBoxLayout()
+        title = QLabel("Add Profile Picture & Cover Photo Automation")
+        title.setProperty("class", "pageTitle")
+        sub = QLabel("Automate high-speed profile and cover photo updates across multiple Facebook accounts with randomized selection & auto-browser close.")
+        sub.setProperty("class", "pageSubtitle")
+        v_title.addWidget(title)
+        v_title.addWidget(sub)
+        title_box.addLayout(v_title)
+        title_box.addStretch()
+
+        badge = QLabel("🖼️ BULK PHOTO ENGINE")
+        badge.setStyleSheet("background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.3);")
+        title_box.addWidget(badge)
+        layout.addLayout(title_box)
+
+        # ----------------------------------------------------------------------
+        # Card 1: Target Facebook Accounts & Concurrency Settings
+        # ----------------------------------------------------------------------
+        acc_card = QFrame()
+        acc_card.setProperty("class", "glassCard")
+        acc_card_layout = QVBoxLayout(acc_card)
+        acc_card_layout.setSpacing(10)
+
+        acc_header_row = QHBoxLayout()
+        acc_hdr = QLabel("👥 Target Facebook Accounts:")
+        acc_hdr.setStyleSheet("font-size: 13px; font-weight: 700; color: #f8fafc;")
+        acc_header_row.addWidget(acc_hdr)
+
+        self.propic_acc_summary_lbl = QLabel("Selected: 0 accounts")
+        self.propic_acc_summary_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700; background: rgba(56, 189, 248, 0.1); padding: 2px 8px; border-radius: 4px;")
+        acc_header_row.addWidget(self.propic_acc_summary_lbl)
+        acc_header_row.addStretch()
+
+        btn_sel_all = QPushButton("Select All")
+        btn_sel_all.setProperty("class", "secondaryBtn")
+        btn_sel_all.setFixedHeight(24)
+        btn_sel_all.setStyleSheet("font-size: 11px; padding: 2px 8px;")
+        btn_sel_all.clicked.connect(self.select_all_propic_accounts)
+        acc_header_row.addWidget(btn_sel_all)
+
+        btn_clr_all = QPushButton("Clear Selection")
+        btn_clr_all.setProperty("class", "secondaryBtn")
+        btn_clr_all.setFixedHeight(24)
+        btn_clr_all.setStyleSheet("font-size: 11px; padding: 2px 8px;")
+        btn_clr_all.clicked.connect(self.clear_all_propic_accounts)
+        acc_header_row.addWidget(btn_clr_all)
+
+        btn_refresh = QPushButton("🔄 Reload")
+        btn_refresh.setProperty("class", "secondaryBtn")
+        btn_refresh.setFixedHeight(24)
+        btn_refresh.setStyleSheet("font-size: 11px; padding: 2px 8px;")
+        btn_refresh.clicked.connect(self.populate_propic_accounts_checklist)
+        acc_header_row.addWidget(btn_refresh)
+
+        acc_card_layout.addLayout(acc_header_row)
+
+        # Accounts scroll area
+        acc_scroll = QScrollArea()
+        acc_scroll.setWidgetResizable(True)
+        acc_scroll.setFixedHeight(120)
+        acc_scroll.setStyleSheet("background-color: #0f172a; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px;")
+
+        self.propic_acc_container = QWidget()
+        self.propic_acc_layout = QVBoxLayout(self.propic_acc_container)
+        self.propic_acc_layout.setContentsMargins(8, 6, 8, 6)
+        self.propic_acc_layout.setSpacing(4)
+        acc_scroll.setWidget(self.propic_acc_container)
+        acc_card_layout.addWidget(acc_scroll)
+
+        # Concurrency and Delays row
+        cfg_row = QHBoxLayout()
+        cfg_row.setSpacing(12)
+
+        # Concurrency
+        c_lbl = QLabel("⚡ Concurrent Browsers:")
+        c_lbl.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(c_lbl)
+        self.propic_concurrent_spin = QSpinBox()
+        self.propic_concurrent_spin.setRange(1, 10)
+        self.propic_concurrent_spin.setValue(2)
+        self.propic_concurrent_spin.setStyleSheet("font-weight: 800; color: #38bdf8; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 6px;")
+        self.propic_concurrent_spin.setToolTip("Number of browsers running simultaneously. Recommended: 2-3 for maximum stability.")
+        cfg_row.addWidget(self.propic_concurrent_spin)
+
+        # Action Delay
+        ad_lbl = QLabel("⏱️ Action Delay (Sec):")
+        ad_lbl.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(ad_lbl)
+        self.propic_action_delay_spin = QDoubleSpinBox()
+        self.propic_action_delay_spin.setRange(2.0, 30.0)
+        self.propic_action_delay_spin.setSingleStep(1.0)
+        self.propic_action_delay_spin.setValue(5.0)
+        self.propic_action_delay_spin.setStyleSheet("font-weight: 800; color: #10b981; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 6px;")
+        self.propic_action_delay_spin.setToolTip("Pause duration between photo selection, crop preview, and save confirmation (Recommended: 5-10s).")
+        cfg_row.addWidget(self.propic_action_delay_spin)
+
+        # Account Delay
+        acd_lbl = QLabel("⏳ Delay Between Accounts (Sec):")
+        acd_lbl.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(acd_lbl)
+        self.propic_acc_delay_spin = QDoubleSpinBox()
+        self.propic_acc_delay_spin.setRange(0.0, 60.0)
+        self.propic_acc_delay_spin.setSingleStep(2.0)
+        self.propic_acc_delay_spin.setValue(10.0)
+        self.propic_acc_delay_spin.setStyleSheet("font-weight: 800; color: #f59e0b; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 6px;")
+        self.propic_acc_delay_spin.setToolTip("Pause before starting the next account browser (Recommended: 10s).")
+        cfg_row.addWidget(self.propic_acc_delay_spin)
+
+        # Photo Selection Mode
+        sel_mode_lbl = QLabel("🎲 Mode:")
+        sel_mode_lbl.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(sel_mode_lbl)
+        self.propic_mode_combo = QComboBox()
+        self.propic_mode_combo.addItems([
+            "🎲 Random Selection (Each Account Gets Random Picture)",
+            "📋 Sequential (Top to Bottom Order)"
+        ])
+        self.propic_mode_combo.setStyleSheet("color: #f8fafc; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 8px; font-size: 11px;")
+        cfg_row.addWidget(self.propic_mode_combo)
+
+        # Network Mode
+        net_lbl = QLabel("🌐 Network:")
+        net_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(net_lbl)
+        self.propic_network_combo = QComboBox()
+        self.propic_network_combo.addItems([
+            "⚡ Direct Connection (Recommended)",
+            "🛡️ Use Account Proxy (If Configured)"
+        ])
+        self.propic_network_combo.setStyleSheet("color: #10b981; background: #0f172a; border: 1px solid #10b981; border-radius: 4px; padding: 2px 8px; font-size: 11px;")
+        cfg_row.addWidget(self.propic_network_combo)
+        cfg_row.addStretch()
+
+        acc_card_layout.addLayout(cfg_row)
+        layout.addWidget(acc_card)
+
+        # ----------------------------------------------------------------------
+        # Card 2: Two Picture Columns (Profile Pictures vs Cover Photos)
+        # ----------------------------------------------------------------------
+        photos_row = QHBoxLayout()
+        photos_row.setSpacing(14)
+
+        # List state
+        self.propic_profile_files = []
+        self.propic_cover_files = []
+
+        # --- Column 1: Profile Pictures ---
+        col1_card = QFrame()
+        col1_card.setProperty("class", "glassCard")
+        col1_card.setStyleSheet("background: rgba(15, 23, 42, 0.75); border: 2px solid #38bdf8; border-radius: 10px; padding: 12px;")
+        col1_layout = QVBoxLayout(col1_card)
+        col1_layout.setSpacing(8)
+
+        # Header 1
+        c1_hdr_row = QHBoxLayout()
+        self.chk_update_profile = QCheckBox("📷 Update Profile Picture")
+        self.chk_update_profile.setChecked(True)
+        self.chk_update_profile.setStyleSheet("color: #38bdf8; font-size: 13px; font-weight: 800;")
+        c1_hdr_row.addWidget(self.chk_update_profile)
+        c1_hdr_row.addStretch()
+
+        self.propic_profile_count_lbl = QLabel("0 Photos Loaded")
+        self.propic_profile_count_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700; background: rgba(56, 189, 248, 0.15); padding: 2px 8px; border-radius: 4px;")
+        c1_hdr_row.addWidget(self.propic_profile_count_lbl)
+        col1_layout.addLayout(c1_hdr_row)
+
+        c1_desc = QLabel("Add multiple profile pictures. For each account, the bot will pick a picture, open profile, upload & save it.")
+        c1_desc.setStyleSheet("color: #94a3b8; font-size: 11px; font-style: italic;")
+        c1_desc.setWordWrap(True)
+        col1_layout.addWidget(c1_desc)
+
+        # Buttons row for Profile photos
+        c1_btn_row = QHBoxLayout()
+        btn_add_p_files = QPushButton("➕ Add Files")
+        btn_add_p_files.setStyleSheet("background: #0284c7; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 5px;")
+        btn_add_p_files.setCursor(Qt.PointingHandCursor)
+        btn_add_p_files.clicked.connect(self.add_profile_photo_files)
+        c1_btn_row.addWidget(btn_add_p_files)
+
+        btn_add_p_folder = QPushButton("📁 Add Folder")
+        btn_add_p_folder.setStyleSheet("background: #0369a1; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 5px;")
+        btn_add_p_folder.setCursor(Qt.PointingHandCursor)
+        btn_add_p_folder.clicked.connect(self.add_profile_photo_folder)
+        c1_btn_row.addWidget(btn_add_p_folder)
+
+        btn_clr_p = QPushButton("❌ Clear")
+        btn_clr_p.setStyleSheet("background: #475569; color: white; font-size: 11px; padding: 4px 8px; border-radius: 5px;")
+        btn_clr_p.setCursor(Qt.PointingHandCursor)
+        btn_clr_p.clicked.connect(self.clear_profile_photo_files)
+        c1_btn_row.addWidget(btn_clr_p)
+        col1_layout.addLayout(c1_btn_row)
+
+        # Profile photos ListWidget
+        self.propic_profile_list = QListWidget()
+        self.propic_profile_list.setFixedHeight(140)
+        self.propic_profile_list.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 11px; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 4px;")
+        col1_layout.addWidget(self.propic_profile_list)
+
+        photos_row.addWidget(col1_card, stretch=1)
+
+        # --- Column 2: Cover Photos ---
+        col2_card = QFrame()
+        col2_card.setProperty("class", "glassCard")
+        col2_card.setStyleSheet("background: rgba(15, 23, 42, 0.75); border: 2px solid #a855f7; border-radius: 10px; padding: 12px;")
+        col2_layout = QVBoxLayout(col2_card)
+        col2_layout.setSpacing(8)
+
+        # Header 2
+        c2_hdr_row = QHBoxLayout()
+        self.chk_update_cover = QCheckBox("🌄 Update Cover Photo")
+        self.chk_update_cover.setChecked(True)
+        self.chk_update_cover.setStyleSheet("color: #c084fc; font-size: 13px; font-weight: 800;")
+        c2_hdr_row.addWidget(self.chk_update_cover)
+        c2_hdr_row.addStretch()
+
+        self.propic_cover_count_lbl = QLabel("0 Photos Loaded")
+        self.propic_cover_count_lbl.setStyleSheet("color: #c084fc; font-size: 11px; font-weight: 700; background: rgba(168, 85, 247, 0.15); padding: 2px 8px; border-radius: 4px;")
+        c2_hdr_row.addWidget(self.propic_cover_count_lbl)
+        col2_layout.addLayout(c2_hdr_row)
+
+        c2_desc = QLabel("Add multiple cover photos. The bot will pick a cover photo, upload & save changes, then close Chrome.")
+        c2_desc.setStyleSheet("color: #94a3b8; font-size: 11px; font-style: italic;")
+        c2_desc.setWordWrap(True)
+        col2_layout.addWidget(c2_desc)
+
+        # Buttons row for Cover photos
+        c2_btn_row = QHBoxLayout()
+        btn_add_c_files = QPushButton("➕ Add Files")
+        btn_add_c_files.setStyleSheet("background: #9333ea; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 5px;")
+        btn_add_c_files.setCursor(Qt.PointingHandCursor)
+        btn_add_c_files.clicked.connect(self.add_cover_photo_files)
+        c2_btn_row.addWidget(btn_add_c_files)
+
+        btn_add_c_folder = QPushButton("📁 Add Folder")
+        btn_add_c_folder.setStyleSheet("background: #7e22ce; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 5px;")
+        btn_add_c_folder.setCursor(Qt.PointingHandCursor)
+        btn_add_c_folder.clicked.connect(self.add_cover_photo_folder)
+        c2_btn_row.addWidget(btn_add_c_folder)
+
+        btn_clr_c = QPushButton("❌ Clear")
+        btn_clr_c.setStyleSheet("background: #475569; color: white; font-size: 11px; padding: 4px 8px; border-radius: 5px;")
+        btn_clr_c.setCursor(Qt.PointingHandCursor)
+        btn_clr_c.clicked.connect(self.clear_cover_photo_files)
+        c2_btn_row.addWidget(btn_clr_c)
+        col2_layout.addLayout(c2_btn_row)
+
+        # Cover photos ListWidget
+        self.propic_cover_list = QListWidget()
+        self.propic_cover_list.setFixedHeight(140)
+        self.propic_cover_list.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 11px; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 4px;")
+        col2_layout.addWidget(self.propic_cover_list)
+
+        photos_row.addWidget(col2_card, stretch=1)
+        layout.addLayout(photos_row)
+
+        # ----------------------------------------------------------------------
+        # Card 3: Execution Controls, Live Progress & Status
+        # ----------------------------------------------------------------------
+        exec_card = QFrame()
+        exec_card.setProperty("class", "glassCard")
+        exec_layout = QVBoxLayout(exec_card)
+        exec_layout.setSpacing(10)
+
+        # Progress bar
+        self.propic_progress_bar = QProgressBar()
+        self.propic_progress_bar.setValue(0)
+        self.propic_progress_bar.setTextVisible(True)
+        self.propic_progress_bar.setFixedHeight(18)
+        self.propic_progress_bar.setStyleSheet("""
+            QProgressBar {
+                background: #0f172a;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 9px;
+                text-align: center;
+                color: #ffffff;
+                font-size: 10px;
+                font-weight: 700;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #38bdf8, stop:1 #a855f7);
+                border-radius: 9px;
+            }
+        """)
+        exec_layout.addWidget(self.propic_progress_bar)
+
+        # Status row
+        status_row = QHBoxLayout()
+        self.propic_status_lbl = QLabel("● READY FOR AUTOMATION")
+        self.propic_status_lbl.setStyleSheet("color: #10b981; font-weight: 800; font-size: 12px;")
+        status_row.addWidget(self.propic_status_lbl)
+
+        status_row.addStretch()
+
+        self.propic_total_processed_lbl = QLabel("🎯 Accounts Processed: 0")
+        self.propic_total_processed_lbl.setStyleSheet("color: #f8fafc; font-weight: 700; font-size: 12px; background: rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 6px;")
+        status_row.addWidget(self.propic_total_processed_lbl)
+
+        exec_layout.addLayout(status_row)
+
+        # Button row
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(12)
+
+        self.btn_start_propic_bot = QPushButton("🚀 Start Profile & Cover Photo Update")
+        self.btn_start_propic_bot.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #9333ea);
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 800;
+                padding: 10px 24px;
+                border-radius: 8px;
+                border: none;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #38bdf8, stop:1 #a855f7);
+            }
+            QPushButton:disabled {
+                background: #334155;
+                color: #94a3b8;
+            }
+        """)
+        self.btn_start_propic_bot.setCursor(Qt.PointingHandCursor)
+        self.btn_start_propic_bot.clicked.connect(self.start_profile_picture_automation)
+        btn_box.addWidget(self.btn_start_propic_bot, stretch=2)
+
+        self.btn_stop_propic_bot = QPushButton("🛑 Stop Automation")
+        self.btn_stop_propic_bot.setStyleSheet("""
+            QPushButton {
+                background-color: #ef4444;
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 800;
+                padding: 10px 20px;
+                border-radius: 8px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #dc2626;
+            }
+            QPushButton:disabled {
+                background-color: #334155;
+                color: #64748b;
+            }
+        """)
+        self.btn_stop_propic_bot.setEnabled(False)
+        self.btn_stop_propic_bot.setCursor(Qt.PointingHandCursor)
+        self.btn_stop_propic_bot.clicked.connect(self.stop_profile_picture_automation)
+        btn_box.addWidget(self.btn_stop_propic_bot, stretch=1)
+
+        exec_layout.addLayout(btn_box)
+        layout.addWidget(exec_card)
+
+        layout.addStretch()
+        scroll.setWidget(container)
+        outer_layout = QVBoxLayout(page)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(scroll)
+
+        # Initial populate
+        self.populate_propic_accounts_checklist()
+
+        return page
+
+    # --------------------------------------------------------------------------
+    # Profile Picture Page Helpers & Event Handlers
+    # --------------------------------------------------------------------------
+    def populate_propic_accounts_checklist(self):
+        """Populates the multi-account checkbox list for Profile Picture automation."""
+        if not hasattr(self, 'propic_acc_layout'):
+            return
+
+        while self.propic_acc_layout.count():
+            item = self.propic_acc_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self.propic_acc_checkboxes = []
+        self.propic_acc_counter_labels = {}
+        active_accounts = self.get_active_accounts()
+
+        if not active_accounts:
+            lbl = QLabel("⚠️ No Active Facebook accounts available. (Add accounts in Accounts Manager tab)")
+            lbl.setStyleSheet("color: #94a3b8; font-style: italic; font-size: 11px;")
+            self.propic_acc_layout.addWidget(lbl)
+            self.update_propic_account_selection_summary()
+            return
+
+        for idx, acc in enumerate(active_accounts, start=1):
+            row_widget = QWidget()
+            r_layout = QHBoxLayout(row_widget)
+            r_layout.setContentsMargins(2, 2, 2, 2)
+
+            name = acc.get("name", "Account")
+            status = acc.get("status", "Healthy")
+            proxy = acc.get("proxy", "Direct")
+            acc_id = str(acc.get("id", str(idx)))
+            icon = "🟢" if status in ("Healthy", "Active", "Ready", "Logged in") else "🟡"
+
+            chk = QCheckBox(f"#{idx}  {icon} {name}  [{status}]  •  Proxy: {proxy}")
+            chk.setStyleSheet("font-size: 12px; color: #f8fafc; font-weight: 600;")
+            chk.setProperty("account_data", acc)
+            chk.setChecked(True)
+            chk.stateChanged.connect(self.update_propic_account_selection_summary)
+            r_layout.addWidget(chk)
+
+            r_layout.addStretch()
+
+            cnt_lbl = QLabel("Pending")
+            cnt_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.05); padding: 1px 6px; border-radius: 4px;")
+            r_layout.addWidget(cnt_lbl)
+
+            self.propic_acc_layout.addWidget(row_widget)
+            self.propic_acc_checkboxes.append(chk)
+            self.propic_acc_counter_labels[acc_id] = cnt_lbl
+
+        self.propic_acc_layout.addStretch()
+        self.update_propic_account_selection_summary()
+
+    def select_all_propic_accounts(self):
+        if hasattr(self, 'propic_acc_checkboxes'):
+            for chk in self.propic_acc_checkboxes:
+                chk.setChecked(True)
+            self.update_propic_account_selection_summary()
+
+    def clear_all_propic_accounts(self):
+        if hasattr(self, 'propic_acc_checkboxes'):
+            for chk in self.propic_acc_checkboxes:
+                chk.setChecked(False)
+            self.update_propic_account_selection_summary()
+
+    def update_propic_account_selection_summary(self):
+        if not hasattr(self, 'propic_acc_summary_lbl'):
+            return
+        selected = [chk for chk in getattr(self, 'propic_acc_checkboxes', []) if chk.isChecked()]
+        total = len(getattr(self, 'propic_acc_checkboxes', []))
+        self.propic_acc_summary_lbl.setText(f"Selected: {len(selected)} / {total} accounts")
+
+    def add_profile_photo_files(self):
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Profile Pictures",
+            "",
+            "Image Files (*.jpg *.jpeg *.png *.webp *.bmp);;All Files (*)"
+        )
+        if files:
+            for f in files:
+                if f not in self.propic_profile_files:
+                    self.propic_profile_files.append(f)
+                    self.propic_profile_list.addItem(f"📷 {os.path.basename(f)}  ({f})")
+            self.propic_profile_count_lbl.setText(f"{len(self.propic_profile_files)} Photos Loaded")
+            self.log_message("INFO", f"Added {len(files)} profile picture(s). Total: {len(self.propic_profile_files)}")
+
+    def add_profile_photo_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder Containing Profile Pictures")
+        if folder and os.path.isdir(folder):
+            exts = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+            added = 0
+            for root, _, filenames in os.walk(folder):
+                for fn in sorted(filenames):
+                    if os.path.splitext(fn)[1].lower() in exts:
+                        full = os.path.join(root, fn)
+                        if full not in self.propic_profile_files:
+                            self.propic_profile_files.append(full)
+                            self.propic_profile_list.addItem(f"📷 {fn}  ({full})")
+                            added += 1
+            self.propic_profile_count_lbl.setText(f"{len(self.propic_profile_files)} Photos Loaded")
+            self.log_message("INFO", f"Imported {added} profile picture(s) from folder: {folder}")
+
+    def clear_profile_photo_files(self):
+        self.propic_profile_files.clear()
+        if hasattr(self, 'propic_profile_list'):
+            self.propic_profile_list.clear()
+        if hasattr(self, 'propic_profile_count_lbl'):
+            self.propic_profile_count_lbl.setText("0 Photos Loaded")
+        self.log_message("INFO", "Cleared all profile pictures.")
+
+    def add_cover_photo_files(self):
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Cover Photos",
+            "",
+            "Image Files (*.jpg *.jpeg *.png *.webp *.bmp);;All Files (*)"
+        )
+        if files:
+            for f in files:
+                if f not in self.propic_cover_files:
+                    self.propic_cover_files.append(f)
+                    self.propic_cover_list.addItem(f"🌄 {os.path.basename(f)}  ({f})")
+            self.propic_cover_count_lbl.setText(f"{len(self.propic_cover_files)} Photos Loaded")
+            self.log_message("INFO", f"Added {len(files)} cover photo(s). Total: {len(self.propic_cover_files)}")
+
+    def add_cover_photo_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder Containing Cover Photos")
+        if folder and os.path.isdir(folder):
+            exts = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+            added = 0
+            for root, _, filenames in os.walk(folder):
+                for fn in sorted(filenames):
+                    if os.path.splitext(fn)[1].lower() in exts:
+                        full = os.path.join(root, fn)
+                        if full not in self.propic_cover_files:
+                            self.propic_cover_files.append(full)
+                            self.propic_cover_list.addItem(f"🌄 {fn}  ({full})")
+                            added += 1
+            self.propic_cover_count_lbl.setText(f"{len(self.propic_cover_files)} Photos Loaded")
+            self.log_message("INFO", f"Imported {added} cover photo(s) from folder: {folder}")
+
+    def clear_cover_photo_files(self):
+        self.propic_cover_files.clear()
+        if hasattr(self, 'propic_cover_list'):
+            self.propic_cover_list.clear()
+        if hasattr(self, 'propic_cover_count_lbl'):
+            self.propic_cover_count_lbl.setText("0 Photos Loaded")
+        self.log_message("INFO", "Cleared all cover photos.")
+
+    def start_profile_picture_automation(self):
+        """Launches the Profile & Cover Photo Bulk Updater background worker."""
+        selected_accounts = [
+            chk.property("account_data")
+            for chk in getattr(self, 'propic_acc_checkboxes', [])
+            if chk.isChecked() and chk.property("account_data")
+        ]
+
+        if not selected_accounts:
+            QMessageBox.warning(self, "No Accounts Selected", "Please select at least one Facebook account to update photos.")
+            return
+
+        update_profile = self.chk_update_profile.isChecked() if hasattr(self, 'chk_update_profile') else True
+        update_cover = self.chk_update_cover.isChecked() if hasattr(self, 'chk_update_cover') else True
+
+        if update_profile and not self.propic_profile_files:
+            QMessageBox.warning(self, "No Profile Pictures", "Profile picture update is checked, but no profile pictures have been added. Please add profile picture files or uncheck profile update.")
+            return
+
+        if update_cover and not self.propic_cover_files:
+            QMessageBox.warning(self, "No Cover Photos", "Cover photo update is checked, but no cover photos have been added. Please add cover photo files or uncheck cover update.")
+            return
+
+        if not update_profile and not update_cover:
+            QMessageBox.warning(self, "Nothing Selected", "Please enable at least Profile Picture update or Cover Photo update.")
+            return
+
+        concurrent_browsers = self.propic_concurrent_spin.value() if hasattr(self, 'propic_concurrent_spin') else 2
+        action_delay = self.propic_action_delay_spin.value() if hasattr(self, 'propic_action_delay_spin') else 5.0
+        account_delay = self.propic_acc_delay_spin.value() if hasattr(self, 'propic_acc_delay_spin') else 10.0
+        selection_mode = "Random (No Duplicate)" if (hasattr(self, 'propic_mode_combo') and self.propic_mode_combo.currentIndex() == 0) else "Sequential (Top to Bottom)"
+
+        network_mode = "direct"
+        if hasattr(self, 'propic_network_combo') and self.propic_network_combo.currentIndex() == 1:
+            network_mode = "proxy"
+
+        payload = {
+            "accounts": selected_accounts,
+            "profile_photos": list(self.propic_profile_files),
+            "cover_photos": list(self.propic_cover_files),
+            "update_profile": update_profile,
+            "update_cover": update_cover,
+            "selection_mode": selection_mode,
+            "concurrent_browsers": concurrent_browsers,
+            "action_delay": action_delay,
+            "account_delay": account_delay,
+            "network_mode": network_mode
+        }
+
+        self.btn_start_propic_bot.setEnabled(False)
+        self.btn_stop_propic_bot.setEnabled(True)
+
+        self.propic_status_lbl.setText("● UPDATING PROFILE & COVER PHOTOS IN PROGRESS...")
+        self.propic_status_lbl.setStyleSheet("color: #38bdf8; font-weight: 800; font-size: 12px;")
+        self.engine_status_lbl.setText("● PHOTO UPDATE ACTIVE")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #38bdf8;")
+        self.propic_progress_bar.setValue(0)
+        self.propic_total_processed_lbl.setText("🎯 Accounts Processed: 0")
+
+        self.profile_picture_worker = ProfilePictureWorker(payload=payload)
+        self.profile_picture_worker.log_signal.connect(self.log_message)
+        self.profile_picture_worker.progress_signal.connect(self.update_propic_progress)
+        self.profile_picture_worker.counter_signal.connect(self.on_propic_counter_update)
+        self.profile_picture_worker.account_completed_signal.connect(self.on_propic_account_completed)
+        self.profile_picture_worker.finished_signal.connect(self.on_propic_automation_finished)
+        self.profile_picture_worker.start()
+
+    def stop_profile_picture_automation(self):
+        if hasattr(self, 'profile_picture_worker') and self.profile_picture_worker:
+            self.profile_picture_worker.stop()
+            self.btn_stop_propic_bot.setEnabled(False)
+
+    def update_propic_progress(self, percent: int):
+        if hasattr(self, 'propic_progress_bar'):
+            self.propic_progress_bar.setValue(percent)
+        self.update_progress(percent)
+
+    def on_propic_counter_update(self, account_id: str, count: int):
+        if hasattr(self, 'propic_acc_counter_labels') and account_id in self.propic_acc_counter_labels:
+            lbl = self.propic_acc_counter_labels[account_id]
+            lbl.setText(f"Updated: {count}")
+            lbl.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 800; background: rgba(16, 185, 129, 0.15); padding: 1px 6px; border-radius: 4px;")
+
+    def on_propic_account_completed(self, account_id: str):
+        if hasattr(self, 'propic_acc_counter_labels') and account_id in self.propic_acc_counter_labels:
+            lbl = self.propic_acc_counter_labels[account_id]
+            lbl.setText("✅ Completed")
+            lbl.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 800; background: rgba(16, 185, 129, 0.2); padding: 1px 6px; border-radius: 4px;")
+
+    def on_propic_automation_finished(self, success: bool, message: str):
+        self.btn_start_propic_bot.setEnabled(True)
+        self.btn_stop_propic_bot.setEnabled(False)
+        self.engine_status_lbl.setText("● READY FOR TASKS")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
+        if hasattr(self, 'propic_status_lbl'):
+            self.propic_status_lbl.setText("● READY FOR AUTOMATION")
+            self.propic_status_lbl.setStyleSheet("color: #10b981; font-weight: 800; font-size: 12px;")
+
+        if success:
+            if hasattr(self, 'propic_progress_bar'):
+                self.propic_progress_bar.setValue(100)
+            QMessageBox.information(self, "Profile Picture Automation Complete", f"Facebook Profile & Cover Photo Update Complete!\n\n{message}")
+        else:
+            QMessageBox.warning(self, "Profile Picture Automation Notice", f"Profile Picture Update Notice:\n\n{message}")
 
     # --------------------------------------------------------------------------
     # Tab 4: AI Content Spinner & Title/Description Generator (Phase 5)

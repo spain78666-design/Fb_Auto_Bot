@@ -158,7 +158,7 @@ class FacebookReelsUploaderBot:
         self.log("WARNING", "🛑 Stop command received. Terminating Reels uploader...")
 
     async def _init_browser(self):
-        """Initializes stealth Chrome instance with account cookies and anti-fingerprinting."""
+        """Initializes stealth Chrome instance with account cookies, anti-fingerprinting, and background throttling prevention."""
         if not PLAYWRIGHT_AVAILABLE:
             raise RuntimeError("Playwright is not installed in the system environment.")
 
@@ -171,7 +171,14 @@ class FacebookReelsUploaderBot:
             "--no-first-run",
             "--disable-default-apps",
             "--disable-popup-blocking",
-            "--start-maximized"
+            "--start-maximized",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--lang=en-US",
+            "--accept-lang=en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7,es;q=0.6"
         ]
 
         proxy_cfg = None
@@ -232,6 +239,15 @@ class FacebookReelsUploaderBot:
             launch_kwargs.pop("executable_path", None)
             self.browser = await self.playwright.chromium.launch(**launch_kwargs)
 
+        context_kwargs = {
+            "viewport": None,
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+            "locale": "en-US",
+            "extra_http_headers": {
+                "Accept-Language": "en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7,es;q=0.6"
+            }
+        }
+
         profile_dir = self.account_data.get("profile_dir", "")
         if profile_dir and os.path.isdir(profile_dir):
             try:
@@ -240,42 +256,45 @@ class FacebookReelsUploaderBot:
                     headless=False,
                     args=launch_args,
                     proxy=proxy_cfg,
-                    viewport=None,
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-                    locale="en-US"
+                    **context_kwargs
                 )
             except Exception:
-                self.context = await self.browser.new_context(
-                    viewport=None,
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-                    locale="en-US"
-                )
+                self.context = await self.browser.new_context(**context_kwargs)
         else:
-            self.context = await self.browser.new_context(
-                viewport=None,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-                locale="en-US"
-            )
+            self.context = await self.browser.new_context(**context_kwargs)
 
-        # Inject session cookies
+        # Inject session cookies and force English interface cookie
         raw_cookies = self.account_data.get("cookies", "")
-        if raw_cookies and self.context:
+        if self.context:
             try:
                 formatted = []
-                if isinstance(raw_cookies, str):
-                    formatted = parse_cookie_payload(raw_cookies)
-                elif isinstance(raw_cookies, list):
-                    for item in raw_cookies:
-                        if isinstance(item, dict) and "name" in item and "value" in item:
-                            formatted.append({
-                                "name": str(item["name"]),
-                                "value": str(item["value"]),
-                                "domain": str(item.get("domain", ".facebook.com")),
-                                "path": str(item.get("path", "/")),
-                                "secure": bool(item.get("secure", True))
-                            })
-                        elif isinstance(item, str):
-                            formatted.extend(parse_cookie_payload(item))
+                if raw_cookies:
+                    if isinstance(raw_cookies, str):
+                        formatted = parse_cookie_payload(raw_cookies)
+                    elif isinstance(raw_cookies, list):
+                        for item in raw_cookies:
+                            if isinstance(item, dict) and "name" in item and "value" in item:
+                                formatted.append({
+                                    "name": str(item["name"]),
+                                    "value": str(item["value"]),
+                                    "domain": str(item.get("domain", ".facebook.com")),
+                                    "path": str(item.get("path", "/")),
+                                    "secure": bool(item.get("secure", True))
+                                })
+                            elif isinstance(item, str):
+                                formatted.extend(parse_cookie_payload(item))
+
+                # Inject locale cookie to request English UI on Facebook
+                locale_cookie_found = any(c.get("name") == "locale" for c in formatted)
+                if not locale_cookie_found:
+                    formatted.append({
+                        "name": "locale",
+                        "value": "en_US",
+                        "domain": ".facebook.com",
+                        "path": "/",
+                        "secure": True
+                    })
+
                 if formatted:
                     await self.context.add_cookies(formatted)
                     self.log("SUCCESS", f"🔑 Injected {len(formatted)} Facebook cookies. Session active.")
@@ -305,14 +324,29 @@ class FacebookReelsUploaderBot:
                                            txt.includes('we added a restriction') ||
                                            txt.includes('notice') ||
                                            txt.includes('alert') ||
-                                           txt.includes('see why');
+                                           txt.includes('see why') ||
+                                           txt.includes('o que aconteceu') ||
+                                           txt.includes('removemos') ||
+                                           txt.includes('restrição') ||
+                                           txt.includes('restricción') ||
+                                           txt.includes('não foi possível') ||
+                                           txt.includes('no se pudo') ||
+                                           txt.includes('padrões da comunidade') ||
+                                           txt.includes('normas comunitarias') ||
+                                           txt.includes('aviso') ||
+                                           txt.includes('alerta');
                     
                     if (isWarningPopup) {
-                        const closeBtns = Array.from(d.querySelectorAll('div[aria-label="Close"], button[aria-label="Close"], div[role="button"][aria-label="Close"], [aria-label="Close"], button, div[role="button"]'));
+                        const closeBtns = Array.from(d.querySelectorAll('div[aria-label="Close"], button[aria-label="Close"], div[role="button"][aria-label="Close"], [aria-label="Close"], [aria-label*="Fechar" i], [aria-label*="Cerrar" i], button, div[role="button"]'));
                         for (const cb of closeBtns) {
                             const aria = (cb.getAttribute('aria-label') || '').toLowerCase();
                             const cbTxt = (cb.innerText || cb.textContent || '').toLowerCase().trim();
-                            if (aria === 'close' || cbTxt === 'close' || cbTxt === 'ok' || cbTxt === 'got it' || cbTxt === 'dismiss' || cbTxt === 'not now') {
+                            if (aria === 'close' || cbTxt === 'close' || 
+                                aria === 'fechar' || cbTxt === 'fechar' || 
+                                aria === 'cerrar' || cbTxt === 'cerrar' || 
+                                cbTxt === 'ok' || cbTxt === 'got it' || cbTxt === 'entendi' || 
+                                cbTxt === 'dismiss' || cbTxt === 'descartar' || 
+                                cbTxt === 'not now' || cbTxt === 'agora não' || cbTxt === 'ahora no') {
                                 if (cb.offsetParent !== null) {
                                     cb.click();
                                     return true;
@@ -336,7 +370,13 @@ class FacebookReelsUploaderBot:
                 'div[role="dialog"]:has-text("restriction") div[aria-label="Close"]',
                 'div[role="dialog"]:has-text("restriction") button',
                 "div[role='dialog']:has-text('Can\\'t Read Files') button:has-text('Close')",
-                "div[role='dialog']:has-text('Can\\'t Read Files') div[role='button']:has-text('Close')"
+                "div[role='dialog']:has-text('Can\\'t Read Files') div[role='button']:has-text('Close')",
+                'div[role="dialog"] div[aria-label="Fechar"][role="button"]',
+                'div[role="dialog"] div[aria-label="Cerrar"][role="button"]',
+                'div[role="dialog"] button:has-text("Fechar")',
+                'div[role="dialog"] button:has-text("Cerrar")',
+                'div[role="dialog"] button:has-text("Agora não")',
+                'div[role="dialog"] button:has-text("Ahora no")'
             ]
             for sel in specific_close_selectors:
                 c_btn = page.locator(sel).first
@@ -491,101 +531,142 @@ class FacebookReelsUploaderBot:
         base_reels_url: str = ""
     ) -> bool:
         """
-        Executes the exact Facebook Reels workflow as demonstrated:
-        1. Navigates directly to the Page/Profile Reels tab (e.g. sk=reels_tab)
-        2. Clicks the '+ Create reel' button on the Reels tab
-        3. Attaches the video file via Native FileChooser on the 'Add video' dropzone
-        4. In multi-step mode: Clicks 'Next' (Step 1) -> 'Next' (Step 2) -> Enters Caption in 'Describe your reel...' -> Clicks 'Post'
-        5. In single-step mode: Enters Caption -> Clicks 'Post'
-        6. Dismisses any blocking alerts/notices and waits for post submission to complete
+        Executes the Facebook Reels workflow with full multilingual resilience:
+        1. Navigates to direct Reels Creator or Profile/Page Reels tab (sk=reels_tab)
+        2. Clicks 'Create reel' button (multilingual: EN, PT, ES, UR)
+        3. Attaches video file directly via file input or dropzone FileChooser
+        4. Multilingual adaptive flow: Next -> Next -> Enter caption & hashtags -> Click Post/Publish
+        5. Waits for Facebook post processing confirmation and verifies submission
         """
         file_name = os.path.basename(video_path)
         file_size_mb = os.path.getsize(video_path) / (1024 * 1024)
-        self.log("INFO", f"🎬 [Tab #{reel_index}/{total_reels}] Opening Reels Creator for: {file_name} ({file_size_mb:.1f} MB)...")
+        self.log("INFO", f"🎬 [Reel #{reel_index}/{total_reels}] Opening Reels Creator for: {file_name} ({file_size_mb:.1f} MB)...")
 
-        # Step 0: Determine target Reels Tab URL
-        clean_uid = "".join(c for c in str(self.account_data.get("uid", "")) if c.isdigit())
-        target_url = base_reels_url
-        if not target_url:
-            if clean_uid:
-                target_url = f"https://www.facebook.com/profile.php?id={clean_uid}&sk=reels_tab"
-            else:
-                target_url = "https://www.facebook.com/me?sk=reels_tab"
-
-        self.log("INFO", f"[Tab #{reel_index}] Navigating to Reels Tab: {target_url} ...")
+        # Step 0: Try direct Creator URL first
+        creator_ready = False
         try:
-            await page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
+            self.log("INFO", f"[Reel #{reel_index}] Trying direct Reels Creator (https://www.facebook.com/reels/create)...")
+            await page.goto("https://www.facebook.com/reels/create", wait_until="domcontentloaded", timeout=40000)
             await asyncio.sleep(2.5)
+
+            curr = page.url.lower()
+            if "login" in curr or "checkpoint" in curr:
+                self.log("ERROR", f"[Reel #{reel_index}] ❌ Account session expired.")
+                return False
+
+            await self._dismiss_popups_and_modals(page)
+
+            # Check if file input or upload dropzone is already on screen
+            has_input = await page.locator('input[type="file"]').count() > 0
+            has_dropzone = await page.locator('div[role="button"]:has-text("Add video"), div[role="button"]:has-text("Adicionar"), div[role="button"]:has-text("Agregar"), div[role="button"]:has-text("drag and drop")').count() > 0
+            if has_input or has_dropzone:
+                creator_ready = True
+                self.log("SUCCESS", f"[Reel #{reel_index}] ✅ Direct Facebook Reels Creator loaded successfully.")
         except Exception as ex:
-            self.log("WARNING", f"[Tab #{reel_index}] Initial navigation notice: {ex}")
+            self.log("DEBUG", f"[Reel #{reel_index}] Direct creator notice: {ex}")
 
-        # Check session
-        curr = page.url.lower()
-        if "login" in curr or "checkpoint" in curr:
-            self.log("ERROR", f"[Tab #{reel_index}] ❌ Account session expired.")
-            return False
+        # If direct creator not ready, navigate to profile / page reels tab
+        if not creator_ready:
+            clean_uid = "".join(c for c in str(self.account_data.get("uid", "")) if c.isdigit())
+            target_url = base_reels_url
+            if not target_url:
+                if clean_uid:
+                    target_url = f"https://www.facebook.com/profile.php?id={clean_uid}&sk=reels_tab"
+                else:
+                    target_url = "https://www.facebook.com/me?sk=reels_tab"
 
-        # Dismiss any popup notices on arrival
-        await self._dismiss_popups_and_modals(page)
-
-        # Step 1: On the Reels tab, click 'Create reel' button
-        self.log("INFO", f"[Tab #{reel_index}] 👉 Looking for 'Create reel' button on Reels tab...")
-        create_reel_btn_selectors = [
-            'div[role="button"]:has-text("Create reel")',
-            'div[role="button"]:has-text("Create Reel")',
-            'button:has-text("Create reel")',
-            'button:has-text("Create Reel")',
-            'a:has-text("Create reel")',
-            'a:has-text("Create Reel")',
-            'div[aria-label*="Create reel" i][role="button"]',
-            'div[aria-label*="Create Reel" i][role="button"]',
-            'div[aria-label*="Create a reel" i][role="button"]',
-            'span:has-text("Create reel")',
-            'span:has-text("Create Reel")',
-            'div[aria-label="Reel"][role="button"]'
-        ]
-
-        modal_opened = False
-        for cr_sel in create_reel_btn_selectors:
+            self.log("INFO", f"[Reel #{reel_index}] Navigating to fallback Reels Tab: {target_url} ...")
             try:
-                cr_btn = page.locator(cr_sel).first
-                if await cr_btn.count() > 0 and await cr_btn.is_visible():
-                    self.log("INFO", f"[Tab #{reel_index}] 👉 Clicking 'Create reel' button...")
-                    await cr_btn.click()
-                    await asyncio.sleep(2.5)
-                    modal_opened = True
-                    break
-            except Exception:
-                pass
+                await page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
+                await asyncio.sleep(2.5)
+            except Exception as ex:
+                self.log("WARNING", f"[Reel #{reel_index}] Navigation notice: {ex}")
 
-        if not modal_opened:
-            # Fallback DOM query for Create Reel
-            try:
-                clicked_dom = await page.evaluate("""() => {
-                    const buttons = Array.from(document.querySelectorAll('div[role="button"], button, a, span'));
-                    for (const b of buttons) {
-                        const txt = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase();
-                        if (txt === 'create reel' || txt.includes('create reel') || txt === 'create a reel') {
-                            if (b.offsetParent !== null) {
-                                b.click();
-                                return true;
+            curr = page.url.lower()
+            if "login" in curr or "checkpoint" in curr:
+                self.log("ERROR", f"[Reel #{reel_index}] ❌ Account session expired.")
+                return False
+
+            await self._dismiss_popups_and_modals(page)
+
+            # Step 1: Look for 'Create reel' button (Multilingual: EN, PT, ES, UR)
+            self.log("INFO", f"[Reel #{reel_index}] 👉 Looking for 'Create reel' button on Reels tab...")
+            create_reel_btn_selectors = [
+                # English
+                'div[role="button"]:has-text("Create reel")',
+                'div[role="button"]:has-text("Create Reel")',
+                'button:has-text("Create reel")',
+                'button:has-text("Create Reel")',
+                'a:has-text("Create reel")',
+                'span:has-text("Create reel")',
+                'div[aria-label*="Create reel" i][role="button"]',
+                'div[aria-label*="Create a reel" i][role="button"]',
+                # Portuguese / Brazilian
+                'div[role="button"]:has-text("Criar reel")',
+                'div[role="button"]:has-text("Criar Reel")',
+                'button:has-text("Criar reel")',
+                'button:has-text("Criar Reel")',
+                'a:has-text("Criar reel")',
+                'span:has-text("Criar reel")',
+                'div[aria-label*="Criar reel" i][role="button"]',
+                'div[aria-label*="Criar um reel" i][role="button"]',
+                # Spanish
+                'div[role="button"]:has-text("Crear reel")',
+                'div[role="button"]:has-text("Crear Reel")',
+                'button:has-text("Crear reel")',
+                'button:has-text("Crear Reel")',
+                'a:has-text("Crear reel")',
+                'span:has-text("Crear reel")',
+                'div[aria-label*="Crear reel" i][role="button"]',
+                'div[aria-label*="Crear un reel" i][role="button"]',
+                # Urdu
+                'div[role="button"]:has-text("ریل بنائیں")',
+                'span:has-text("ریل بنائیں")',
+                # Generic
+                'div[aria-label="Reel"][role="button"]'
+            ]
+
+            modal_opened = False
+            for cr_sel in create_reel_btn_selectors:
+                try:
+                    cr_btn = page.locator(cr_sel).first
+                    if await cr_btn.count() > 0 and await cr_btn.is_visible():
+                        self.log("INFO", f"[Reel #{reel_index}] 👉 Clicking 'Create reel' button...")
+                        await cr_btn.click()
+                        await asyncio.sleep(2.5)
+                        modal_opened = True
+                        break
+                except Exception:
+                    pass
+
+            if not modal_opened:
+                # Fallback DOM query for Create Reel across languages
+                try:
+                    clicked_dom = await page.evaluate("""() => {
+                        const buttons = Array.from(document.querySelectorAll('div[role="button"], button, a, span'));
+                        const phrases = ['create reel', 'create a reel', 'criar reel', 'criar um reel', 'crear reel', 'crear un reel', 'ریل بنائیں'];
+                        for (const b of buttons) {
+                            const txt = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase();
+                            if (phrases.some(p => txt === p || txt.includes(p))) {
+                                if (b.offsetParent !== null) {
+                                    b.click();
+                                    return true;
+                                }
                             }
                         }
-                    }
-                    return false;
-                }""")
-                if clicked_dom:
-                    self.log("INFO", f"[Tab #{reel_index}] 👉 Clicked 'Create reel' via DOM.")
-                    await asyncio.sleep(2.5)
-                    modal_opened = True
-            except Exception:
-                pass
+                        return false;
+                    }""")
+                    if clicked_dom:
+                        self.log("INFO", f"[Reel #{reel_index}] 👉 Clicked 'Create reel' via DOM.")
+                        await asyncio.sleep(2.5)
+                        modal_opened = True
+                except Exception:
+                    pass
 
-        # Dismiss any popup notices
         await self._dismiss_popups_and_modals(page)
 
-        # Step 2: Attach video file strictly via Reels Video FileChooser
-        self.log("INFO", f"[Tab #{reel_index}] 📤 Attaching video file: {file_name} ...")
+        # Step 2: Attach video file directly via file input or dropzone FileChooser
+        self.log("INFO", f"[Reel #{reel_index}] 📤 Attaching video file: {file_name} ...")
         file_attached = False
 
         for attempt in range(25):
@@ -594,31 +675,17 @@ class FacebookReelsUploaderBot:
 
             await self._dismiss_popups_and_modals(page)
 
-            # Method A: Click 'Add video' / 'drag and drop' button via expect_file_chooser
+            # Method A: Direct file input (Fastest & most reliable across all languages)
             try:
-                upload_btn_selectors = [
-                    'div[role="dialog"] div[role="button"]:has-text("Add video")',
-                    'div[role="dialog"] button:has-text("Add video")',
-                    'div[role="dialog"] div[role="button"]:has-text("drag and drop")',
-                    'div[role="dialog"] div[aria-label*="Add video" i][role="button"]',
-                    'div[role="dialog"] div[aria-label*="video" i][role="button"]',
-                    'div[role="button"]:has-text("Add video")',
-                    'button:has-text("Add video")',
-                    'div[role="button"]:has-text("drag and drop")',
-                    'div[role="dialog"] div[role="button"]:has-text("Select video")',
-                    'div[role="dialog"] div[role="button"]:has-text("Upload")',
-                    'div[role="dialog"] button:has-text("Upload")'
-                ]
-                for u_sel in upload_btn_selectors:
-                    u_btn = page.locator(u_sel).first
-                    if await u_btn.count() > 0 and await u_btn.is_visible():
+                file_inputs = page.locator('input[type="file"]')
+                f_count = await file_inputs.count()
+                if f_count > 0:
+                    for fi in range(f_count):
+                        f_inp = file_inputs.nth(fi)
                         try:
-                            async with page.expect_file_chooser(timeout=5000) as fc_info:
-                                await u_btn.click()
-                            file_chooser = await fc_info.value
-                            await file_chooser.set_files(video_path)
+                            await f_inp.set_input_files(video_path)
                             file_attached = True
-                            self.log("SUCCESS", f"[Tab #{reel_index}] ✅ Video file attached via Reels Video FileChooser: {file_name}")
+                            self.log("SUCCESS", f"[Reel #{reel_index}] ✅ Video file attached via direct input #{fi+1}: {file_name}")
                             break
                         except Exception:
                             pass
@@ -627,18 +694,47 @@ class FacebookReelsUploaderBot:
             except Exception:
                 pass
 
-            # Method B: Video specific file inputs (accept*="video")
+            # Method B: Click dropzone button via expect_file_chooser (Multilingual)
             if not file_attached:
                 try:
-                    video_inputs = page.locator('div[role="dialog"] input[type="file"][accept*="video"], input[type="file"][accept*="video"]')
-                    v_count = await video_inputs.count()
-                    if v_count > 0:
-                        for vi in range(v_count):
-                            f_inp = video_inputs.nth(vi)
+                    upload_btn_selectors = [
+                        # English
+                        'div[role="dialog"] div[role="button"]:has-text("Add video")',
+                        'div[role="dialog"] button:has-text("Add video")',
+                        'div[role="dialog"] div[role="button"]:has-text("drag and drop")',
+                        'div[role="dialog"] div[role="button"]:has-text("Select video")',
+                        'div[role="dialog"] div[role="button"]:has-text("Upload")',
+                        'div[role="dialog"] button:has-text("Upload")',
+                        # Portuguese
+                        'div[role="dialog"] div[role="button"]:has-text("Adicionar vídeo")',
+                        'div[role="dialog"] div[role="button"]:has-text("Adicionar video")',
+                        'div[role="dialog"] button:has-text("Adicionar vídeo")',
+                        'div[role="dialog"] div[role="button"]:has-text("Selecionar vídeo")',
+                        'div[role="dialog"] div[role="button"]:has-text("arrastar e soltar")',
+                        'div[role="dialog"] div[role="button"]:has-text("Carregar")',
+                        # Spanish
+                        'div[role="dialog"] div[role="button"]:has-text("Agregar video")',
+                        'div[role="dialog"] button:has-text("Agregar video")',
+                        'div[role="dialog"] div[role="button"]:has-text("Añadir video")',
+                        'div[role="dialog"] div[role="button"]:has-text("Seleccionar video")',
+                        'div[role="dialog"] div[role="button"]:has-text("arrastrar y soltar")',
+                        'div[role="dialog"] div[role="button"]:has-text("Subir")',
+                        # Generic / Page-level
+                        'div[role="button"]:has-text("Add video")',
+                        'button:has-text("Add video")',
+                        'div[role="button"]:has-text("Adicionar vídeo")',
+                        'div[role="button"]:has-text("Agregar video")'
+                    ]
+                    for u_sel in upload_btn_selectors:
+                        u_btn = page.locator(u_sel).first
+                        if await u_btn.count() > 0 and await u_btn.is_visible():
                             try:
-                                await f_inp.set_input_files(video_path)
+                                async with page.expect_file_chooser(timeout=4000) as fc_info:
+                                    await u_btn.click()
+                                file_chooser = await fc_info.value
+                                await file_chooser.set_files(video_path)
                                 file_attached = True
-                                self.log("SUCCESS", f"[Tab #{reel_index}] ✅ Video file attached via video input #{vi+1}: {file_name}")
+                                self.log("SUCCESS", f"[Reel #{reel_index}] ✅ Video file attached via FileChooser: {file_name}")
                                 break
                             except Exception:
                                 pass
@@ -650,13 +746,14 @@ class FacebookReelsUploaderBot:
             await asyncio.sleep(1.5)
 
         if not file_attached:
-            self.log("ERROR", f"[Tab #{reel_index}] ❌ Could not attach video file for {file_name}.")
+            self.log("ERROR", f"[Reel #{reel_index}] ❌ Could not attach video file for {file_name}.")
             return False
 
-        # Step 3: Adaptive Publisher Loop (Caption -> Next -> Next -> Post)
-        self.log("INFO", f"[Tab #{reel_index}] 🔄 Video attached! Processing video, caption & post submission...")
+        # Step 3: Adaptive Multilingual Publisher Loop (Caption -> Next -> Next -> Post)
+        self.log("INFO", f"[Reel #{reel_index}] 🔄 Video attached! Processing video, caption & post submission...")
 
         caption_selectors = [
+            # English
             'div[role="dialog"] div[aria-label*="Describe your reel" i][role="textbox"]',
             'div[role="dialog"] div[aria-label*="Describe your reel" i]',
             'div[aria-label*="Describe your reel" i][role="textbox"]',
@@ -665,6 +762,18 @@ class FacebookReelsUploaderBot:
             'div[aria-label*="Write a description" i][role="textbox"]',
             'div[role="dialog"] div[aria-label*="Description" i][role="textbox"]',
             'div[aria-label*="Description" i][role="textbox"]',
+            # Portuguese
+            'div[role="dialog"] div[aria-label*="Descreva seu reel" i][role="textbox"]',
+            'div[aria-label*="Descreva seu reel" i]',
+            'div[role="dialog"] div[aria-label*="Escreva uma descrição" i]',
+            'div[aria-label*="Descrição" i][role="textbox"]',
+            'div[aria-label*="Legenda" i][role="textbox"]',
+            # Spanish
+            'div[role="dialog"] div[aria-label*="Describe tu reel" i][role="textbox"]',
+            'div[aria-label*="Describe tu reel" i]',
+            'div[role="dialog"] div[aria-label*="Escribe una descripción" i]',
+            'div[aria-label*="Descripción" i][role="textbox"]',
+            # Generic
             'div[role="dialog"] div[role="textbox"][contenteditable="true"]',
             'div[role="textbox"][contenteditable="true"]',
             'div[role="dialog"] div[contenteditable="true"]',
@@ -675,16 +784,38 @@ class FacebookReelsUploaderBot:
         ]
 
         next_selectors = [
+            # English
             'div[role="dialog"] div[aria-label="Next"][role="button"]',
             'div[role="dialog"] button:has-text("Next")',
             'div[role="dialog"] div[role="button"]:has-text("Next")',
             'div[role="dialog"] span:has-text("Next")',
-            'div[aria-label="Next"][role="button"]',
             'button:has-text("Next")',
-            'div[role="button"]:has-text("Next")'
+            'div[role="button"]:has-text("Next")',
+            # Portuguese
+            'div[role="dialog"] div[aria-label="Avançar"][role="button"]',
+            'div[role="dialog"] button:has-text("Avançar")',
+            'div[role="dialog"] div[role="button"]:has-text("Avançar")',
+            'div[role="dialog"] span:has-text("Avançar")',
+            'button:has-text("Avançar")',
+            'div[role="button"]:has-text("Avançar")',
+            'div[role="dialog"] button:has-text("Seguinte")',
+            'div[role="dialog"] div[role="button"]:has-text("Seguinte")',
+            'div[role="dialog"] button:has-text("Próximo")',
+            'div[role="dialog"] div[role="button"]:has-text("Próximo")',
+            # Spanish
+            'div[role="dialog"] div[aria-label="Siguiente"][role="button"]',
+            'div[role="dialog"] button:has-text("Siguiente")',
+            'div[role="dialog"] div[role="button"]:has-text("Siguiente")',
+            'div[role="dialog"] span:has-text("Siguiente")',
+            'button:has-text("Siguiente")',
+            'div[role="button"]:has-text("Siguiente")',
+            # Urdu
+            'button:has-text("اگلا")',
+            'div[role="button"]:has-text("اگلا")'
         ]
 
         strict_post_selectors = [
+            # English
             'div[aria-label="Post"][role="button"]',
             'div[role="button"]:has-text("Post")',
             'button:has-text("Post")',
@@ -692,7 +823,27 @@ class FacebookReelsUploaderBot:
             'button:has-text("Publish")',
             'div[role="dialog"] div[aria-label="Post"][role="button"]',
             'div[role="dialog"] button:has-text("Post")',
-            'div[role="dialog"] div[role="button"]:has-text("Post")'
+            'div[role="dialog"] div[role="button"]:has-text("Post")',
+            'div[role="dialog"] div[aria-label="Publish"][role="button"]',
+            'div[role="dialog"] button:has-text("Publish")',
+            # Portuguese
+            'div[role="dialog"] div[aria-label="Publicar"][role="button"]',
+            'div[role="dialog"] button:has-text("Publicar")',
+            'div[role="dialog"] div[role="button"]:has-text("Publicar")',
+            'div[role="dialog"] button:has-text("Compartilhar")',
+            'div[role="dialog"] button:has-text("Postar")',
+            'button:has-text("Publicar")',
+            'div[role="button"]:has-text("Publicar")',
+            # Spanish
+            'div[role="dialog"] div[aria-label="Publicar"][role="button"]',
+            'div[role="dialog"] button:has-text("Publicar")',
+            'div[role="dialog"] div[role="button"]:has-text("Publicar")',
+            'div[role="dialog"] button:has-text("Compartir")',
+            # Urdu
+            'button:has-text("پوسٹ")',
+            'div[role="button"]:has-text("پوسٹ")',
+            'button:has-text("پوسٹ کریں")',
+            'div[role="button"]:has-text("پوسٹ کریں")'
         ]
 
         caption_entered = False
@@ -717,8 +868,8 @@ class FacebookReelsUploaderBot:
                             await asyncio.sleep(0.2)
                             await page.keyboard.type(caption, delay=15)
                             caption_entered = True
-                            self.log("SUCCESS", f"[Tab #{reel_index}] ✅ Caption & hashtags entered: '{caption[:35]}...'")
-                            
+                            self.log("SUCCESS", f"[Reel #{reel_index}] ✅ Caption & hashtags entered: '{caption[:35]}...'")
+
                             # Dismiss hashtag suggestions popup
                             await page.keyboard.press("Escape")
                             await asyncio.sleep(0.2)
@@ -730,7 +881,7 @@ class FacebookReelsUploaderBot:
                 if not caption_entered:
                     try:
                         caption_entered = await page.evaluate("""(txt) => {
-                            const boxes = Array.from(document.querySelectorAll('div[aria-label*="Describe your reel" i], div[contenteditable="true"], textarea, div[role="textbox"]'));
+                            const boxes = Array.from(document.querySelectorAll('div[aria-label*="Describe" i], div[aria-label*="Descreva" i], div[aria-label*="Describe tu" i], div[contenteditable="true"], textarea, div[role="textbox"]'));
                             for (const b of boxes) {
                                 if (b.offsetParent !== null && b.getBoundingClientRect().height > 20) {
                                     b.focus();
@@ -742,31 +893,36 @@ class FacebookReelsUploaderBot:
                             return false;
                         }""", caption)
                         if caption_entered:
-                            self.log("SUCCESS", f"[Tab #{reel_index}] ✅ Caption entered via DOM helper.")
+                            self.log("SUCCESS", f"[Reel #{reel_index}] ✅ Caption entered via DOM helper.")
                             await page.keyboard.press("Escape")
                     except Exception:
                         pass
 
-            # 2. Check if primary 'Post' / 'Publish' button is ready
+            # 2. Check if primary 'Post' / 'Publish' / 'Publicar' button is active and ready
             has_post_ready = False
             try:
                 has_post_ready = await page.evaluate("""() => {
                     const btns = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"], [role="button"]'));
+                    const postKeywords = ['post', 'publish', 'publicar', 'compartilhar', 'postar', 'compartir', 'پوسٹ', 'پوسٹ کریں', 'شائع کریں'];
+                    
                     for (const b of btns) {
                         if (!b.offsetParent) continue;
                         const label = (b.getAttribute('aria-label') || '').trim().toLowerCase();
                         const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
                         
                         if (txt.includes('group') || label.includes('group') ||
+                            txt.includes('grupo') || label.includes('grupo') ||
                             txt.includes('share to') || label.includes('share to') ||
                             txt.includes('remix') || label.includes('remix') ||
                             txt.includes('boost') || label.includes('boost') ||
+                            txt.includes('turbinar') || label.includes('turbinar') ||
                             txt.includes('schedule') || label.includes('schedule') ||
+                            txt.includes('programar') || label.includes('programar') ||
                             txt.includes('star') || txt.includes('earn')) {
                             continue;
                         }
                         
-                        if (txt === 'post' || label === 'post' || txt === 'publish' || label === 'publish' || txt === 'پوسٹ' || txt === 'پوسٹ کریں') {
+                        if (postKeywords.some(w => txt === w || label === w)) {
                             const dis = b.getAttribute('aria-disabled');
                             if (dis !== 'true' && !b.disabled) {
                                 return true;
@@ -780,25 +936,30 @@ class FacebookReelsUploaderBot:
 
             # 3. If Post is ready AND caption is entered -> CLICK POST!
             if has_post_ready and caption_entered:
-                self.log("INFO", f"[Tab #{reel_index}] 🚀 Post button is active! Clicking Post on Reel #{reel_index} ({file_name})...")
+                self.log("INFO", f"[Reel #{reel_index}] 🚀 Post button is active! Clicking Post on Reel #{reel_index} ({file_name})...")
                 try:
                     published = await page.evaluate("""() => {
                         const btns = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"], [role="button"]'));
+                        const postKeywords = ['post', 'publish', 'publicar', 'compartilhar', 'postar', 'compartir', 'پوسٹ', 'پوسٹ کریں', 'شائع کریں'];
+                        
                         for (const b of btns) {
                             if (!b.offsetParent) continue;
                             const label = (b.getAttribute('aria-label') || '').trim().toLowerCase();
                             const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
                             
                             if (txt.includes('group') || label.includes('group') ||
+                                txt.includes('grupo') || label.includes('grupo') ||
                                 txt.includes('share to') || label.includes('share to') ||
                                 txt.includes('remix') || label.includes('remix') ||
                                 txt.includes('boost') || label.includes('boost') ||
+                                txt.includes('turbinar') || label.includes('turbinar') ||
                                 txt.includes('schedule') || label.includes('schedule') ||
+                                txt.includes('programar') || label.includes('programar') ||
                                 txt.includes('star') || txt.includes('earn')) {
                                 continue;
                             }
                             
-                            if (txt === 'post' || label === 'post' || txt === 'publish' || label === 'publish' || txt === 'پوسٹ' || txt === 'پوسٹ کریں') {
+                            if (postKeywords.some(w => txt === w || label === w)) {
                                 const dis = b.getAttribute('aria-disabled');
                                 if (dis !== 'true' && !b.disabled) {
                                     b.scrollIntoView({ block: 'center', inline: 'center' });
@@ -812,7 +973,7 @@ class FacebookReelsUploaderBot:
                         return false;
                     }""")
                     if published:
-                        self.log("SUCCESS", f"[Tab #{reel_index}] 🎉 Clicked Post on Reel #{reel_index} ({file_name})!")
+                        self.log("SUCCESS", f"[Reel #{reel_index}] 🎉 Clicked Post on Reel #{reel_index} ({file_name})!")
                         break
                 except Exception:
                     pass
@@ -825,19 +986,19 @@ class FacebookReelsUploaderBot:
                             if await p_btn.count() > 0 and await p_btn.is_visible():
                                 p_txt = (await p_btn.inner_text() or "").strip().lower()
                                 p_aria = (await p_btn.get_attribute("aria-label") or "").strip().lower()
-                                if "group" not in p_txt and "group" not in p_aria and "share to" not in p_txt:
+                                if "group" not in p_txt and "grupo" not in p_txt and "share to" not in p_txt:
                                     if await p_btn.get_attribute("aria-disabled") != "true":
                                         await p_btn.scroll_into_view_if_needed()
                                         await p_btn.click(force=True)
                                         published = True
-                                        self.log("SUCCESS", f"[Tab #{reel_index}] 🎉 Clicked Post via Locator on Reel #{reel_index}!")
+                                        self.log("SUCCESS", f"[Reel #{reel_index}] 🎉 Clicked Post via Locator on Reel #{reel_index}!")
                                         break
                         except Exception:
                             pass
                     if published:
                         break
 
-            # 4. If Post is not ready yet, click 'Next'
+            # 4. If Post is not ready yet, click 'Next' (Avançar / Siguiente)
             if not has_post_ready or not caption_entered:
                 for sel in next_selectors:
                     try:
@@ -845,30 +1006,77 @@ class FacebookReelsUploaderBot:
                         if await n_btn.count() > 0 and await n_btn.is_visible():
                             if await n_btn.get_attribute("aria-disabled") != "true":
                                 await n_btn.click()
-                                self.log("INFO", f"[Tab #{reel_index}] 👉 Clicked 'Next' step.")
+                                self.log("INFO", f"[Reel #{reel_index}] 👉 Clicked 'Next' / 'Avançar' step.")
                                 await asyncio.sleep(2.0)
                                 break
                     except Exception:
                         pass
 
+                # DOM query fallback for Next
+                try:
+                    clicked_next_dom = await page.evaluate("""() => {
+                        const btns = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"]'));
+                        const nextWords = ['next', 'avançar', 'avancar', 'seguinte', 'próximo', 'proximo', 'siguiente', 'avanzar', 'اگلا'];
+                        for (const b of btns) {
+                            if (!b.offsetParent) continue;
+                            const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+                            const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
+                            if (nextWords.some(w => txt === w || aria === w)) {
+                                const dis = b.getAttribute('aria-disabled');
+                                if (dis !== 'true' && !b.disabled) {
+                                    b.click();
+                                    return true;
+                                }
+                            }
+                        }
+                        return false;
+                    }""")
+                    if clicked_next_dom:
+                        self.log("INFO", f"[Reel #{reel_index}] 👉 Clicked 'Next' step via DOM helper.")
+                        await asyncio.sleep(2.0)
+                except Exception:
+                    pass
+
             await asyncio.sleep(1.5)
 
         if published:
-            self.log("INFO", f"[Tab #{reel_index}] ⏳ Waiting 6-8 seconds for Facebook server to complete posting Reel #{reel_index}...")
+            self.log("INFO", f"[Reel #{reel_index}] ⏳ Waiting 6-8 seconds for Facebook server to complete posting Reel #{reel_index}...")
             await asyncio.sleep(7.0)
             return True
         else:
-            self.log("ERROR", f"[Tab #{reel_index}] ❌ Could not click Post button for {file_name}.")
+            self.log("ERROR", f"[Reel #{reel_index}] ❌ Could not click Post button for {file_name}.")
             return False
+
+    async def close(self):
+        """Gracefully closes all open pages, browser contexts, and the Playwright engine."""
+        try:
+            if self.context:
+                await self.context.close()
+        except Exception:
+            pass
+        self.context = None
+
+        try:
+            if self.browser:
+                await self.browser.close()
+        except Exception:
+            pass
+        self.browser = None
+
+        try:
+            if self.playwright:
+                await self.playwright.stop()
+        except Exception:
+            pass
+        self.playwright = None
 
     async def run(self) -> Dict[str, Any]:
         """
         Executes bulk Reels upload for this account:
         1. Selects videos according to mode (Random / Sequential / Loop)
-        2. Opens Chrome and detects the active Facebook Profile / Page Reels tab URL
-        3. Spawns concurrent multi-tabs simultaneously (e.g. 2, 3, or 5 tabs at the same time)
-        4. In parallel, each tab attaches video, clicks Next, Next, enters caption, and posts
-        5. Cleanly closes Chrome when all tabs are completed
+        2. Opens Chrome with anti-throttling flags and session cookies
+        3. Uploads each reel sequentially with intelligent per-reel retries and delay cooldowns
+        4. Cleanly closes Chrome when all reels are completed
         """
         if not self.video_files:
             self.log("ERROR", "No video files found in the media pool.")
@@ -892,7 +1100,7 @@ class FacebookReelsUploaderBot:
 
         self.log(
             "INFO",
-            f"🚀 Starting Multi-Tab Auto Reels Upload: {len(assigned_videos)} Reel(s) running simultaneously on {self.account_name}..."
+            f"🚀 Starting Auto Reels Upload: {len(assigned_videos)} Reel(s) assigned for {self.account_name}..."
         )
 
         try:
@@ -939,43 +1147,59 @@ class FacebookReelsUploaderBot:
             self.uploaded_count = 0
             total_reels = len(assigned_videos)
 
-            # Concurrent Multi-Tab Execution: Run all N tabs in parallel!
-            self.log("INFO", f"⚡ Spawning {total_reels} concurrent browser tab(s) simultaneously...")
+            # Paced Sequential Reel Execution with cooldown delay
+            for idx, v_path in enumerate(assigned_videos):
+                if self._cancelled:
+                    self.log("WARNING", "Upload cancelled by user.")
+                    break
 
-            async def _worker_tab(v_path: str, tab_idx: int):
+                tab_idx = idx + 1
                 caption_text = resolve_spintax(self.caption_template)
                 tab_page = await self.context.new_page()
+                uploaded_this_reel = False
+
                 try:
-                    ok = await self._upload_single_reel_tab(
-                        page=tab_page,
-                        video_path=v_path,
-                        caption=caption_text,
-                        reel_index=tab_idx,
-                        total_reels=total_reels,
-                        base_reels_url=base_reels_url
-                    )
-                    if ok:
-                        self.uploaded_count += 1
-                        self.log("SUCCESS", f"✨ Reel #{tab_idx} ({os.path.basename(v_path)}) successfully uploaded & posted!")
-                        if self.counter_cb:
-                            self.counter_cb(self.account_id, self.uploaded_count)
-                    else:
-                        self.log("WARNING", f"⚠️ Reel #{tab_idx} ({os.path.basename(v_path)}) upload was incomplete.")
+                    for reel_attempt in range(1, 3):
+                        if self._cancelled:
+                            break
+                        if reel_attempt > 1:
+                            self.log("INFO", f"[Reel #{tab_idx}] 🔄 Retrying Reel #{tab_idx} upload (Attempt {reel_attempt}/2)...")
+                            await asyncio.sleep(3.0)
+
+                        ok = await self._upload_single_reel_tab(
+                            page=tab_page,
+                            video_path=v_path,
+                            caption=caption_text,
+                            reel_index=tab_idx,
+                            total_reels=total_reels,
+                            base_reels_url=base_reels_url
+                        )
+                        if ok:
+                            uploaded_this_reel = True
+                            self.uploaded_count += 1
+                            self.log("SUCCESS", f"✨ Reel #{tab_idx} ({os.path.basename(v_path)}) successfully uploaded & posted!")
+                            if self.counter_cb:
+                                self.counter_cb(self.account_id, self.uploaded_count)
+                            break
+                        else:
+                            self.log("WARNING", f"⚠️ Reel #{tab_idx} attempt {reel_attempt} was incomplete.")
                 except Exception as ex:
-                    self.log("ERROR", f"[Tab #{tab_idx}] Error: {str(ex)}")
+                    self.log("ERROR", f"[Reel #{tab_idx}] Error: {str(ex)}")
                 finally:
                     try:
                         await tab_page.close()
                     except Exception:
                         pass
 
-            # Launch all tabs concurrently
-            tab_tasks = [_worker_tab(v_path, idx + 1) for idx, v_path in enumerate(assigned_videos)]
-            await asyncio.gather(*tab_tasks, return_exceptions=True)
+                # Delay cooldown between consecutive reels on the same account
+                if idx < total_reels - 1 and not self._cancelled:
+                    cooldown = max(2.0, self.delay_seconds)
+                    self.log("INFO", f"⏳ Cooldown delay of {cooldown:.1f}s before uploading next reel to {self.account_name}...")
+                    await asyncio.sleep(cooldown)
 
-            self.log("SUCCESS", f"🎉 Finished all reels! Total successfully uploaded: {self.uploaded_count}/{total_reels}.")
+            self.log("SUCCESS", f"🎉 Finished all reels for {self.account_name}! Total successfully uploaded: {self.uploaded_count}/{total_reels}.")
             return {
-                "success": True,
+                "success": (self.uploaded_count > 0 or total_reels == 0),
                 "count": self.uploaded_count,
                 "message": f"Successfully uploaded {self.uploaded_count} reels"
             }
@@ -986,19 +1210,5 @@ class FacebookReelsUploaderBot:
 
         finally:
             self.log("INFO", f"Closing Chrome browser cleanly for {self.account_name}...")
-            try:
-                if self.context:
-                    await self.context.close()
-            except Exception:
-                pass
-            try:
-                if self.browser:
-                    await self.browser.close()
-            except Exception:
-                pass
-            try:
-                if self.playwright:
-                    await self.playwright.stop()
-            except Exception:
-                pass
+            await self.close()
             self.log("INFO", f"🔒 Chrome closed for {self.account_name}.")

@@ -655,6 +655,44 @@ class SessionManager:
             return True
         return False
 
+    def delete_accounts(
+        self,
+        account_ids: List[str],
+        delete_profile_dir: bool = False,
+        purge_profile_data: bool = True
+    ) -> int:
+        """Deletes multiple accounts from the database in a single atomic save and wipes profile dirs."""
+        wipe_dir = delete_profile_dir or purge_profile_data
+        accounts = self.list_accounts()
+        id_set = {str(aid).strip() for aid in account_ids if str(aid).strip()}
+        if not id_set:
+            return 0
+
+        to_remove = [
+            a for a in accounts 
+            if str(a.get("id")) in id_set or str(a.get("name")) in id_set
+        ]
+        if not to_remove:
+            return 0
+
+        rem_ids = {str(a.get("id")) for a in to_remove if a.get("id")}
+        rem_names = {str(a.get("name")) for a in to_remove if a.get("name")}
+
+        remaining = [
+            a for a in accounts 
+            if str(a.get("id")) not in rem_ids and str(a.get("name")) not in rem_names and str(a.get("id")) not in id_set and str(a.get("name")) not in id_set
+        ]
+        self.save_accounts(remaining)
+
+        if wipe_dir:
+            for acc in to_remove:
+                for target_name in (acc.get("id"), acc.get("name")):
+                    if target_name:
+                        p_dir = os.path.join(self.profiles_dir, str(target_name))
+                        if os.path.exists(p_dir):
+                            shutil.rmtree(p_dir, ignore_errors=True)
+        return len(to_remove)
+
     def update_account_status(self, account_id: str, status: str, details: str = "", display_name: str = ""):
         """Updates health status, display_name, and last_checked timestamp for an account."""
         accounts = self.list_accounts()
