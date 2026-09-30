@@ -1280,7 +1280,7 @@ export default function App() {
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">Enterprise 2027</span>
                 </div>
                 <p className="text-xs text-slate-400">
-                  Modern dark glassmorphic landing page designed for maximum conversion. Includes Hero, Multi-Account Vault, Multi-Tab Marketplace Lister, Group Auto Poster, Bulk Page Creator, Reels Uploader, Token Extractor, Pricing ($10/mo & $100/yr), FAQ Accordion, and WhatsApp ordering.
+                  Modern dark glassmorphic landing page designed for maximum conversion. Includes Hero, Multi-Account Vault, Multi-Tab Marketplace Lister, Group Auto Poster, Bulk Page Creator, Reels Uploader, Token Extractor, Pricing ($5/mo & $50/yr), FAQ Accordion, and WhatsApp ordering.
                 </p>
               </div>
 

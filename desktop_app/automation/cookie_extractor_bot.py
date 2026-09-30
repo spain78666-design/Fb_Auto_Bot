@@ -3,13 +3,9 @@
 FB Auto Bot - Facebook Automation Suite
 automation/cookie_extractor_bot.py - Automated Facebook Session Cookie Extractor Engine
 
-Automates high-speed extraction of fresh Facebook session cookies (c_user, xs, datr, sb, fr)
-from UID/Email & Password credentials. Supports:
-  1. Silent Background (Headless) or Visible Chrome execution
-  2. Automated 2FA TOTP code generation (RFC 6238) if 2FA secret is provided
-  3. Direct export to standard semicolon string format (matching 'Get Token Cookie' Chrome extension)
-  4. Auto-detection of Facebook profile display name & UID validation
-  5. Multi-account concurrency with strict resource cleanup & anti-detection stealth
+Automates bulletproof, high-speed extraction of fresh Facebook session cookies
+(c_user, xs, datr, sb, fr, etc.) from UID/Email & Password credentials.
+Outputs standard semicolon string format matching the Chrome extension 'Get Token Cookie'.
 """
 
 import os
@@ -18,6 +14,8 @@ import json
 import time
 import random
 import uuid
+import shutil
+import tempfile
 import asyncio
 import logging
 import gc
@@ -37,7 +35,7 @@ try:
 except ImportError:
     PLAYWRIGHT_STEALTH_AVAILABLE = False
 
-# Import TOTP generator from session_manager if available
+# Import TOTP generator and Cookie Parser from session_manager if available
 try:
     from automation.session_manager import generate_totp, SessionCookieParser
 except ImportError:
@@ -70,7 +68,7 @@ except ImportError:
             def cookies_to_semicolon_string(cookies: List[Dict[str, Any]]) -> str:
                 """
                 Converts normalized cookie list to string format matching
-                the Chrome extension 'Get Token Cookie' (sb, datr, _fbp, c_user, i_user, xs...).
+                the Chrome extension 'Get Token Cookie' (sb, datr, _fbp, c_user, i_user, xs, fr...).
                 """
                 priority_names = ["sb", "datr", "_fbp", "c_user", "i_user", "xs", "fr", "presence", "wd", "dpr"]
                 c_map = {}
@@ -99,7 +97,8 @@ logger = logging.getLogger("FBAutoBot.CookieExtractor")
 class FacebookCookieExtractorBot:
     """
     Automated bot that logs into Facebook using credentials and extracts fresh session cookies.
-    Supports switching into Facebook Page profile ('Use Page') for direct Reels/Page actions.
+    Uses launch_persistent_context with anti-detection flags matching real Google Chrome.
+    Formats cookies matching 'Get Token Cookie' Chrome extension.
     """
 
     def __init__(
@@ -109,8 +108,8 @@ class FacebookCookieExtractorBot:
         two_factor_secret: str = "",
         proxy: str = "",
         headless: bool = True,
-        timeout_seconds: int = 45,
-        switch_to_page: bool = True,
+        timeout_seconds: int = 90,
+        switch_to_page: bool = False,
         page_target: str = "",
         log_callback: Optional[Callable[[str, str], None]] = None
     ):
@@ -119,14 +118,14 @@ class FacebookCookieExtractorBot:
         self.two_factor_secret = str(two_factor_secret).strip()
         self.proxy = str(proxy).strip()
         self.headless = headless
-        self.timeout_seconds = timeout_seconds
+        self.timeout_seconds = max(45, int(timeout_seconds))
         self.switch_to_page = switch_to_page
         self.page_target = str(page_target).strip()
         self.log_callback = log_callback
 
         self.playwright: Optional[Playwright] = None
-        self.browser = None
         self.context: Optional[BrowserContext] = None
+        self.temp_profile_dir: Optional[str] = None
         self._cancelled = False
 
     def log(self, level: str, message: str):
@@ -142,7 +141,7 @@ class FacebookCookieExtractorBot:
         self._cancelled = True
 
     async def close(self):
-        """Cleanly releases browser, context, and Playwright instances."""
+        """Cleanly releases browser context, Playwright instances, and temp files."""
         try:
             if self.context:
                 await self.context.close()
@@ -151,18 +150,19 @@ class FacebookCookieExtractorBot:
         self.context = None
 
         try:
-            if self.browser:
-                await self.browser.close()
-        except Exception:
-            pass
-        self.browser = None
-
-        try:
             if self.playwright:
                 await self.playwright.stop()
         except Exception:
             pass
         self.playwright = None
+
+        # Clean temp user profile directory
+        if self.temp_profile_dir and os.path.exists(self.temp_profile_dir):
+            try:
+                shutil.rmtree(self.temp_profile_dir, ignore_errors=True)
+            except Exception:
+                pass
+            self.temp_profile_dir = None
 
         try:
             gc.collect()
@@ -176,8 +176,8 @@ class FacebookCookieExtractorBot:
           - success: bool
           - uid: str
           - name: str
-          - cookie: str (semicolon string format)
-          - status: str ('Success', 'Wrong Password', 'Checkpoint', '2FA Required', 'Timeout', 'Error')
+          - cookie: str (semicolon string format matching 'Get Token Cookie' extension)
+          - status: str ('Live', 'Wrong Password', 'Checkpoint', '2FA Required', 'Timeout', 'Error')
           - message: str
         """
         if not self.uid_or_email:
@@ -213,7 +213,12 @@ class FacebookCookieExtractorBot:
 
         tag = f"[{self.uid_or_email}]"
         mode_str = "Background (Headless)" if self.headless else "Visible Browser"
-        self.log("INFO", f"{tag} 🚀 Initializing Cookie Extractor ({mode_str})...")
+        self.log("INFO", f"{tag} 🚀 Initializing Cookie Extractor Engine ({mode_str}, Timeout: {self.timeout_seconds}s)...")
+
+        # Create unique isolated profile directory for anti-detection
+        clean_uid = "".join(c for c in self.uid_or_email if c.isalnum()) or "temp"
+        self.temp_profile_dir = os.path.join(tempfile.gettempdir(), f"fb_cookie_ext_{clean_uid}_{uuid.uuid4().hex[:6]}")
+        os.makedirs(self.temp_profile_dir, exist_ok=True)
 
         try:
             self.playwright = await async_playwright().start()
@@ -230,8 +235,6 @@ class FacebookCookieExtractorBot:
                 "--disable-renderer-backgrounding",
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
-                "--disk-cache-size=16777216",
-                "--media-cache-size=16777216",
                 "--lang=en-US",
                 "--accept-lang=en-US,en;q=0.9"
             ]
@@ -254,149 +257,57 @@ class FacebookCookieExtractorBot:
             if not proxy_cfg:
                 launch_args.append("--no-proxy-server")
 
-            # Detect installed Chrome executable on Windows
-            chrome_candidates = [
-                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-                os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe")
-            ]
-            chrome_exe = next((c for c in chrome_candidates if os.path.isfile(c)), None)
+            # Smart persistent context launch with browser channel fallbacks
+            channels_to_try = ["chrome", "msedge", "chromium", None]
+            context = None
 
-            launch_kwargs: Dict[str, Any] = {
-                "headless": self.headless,
-                "args": launch_args
-            }
-            if proxy_cfg:
-                launch_kwargs["proxy"] = proxy_cfg
-            if chrome_exe:
-                launch_kwargs["executable_path"] = chrome_exe
+            for ch in channels_to_try:
+                try:
+                    kws: Dict[str, Any] = {
+                        "user_data_dir": self.temp_profile_dir,
+                        "headless": self.headless,
+                        "viewport": {"width": 1280, "height": 800},
+                        "args": launch_args,
+                        "ignore_default_args": ["--enable-automation", "--disable-extensions"],
+                        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+                        "locale": "en-US",
+                        "timezone_id": "America/New_York",
+                        "extra_http_headers": {
+                            "Accept-Language": "en-US,en;q=0.9",
+                            "Upgrade-Insecure-Requests": "1"
+                        }
+                    }
+                    if proxy_cfg:
+                        kws["proxy"] = proxy_cfg
+                    if ch:
+                        kws["channel"] = ch
 
-            try:
-                self.browser = await self.playwright.chromium.launch(**launch_kwargs)
-            except Exception:
-                launch_kwargs.pop("executable_path", None)
-                self.browser = await self.playwright.chromium.launch(**launch_kwargs)
+                    context = await self.playwright.chromium.launch_persistent_context(**kws)
+                    self.context = context
+                    break
+                except Exception:
+                    continue
 
-            context_kwargs = {
-                "viewport": {"width": 1366, "height": 768},
-                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-                "locale": "en-US",
-                "timezone_id": "America/New_York",
-                "extra_http_headers": {
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Sec-Ch-Ua": '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"',
-                    "Sec-Ch-Ua-Mobile": "?0",
-                    "Sec-Ch-Ua-Platform": '"Windows"',
-                    "Sec-Fetch-Dest": "document",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Sec-Fetch-Site": "none",
-                    "Sec-Fetch-User": "?1",
-                    "Upgrade-Insecure-Requests": "1"
-                }
-            }
-            self.context = await self.browser.new_context(**context_kwargs)
-            page = await self.context.new_page()
+            if not self.context:
+                raise Exception("Could not launch Google Chrome, Chromium, or MS Edge on this PC.")
 
-            # Military-Grade 2027 Anti-Detection Stealth Injection
+            page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+
+            # Anti-Detection Stealth Script Injection
             try:
                 await page.add_init_script("""
-                    // 1. Completely eradicate navigator.webdriver and automation traces
                     try {
                         delete Object.getPrototypeOf(navigator).webdriver;
                     } catch (e) {}
                     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-
-                    // 2. Realistic hardware & platform signatures
                     Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
                     Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
                     Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
                     Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
-                    Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0 });
-
-                    // 3. Genuine Chrome Plugins array (prevents headless detection)
-                    const mockPlugins = [
-                        { name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-                        { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-                        { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-                        { name: 'Microsoft Edge PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-                        { name: 'WebKit built-in PDF', filename: 'internal-pdf-viewer', description: 'Portable Document Format' }
-                    ];
-                    Object.defineProperty(navigator, 'plugins', {
-                        get: () => mockPlugins
-                    });
-
-                    // 4. Fully formed window.chrome object (matches genuine Google Chrome)
                     window.chrome = {
-                        app: { isInstalled: false, InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }, RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' } },
-                        runtime: {
-                            OnInstalledReason: { CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' },
-                            OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic', SHARED_MODULE_UPDATE: 'shared_module_update' },
-                            PlatformArch: { ARM: 'arm', ARM64: 'arm64', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
-                            PlatformNaclArch: { ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
-                            PlatformOs: { ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' },
-                            RequestUpdateCheckStatus: { NO_UPDATE: 'no_update', THROTTLED: 'throttled', UPDATE_AVAILABLE: 'update_available' }
-                        },
-                        loadTimes: function() {
-                            return {
-                                requestTime: Date.now() / 1000 - 0.2,
-                                startLoadTime: Date.now() / 1000 - 0.18,
-                                commitLoadTime: Date.now() / 1000 - 0.05,
-                                finishDocumentLoadTime: Date.now() / 1000,
-                                finishLoadTime: Date.now() / 1000 + 0.05,
-                                firstPaintTime: Date.now() / 1000 + 0.02,
-                                firstPaintAfterLoadTime: 0,
-                                navigationType: 'Other'
-                            };
-                        },
-                        csi: function() {
-                            return {
-                                startE: Date.now() - 500,
-                                onloadT: Date.now(),
-                                pageT: 500.2,
-                                tran: 15
-                            };
-                        }
+                        app: { isInstalled: false },
+                        runtime: {}
                     };
-
-                    // 5. Spoof WebGL Vendor and Renderer to genuine NVIDIA GPU
-                    const getParameterProxy = WebGLRenderingContext.prototype.getParameter;
-                    WebGLRenderingContext.prototype.getParameter = function(parameter) {
-                        if (parameter === 37445) { // UNMASKED_VENDOR_WEBGL
-                            return 'Google Inc. (NVIDIA)';
-                        }
-                        if (parameter === 37446) { // UNMASKED_RENDERER_WEBGL
-                            return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)';
-                        }
-                        return getParameterProxy.apply(this, arguments);
-                    };
-
-                    if (typeof WebGL2RenderingContext !== 'undefined') {
-                        const getParameterProxy2 = WebGL2RenderingContext.prototype.getParameter;
-                        WebGL2RenderingContext.prototype.getParameter = function(parameter) {
-                            if (parameter === 37445) {
-                                return 'Google Inc. (NVIDIA)';
-                            }
-                            if (parameter === 37446) {
-                                return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)';
-                            }
-                            return getParameterProxy2.apply(this, arguments);
-                        };
-                    }
-
-                    // 6. Clean permissions query
-                    const origQuery = window.navigator.permissions.query;
-                    window.navigator.permissions.query = (parameters) => (
-                        parameters.name === 'notifications' ?
-                            Promise.resolve({ state: Notification.permission }) :
-                            origQuery(parameters)
-                    );
-
-                    // 7. Remove any Playwright / ChromeDriver internal markers
-                    delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
-                    delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
-                    delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
-                    delete window.__playwright;
-                    delete window.__pw_manualStatus;
                 """)
             except Exception:
                 pass
@@ -407,15 +318,32 @@ class FacebookCookieExtractorBot:
                 except Exception:
                     pass
 
-            self.log("INFO", f"{tag} 🌐 Navigating to Facebook Portal (Anti-Bot Stealth Active)...")
-            try:
-                # First navigate to facebook.com to establish genuine datr & sb cookies naturally
-                await page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=35000)
-                await asyncio.sleep(random.uniform(2.0, 3.2))
-            except Exception as ge:
-                self.log("WARNING", f"{tag} Portal load notice: {str(ge)[:60]}")
+            # Step 1: Navigate to Facebook Login Portal
+            self.log("INFO", f"{tag} 🌐 Navigating to Facebook Login Portal...")
+            login_urls = [
+                "https://www.facebook.com/login.php",
+                "https://www.facebook.com/",
+                "https://mbasic.facebook.com/login.php"
+            ]
 
-            # Check if cookie consent banner is blocking
+            nav_ok = False
+            for u in login_urls:
+                if self._cancelled:
+                    return {"success": False, "uid": self.uid_or_email, "name": "", "cookie": "", "status": "Cancelled", "message": "Cancelled."}
+                try:
+                    await page.goto(u, wait_until="domcontentloaded", timeout=25000)
+                    nav_ok = True
+                    break
+                except Exception as ge:
+                    self.log("WARNING", f"{tag} Load notice ({u}): {str(ge)[:50]}")
+
+            if not nav_ok:
+                try:
+                    await page.goto("https://www.facebook.com/", timeout=30000)
+                except Exception:
+                    pass
+
+            # Step 2: Dismiss Cookie Consent Banners if present
             try:
                 consent_selectors = [
                     'button[data-cookiebanner="accept_button"]',
@@ -432,51 +360,23 @@ class FacebookCookieExtractorBot:
                     c_btn = page.locator(c_sel).first
                     if await c_btn.count() > 0 and await c_btn.is_visible():
                         await c_btn.click()
-                        await asyncio.sleep(random.uniform(0.6, 1.2))
+                        await asyncio.sleep(0.5)
                         break
             except Exception:
                 pass
 
-            if self._cancelled:
-                return {"success": False, "uid": self.uid_or_email, "name": "", "cookie": "", "status": "Cancelled", "message": "Operation cancelled."}
-
-            # Humanized typing function with realistic cadence and jitter
-            async def _human_type(loc, text_to_type: str):
-                await loc.click()
-                await asyncio.sleep(random.uniform(0.25, 0.55))
-                await loc.fill("")
-                for ch in text_to_type:
-                    await loc.type(ch, delay=random.randint(35, 95))
-                    if random.random() < 0.08:
-                        await asyncio.sleep(random.uniform(0.08, 0.22))
-
-            # Fill Email / UID field with human dynamics
-            self.log("INFO", f"{tag} ✍️ Entering UID / Login ID (Human Cadence)...")
+            # Step 3: Locate Email / UID and Password Input Fields
             email_selectors = [
                 'input[name="email"]',
                 'input#email',
                 'input[type="text"][autocomplete="username"]',
                 'input[data-testid="royal_email"]',
                 'input[aria-label*="Email" i]',
-                'input[placeholder*="Email" i]'
+                'input[placeholder*="Email" i]',
+                'input[placeholder*="phone" i]',
+                'input[name="m_ts"]',
+                'input[type="text"]'
             ]
-            email_field = None
-            for es in email_selectors:
-                el = page.locator(es).first
-                if await el.count() > 0 and await el.is_visible():
-                    email_field = el
-                    break
-
-            if email_field:
-                await _human_type(email_field, self.uid_or_email)
-            else:
-                for ch in self.uid_or_email:
-                    await page.keyboard.type(ch, delay=random.randint(40, 90))
-
-            await asyncio.sleep(random.uniform(0.5, 0.9))
-
-            # Fill Password field with human dynamics
-            self.log("INFO", f"{tag} 🔑 Entering Password (Human Cadence)...")
             pass_selectors = [
                 'input[name="pass"]',
                 'input#pass',
@@ -485,59 +385,87 @@ class FacebookCookieExtractorBot:
                 'input[aria-label*="Password" i]',
                 'input[placeholder*="Password" i]'
             ]
-            pass_field = None
-            for ps in pass_selectors:
-                el = page.locator(ps).first
-                if await el.count() > 0 and await el.is_visible():
-                    pass_field = el
+
+            email_el = None
+            pass_el = None
+
+            # Poll for input fields up to 10 seconds
+            field_find_start = time.time()
+            while time.time() - field_find_start < 10.0:
+                if self._cancelled:
+                    return {"success": False, "uid": self.uid_or_email, "name": "", "cookie": "", "status": "Cancelled", "message": "Cancelled."}
+
+                for es in email_selectors:
+                    el = page.locator(es).first
+                    if await el.count() > 0 and await el.is_visible():
+                        email_el = el
+                        break
+
+                for ps in pass_selectors:
+                    el = page.locator(ps).first
+                    if await el.count() > 0 and await el.is_visible():
+                        pass_el = el
+                        break
+
+                if email_el and pass_el:
                     break
+                await asyncio.sleep(0.5)
 
-            if pass_field:
-                await _human_type(pass_field, self.password)
-            else:
-                for ch in self.password:
-                    await page.keyboard.type(ch, delay=random.randint(40, 90))
-
-            # Slight hesitation before clicking submit (mimics genuine human behavior)
-            await asyncio.sleep(random.uniform(0.7, 1.4))
-
-            # Click Log In button
-            self.log("INFO", f"{tag} ⚡ Submitting login credentials...")
-            login_selectors = [
-                'button[name="login"]',
-                'button#loginbutton',
-                'button[data-testid="royal_login_button"]',
-                'button[type="submit"]',
-                'input[type="submit"]',
-                'button:has-text("Log In")',
-                'button:has-text("Login")'
-            ]
-            login_clicked = False
-            for ls in login_selectors:
-                btn = page.locator(ls).first
-                if await btn.count() > 0 and await btn.is_visible():
-                    await btn.click()
-                    login_clicked = True
-                    break
-
-            if not login_clicked:
+            # Step 4: Fill Credentials & Submit Form
+            if email_el and pass_el:
+                self.log("INFO", f"{tag} ✍️ Inputting Facebook UID/Email & Password...")
                 try:
-                    login_clicked = await page.evaluate("""() => {
-                        const b = document.querySelector('button[name="login"], button#loginbutton, button[type="submit"], input[type="submit"]');
-                        if (b) { b.click(); return true; }
-                        return false;
-                    }""")
-                except Exception:
-                    pass
+                    await email_el.click()
+                    await email_el.fill(self.uid_or_email)
+                    await asyncio.sleep(0.3)
+                    await pass_el.click()
+                    await pass_el.fill(self.password)
+                    await asyncio.sleep(0.4)
+                except Exception as fe:
+                    self.log("WARNING", f"{tag} Fill notice: {fe}")
 
-            if not login_clicked:
+                self.log("INFO", f"{tag} ⚡ Submitting login form...")
+                submit_selectors = [
+                    'button[name="login"]',
+                    'button#loginbutton',
+                    'button[data-testid="royal_login_button"]',
+                    'button[type="submit"]',
+                    'input[type="submit"]',
+                    'input[name="login"]',
+                    'button:has-text("Log In")',
+                    'button:has-text("Login")'
+                ]
+                submitted = False
+                for ss in submit_selectors:
+                    s_btn = page.locator(ss).first
+                    if await s_btn.count() > 0 and await s_btn.is_visible():
+                        await s_btn.click()
+                        submitted = True
+                        break
+
+                if not submitted:
+                    try:
+                        submitted = await page.evaluate("""() => {
+                            const b = document.querySelector('button[name="login"], button#loginbutton, button[type="submit"], input[type="submit"]');
+                            if (b) { b.click(); return true; }
+                            const f = document.querySelector('form');
+                            if (f) { f.submit(); return true; }
+                            return false;
+                        }""")
+                    except Exception:
+                        pass
+
+                if not submitted:
+                    await page.keyboard.press("Enter")
+            else:
+                self.log("WARNING", f"{tag} Input fields not immediately matched; pressing Enter on page.")
                 await page.keyboard.press("Enter")
 
-            # Monitoring loop: look for c_user, xs, 2FA, checkpoint, or wrong password
-            self.log("INFO", f"{tag} ⏳ Awaiting Facebook authentication & cookie generation...")
+            # Step 5: Continuous Monitoring Loop for Authentication, Captcha, 2FA, Checkpoints & Session Cookies
+            self.log("INFO", f"{tag} ⏳ Awaiting Facebook authentication & cookies (Max wait: {self.timeout_seconds}s)...")
             has_authenticated = False
             error_status = "Timeout"
-            error_msg = "Login timed out after waiting."
+            error_msg = f"Login timed out after {self.timeout_seconds} seconds."
 
             start_time = time.time()
             max_wait = self.timeout_seconds
@@ -546,92 +474,91 @@ class FacebookCookieExtractorBot:
                 if self._cancelled:
                     return {"success": False, "uid": self.uid_or_email, "name": "", "cookie": "", "status": "Cancelled", "message": "Operation cancelled."}
 
-                await asyncio.sleep(1.2)
+                await asyncio.sleep(1.0)
 
-                # Check for Checkpoint / Security Check first before declaring Live
+                # Check cookies directly from browser context
+                curr_cookies = await self.context.cookies()
+                c_user_val = next((c.get("value") for c in curr_cookies if c.get("name") == "c_user"), None)
+                xs_val = next((c.get("value") for c in curr_cookies if c.get("name") == "xs"), None)
+                datr_val = next((c.get("value") for c in curr_cookies if c.get("name") == "datr"), None)
+
                 curr_url = page.url.lower()
+
+                # If c_user exists in session cookies and not stuck in a security block -> LIVE!
+                if c_user_val and (xs_val or datr_val):
+                    if "/checkpoint/" not in curr_url and "/recover/" not in curr_url and "suspended" not in curr_url:
+                        has_authenticated = True
+                        self.log("SUCCESS", f"{tag} ✅ Live Facebook session tokens detected! c_user={c_user_val}")
+                        break
+
                 page_text = ""
                 try:
                     page_text = await page.evaluate("() => (document.body ? document.body.innerText : '').toLowerCase()")
                 except Exception:
                     pass
 
-                checkpoint_phrases = [
-                    "checkpoint", "confirm your identity", "verify your identity",
-                    "we suspended your account", "account has been disabled",
-                    "help us confirm", "sua conta foi suspensa", "su cuenta ha sido suspendida",
-                    "آپ کا اکاؤنٹ معطل کر دیا گیا ہے", "سیکیورٹی چیک", "confirm that you own this account",
-                    "your account has been locked", "account locked", "we noticed unusual activity",
-                    "unusual activity", "help us verify it's you", "try entering your password"
-                ]
-                is_checkpoint_detected = any(p in curr_url for p in ["checkpoint", "suspended", "disabled", "recover", "login/device-based"]) or any(p in page_text for p in checkpoint_phrases)
-
-                # Check cookies
-                curr_cookies = await self.context.cookies()
-                c_user_val = next((c.get("value") for c in curr_cookies if c.get("name") == "c_user"), None)
-                xs_val = next((c.get("value") for c in curr_cookies if c.get("name") == "xs"), None)
-
-                if c_user_val and xs_val and not is_checkpoint_detected:
-                    has_authenticated = True
-                    self.log("SUCCESS", f"{tag} ✅ Live session detected! c_user={c_user_val}")
-                    break
-
-                # Check for Wrong Password indicator
-                if "incorrect password" in page_text or "wrong password" in page_text or "the password you entered is incorrect" in page_text:
+                # Check for Wrong Password
+                if "the password you entered is incorrect" in page_text or "incorrect password" in page_text or "the password that you've entered is incorrect" in page_text or "wrong password" in page_text:
                     error_status = "Wrong Password"
                     error_msg = "Incorrect Facebook Password."
                     self.log("ERROR", f"{tag} ❌ Wrong password for account.")
                     break
 
-                # Check for Disabled / Suspended account
-                if "account disabled" in page_text or "your account has been disabled" in page_text:
+                # Check for Disabled Account
+                if "account has been disabled" in page_text or "your account has been disabled" in page_text or "we disabled your account" in page_text:
                     error_status = "Disabled"
                     error_msg = "Account is disabled by Facebook."
                     self.log("ERROR", f"{tag} 🚫 Facebook account is disabled.")
                     break
 
-                if is_checkpoint_detected:
-                    # Check if 2FA code input is present
-                    two_fa_input = page.locator('input[name="approvals_code"], input[name="code"], input#approvals_code').first
-                    if await two_fa_input.count() > 0 and await two_fa_input.is_visible():
-                        if self.two_factor_secret:
-                            totp_code = generate_totp(self.two_factor_secret)
-                            if totp_code:
-                                self.log("INFO", f"{tag} 🔑 2FA Required. Generated TOTP ({totp_code}). Submitting...")
-                                await two_fa_input.fill(totp_code)
-                                await asyncio.sleep(0.4)
-                                submit_btn = page.locator('button#checkpointSubmitButton, button[type="submit"], button:has-text("Continue"), button:has-text("Submit")').first
-                                if await submit_btn.count() > 0 and await submit_btn.is_visible():
-                                    await submit_btn.click()
-                                else:
-                                    await page.keyboard.press("Enter")
-                                await asyncio.sleep(2.5)
-                                continue
-                        else:
-                            error_status = "2FA Required"
-                            error_msg = "Two-Factor Authentication (2FA) required, but no 2FA secret was provided."
-                            self.log("WARNING", f"{tag} ⚠️ 2FA code required.")
-                            break
+                # Check for Captcha challenge
+                if "security check" in page_text and ("type the characters" in page_text or "captcha" in page_text or "recaptcha" in page_text):
+                    self.log("WARNING", f"{tag} 🧩 Security Captcha detected on screen. Waiting for verification...")
+
+                # Check for 2FA / Approvals code prompt
+                two_fa_input = page.locator('input[name="approvals_code"], input[name="code"], input#approvals_code').first
+                if await two_fa_input.count() > 0 and await two_fa_input.is_visible():
+                    if self.two_factor_secret:
+                        totp_code = generate_totp(self.two_factor_secret)
+                        if totp_code:
+                            self.log("INFO", f"{tag} 🔑 2FA Required. Generated TOTP ({totp_code}). Submitting...")
+                            await two_fa_input.fill(totp_code)
+                            await asyncio.sleep(0.4)
+                            submit_btn = page.locator('button#checkpointSubmitButton, button[type="submit"], button:has-text("Continue"), button:has-text("Submit")').first
+                            if await submit_btn.count() > 0 and await submit_btn.is_visible():
+                                await submit_btn.click()
+                            else:
+                                await page.keyboard.press("Enter")
+                            await asyncio.sleep(2.5)
+                            continue
                     else:
-                        error_status = "Checkpoint"
-                        error_msg = "Account triggered Facebook security checkpoint."
-                        self.log("WARNING", f"{tag} 🔒 Account triggered Facebook security checkpoint.")
+                        error_status = "2FA Required"
+                        error_msg = "Two-Factor Authentication (2FA) required, but no 2FA secret was provided."
+                        self.log("WARNING", f"{tag} ⚠️ 2FA code required.")
                         break
 
-                # Handle "Save login info" or "Remember browser" prompts
+                # Check for genuine Checkpoint screen
+                if ("/checkpoint/" in curr_url or "/recover/initiate" in curr_url) and ("confirm your identity" in page_text or "we suspended your account" in page_text or "your account has been locked" in page_text or "account locked" in page_text or "help us confirm" in page_text):
+                    error_status = "Checkpoint"
+                    error_msg = "Account is in Facebook security checkpoint."
+                    self.log("WARNING", f"{tag} 🔒 Account triggered Facebook security checkpoint.")
+                    break
+
+                # Handle "Save login info" / "Remember password" / "Not Now" dialogs
                 try:
                     save_info_selectors = [
                         'button:has-text("Save")',
                         'button:has-text("Save Info")',
                         'button:has-text("Not Now")',
                         'a:has-text("Not Now")',
-                        'button:has-text("Continue")'
+                        'button:has-text("Continue")',
+                        'button:has-text("OK")'
                     ]
                     for s_sel in save_info_selectors:
                         s_btn = page.locator(s_sel).first
                         if await s_btn.count() > 0 and await s_btn.is_visible():
                             await s_btn.click()
-                            await asyncio.sleep(1.0)
+                            await asyncio.sleep(0.8)
                             break
                 except Exception:
                     pass
@@ -648,10 +575,7 @@ class FacebookCookieExtractorBot:
 
                 c_user_val = next((c.get("value") for c in cp_cookies if c.get("name") == "c_user"), "")
                 resolved_uid = c_user_val or self.uid_or_email
-                is_cp = (error_status == "Checkpoint" or "checkpoint" in error_status.lower())
-
-                if is_cp:
-                    self.log("WARNING", f"{tag} 🔒 Checkpoint ID captured ({len(cp_cookies)} cookie tokens). Kept completely separate from Live IDs.")
+                is_cp = (error_status == "Checkpoint")
 
                 return {
                     "success": False,
@@ -660,11 +584,11 @@ class FacebookCookieExtractorBot:
                     "name": f"FB Checkpoint ({resolved_uid})" if is_cp else "",
                     "cookie": cp_cookie_str,
                     "cookie_list": cp_cookies,
-                    "status": "Checkpoint" if is_cp else error_status,
+                    "status": error_status,
                     "message": error_msg
                 }
 
-            # If switch_to_page is enabled, switch active profile to the Facebook Page ("Use Page")
+            # Optional Facebook Page switch if requested
             is_page_active = False
             page_name_found = ""
             page_id_found = ""
@@ -675,33 +599,20 @@ class FacebookCookieExtractorBot:
                         is_page_active = True
                         page_name_found = p_name
                         page_id_found = p_id
-                        self.log("SUCCESS", f"{tag} 🎯 Switched to Facebook Page: '{p_name}' (ID: {p_id})! Extracted cookie will open directly in Page mode.")
+                        self.log("SUCCESS", f"{tag} 🎯 Active profile set to Page: '{p_name}' (ID: {p_id})")
                 except Exception as sw_ex:
-                    self.log("WARNING", f"{tag} Page switch notice: {sw_ex}")
+                    self.log("DEBUG", f"{tag} Page switch note: {sw_ex}")
 
-            # Session Warmup & Security Stabilizer Routine (Prevents immediate suspension / checkpoints)
-            self.log("INFO", f"{tag} 🛡️ Stabilizing session security trust & warming telemetry...")
-            try:
-                # Gentle human-like mouse movement and natural scrolling
-                await page.mouse.move(random.randint(200, 600), random.randint(200, 500))
-                await asyncio.sleep(random.uniform(0.8, 1.4))
-                await page.evaluate("window.scrollBy({ top: 280, behavior: 'smooth' })")
-                await asyncio.sleep(random.uniform(1.2, 1.8))
-                await page.evaluate("window.scrollBy({ top: -140, behavior: 'smooth' })")
-                await asyncio.sleep(random.uniform(1.5, 2.2))
-            except Exception:
-                await asyncio.sleep(2.5)
-
-            # Retrieve final complete cookies
+            # Retrieve final cookies formatted identically to 'Get Token Cookie' Chrome extension
             final_cookies = await self.context.cookies()
             cookie_semicolon = SessionCookieParser.cookies_to_semicolon_string(final_cookies)
 
-            # Detect UID from c_user cookie if available
+            # Detect UID from c_user cookie
             c_user_val = next((c.get("value") for c in final_cookies if c.get("name") == "c_user"), "")
             i_user_val = next((c.get("value") for c in final_cookies if c.get("name") == "i_user"), "")
             resolved_uid = c_user_val or self.uid_or_email
 
-            # Detect Facebook Account / Page Display Name
+            # Detect Facebook Display Name
             detected_name = page_name_found
             if not detected_name:
                 try:
@@ -732,22 +643,7 @@ class FacebookCookieExtractorBot:
 
             status_label = "Live (Page Active)" if is_page_active else "Live"
             self.log("SUCCESS", f"{tag} 🎉 Fresh cookie extracted successfully for '{detected_name}' (Status: {status_label})!")
-            # Final safety verification: ensure page didn't redirect to checkpoint during warmup / navigation
-            final_url = page.url.lower()
-            if any(p in final_url for p in ["checkpoint", "suspended", "disabled", "recover"]):
-                self.log("WARNING", f"{tag} 🔒 Checkpoint verified at end of session. Kept strictly separate from Live IDs.")
-                return {
-                    "success": False,
-                    "is_checkpoint": True,
-                    "uid": resolved_uid,
-                    "name": f"FB Checkpoint ({resolved_uid})",
-                    "cookie": cookie_semicolon,
-                    "cookie_list": final_cookies,
-                    "status": "Checkpoint",
-                    "message": "Account in Facebook checkpoint. Kept separate from Live."
-                }
-
-            self.log("INFO", f"{tag} 🍪 Cookie Preview: {cookie_semicolon[:65]}... ({len(final_cookies)} cookie tokens)")
+            self.log("INFO", f"{tag} 🍪 Cookie Preview ('Get Token Cookie'): {cookie_semicolon[:60]}... ({len(final_cookies)} tokens)")
 
             return {
                 "success": True,
@@ -779,27 +675,21 @@ class FacebookCookieExtractorBot:
 
     async def _switch_to_facebook_page(self, page: Page) -> Tuple[bool, str, str]:
         """
-        Switches the Facebook session from the personal user profile to an active
-        Facebook Page profile ('Use Page' / New Pages Experience).
-        Once switched, Facebook sets the 'i_user' cookie to the Page ID.
+        Attempts a quick switch to an active Facebook Page profile if available.
         """
         tag = f"[{self.uid_or_email}]"
-        self.log("INFO", f"{tag} 🔍 Checking Facebook Pages manager to switch into Page profile ('Use Page')...")
-
         target_name = (self.page_target or "").lower().strip()
         switched = False
         detected_page_name = ""
         detected_page_id = ""
 
-        # Method 1: Navigate to pages dashboard /pages/?category=your_pages
         try:
-            await page.goto("https://www.facebook.com/pages/?category=your_pages", wait_until="domcontentloaded", timeout=25000)
-            await asyncio.sleep(2.5)
+            await page.goto("https://www.facebook.com/pages/?category=your_pages", wait_until="domcontentloaded", timeout=12000)
+            await asyncio.sleep(1.5)
 
-            # Find switch buttons on /pages/
             page_switch_info = await page.evaluate("""(target) => {
                 const buttons = Array.from(document.querySelectorAll('div[role="button"], button, a[role="button"]'));
-                const switchWords = ['switch now', 'switch into', 'switch', 'use page', 'mudar agora', 'mudar', 'cambiar ahora', 'cambiar', 'سوئچ کریں'];
+                const switchWords = ['switch now', 'switch into', 'switch', 'use page', 'mudar agora', 'mudar', 'cambiar ahora', 'cambiar'];
 
                 for (const b of buttons) {
                     if (!b.offsetParent) continue;
@@ -826,76 +716,10 @@ class FacebookCookieExtractorBot:
             if page_switch_info and page_switch_info.get("clicked"):
                 switched = True
                 detected_page_name = page_switch_info.get("name", "")
-                self.log("INFO", f"{tag} 👉 Clicked 'Switch now' for Page '{detected_page_name}'...")
-                await asyncio.sleep(4.5)
-        except Exception as e:
-            self.log("DEBUG", f"{tag} Page dashboard notice: {e}")
+                await asyncio.sleep(2.5)
+        except Exception:
+            pass
 
-        # Method 2: Fallback via Top-Right Profile Switcher Menu
-        if not switched:
-            try:
-                self.log("INFO", f"{tag} Trying Top-Right Account Menu profile switcher...")
-                await page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=20000)
-                await asyncio.sleep(2.0)
-
-                avatar_clicked = await page.evaluate("""() => {
-                    const btns = Array.from(document.querySelectorAll('div[role="button"], svg'));
-                    for (const b of btns) {
-                        const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-                        if (aria.includes('your profile') || aria.includes('account') || aria.includes('conta') || aria.includes('cuenta')) {
-                            const el = b.closest('div[role="button"]') || b;
-                            el.click();
-                            return true;
-                        }
-                    }
-                    return false;
-                }""")
-
-                if avatar_clicked:
-                    await asyncio.sleep(1.5)
-                    # Click "See all profiles" if visible
-                    await page.evaluate("""() => {
-                        const btns = Array.from(document.querySelectorAll('div[role="button"], span'));
-                        for (const b of btns) {
-                            const txt = (b.innerText || b.textContent || '').toLowerCase();
-                            if (txt.includes('see all profiles') || txt.includes('ver todos os perfis') || txt.includes('ver todos los perfiles')) {
-                                (b.closest('div[role="button"]') || b).click();
-                                return true;
-                            }
-                        }
-                        return false;
-                    }""")
-                    await asyncio.sleep(1.5)
-
-                    # Click the first Page profile item
-                    switched_menu = await page.evaluate("""(target) => {
-                        const items = Array.from(document.querySelectorAll('div[role="listitem"], div[role="button"]'));
-                        for (const item of items) {
-                            if (!item.offsetParent) continue;
-                            const aria = (item.getAttribute('aria-label') || '').toLowerCase();
-                            const txt = (item.innerText || item.textContent || '').toLowerCase();
-
-                            if (aria.includes('switch to') || aria.includes('switch into') || aria.includes('mudar para') || aria.includes('cambiar a') || txt.includes('switch')) {
-                                if (target && !txt.includes(target) && !aria.includes(target)) {
-                                    continue;
-                                }
-                                item.click();
-                                const namePart = aria.replace(/switch to|switch into|mudar para|cambiar a/g, '').trim() || txt.split('\\n')[0].trim();
-                                return { clicked: true, name: namePart };
-                            }
-                        }
-                        return { clicked: false, name: '' };
-                    }""", target_name)
-
-                    if switched_menu and switched_menu.get("clicked"):
-                        switched = True
-                        detected_page_name = switched_menu.get("name", "")
-                        self.log("INFO", f"{tag} 👉 Switched to Page '{detected_page_name}' from Account Menu.")
-                        await asyncio.sleep(4.5)
-            except Exception as e:
-                self.log("DEBUG", f"{tag} Account menu switch notice: {e}")
-
-        # Check for i_user cookie (The Facebook Page ID)
         if self.context:
             try:
                 curr_cookies = await self.context.cookies()
@@ -906,18 +730,5 @@ class FacebookCookieExtractorBot:
                         break
             except Exception:
                 pass
-
-        if switched and not detected_page_name:
-            try:
-                detected_page_name = await page.evaluate("""() => {
-                    const h1 = document.querySelector('h1, h2');
-                    if (h1 && h1.offsetParent) return h1.innerText.trim();
-                    return '';
-                }""")
-            except Exception:
-                pass
-
-        if not detected_page_name and detected_page_id:
-            detected_page_name = f"FB Page ({detected_page_id})"
 
         return switched, detected_page_name, detected_page_id

@@ -1320,7 +1320,7 @@ class CredentialLoginWorker(QThread):
                     two_factor_secret=two_fa,
                     proxy=raw_proxy,
                     headless=self.headless,
-                    timeout_seconds=50,
+                    timeout_seconds=90,
                     switch_to_page=self.switch_to_page,
                     log_callback=self._log_bridge
                 )
@@ -2547,12 +2547,13 @@ class CookieExtractorWorker(QThread):
         delay_seconds = float(self.payload.get("delay_seconds", 3.0))
         network_mode = self.payload.get("network_mode", "direct")
         switch_to_page = bool(self.payload.get("switch_to_page", True))
+        timeout_seconds = max(30, int(self.payload.get("timeout_seconds", 90)))
 
         mode_desc = f"{'Silent Background' if headless else 'Visible Browser'} | {'Page Profile (Use Page)' if switch_to_page else 'Personal Profile'}"
         self.log_signal.emit(
             "INFO",
             f"🚀 Starting Auto Cookie Extraction on {len(accounts)} account(s) "
-            f"(Concurrency: {concurrency}, Mode: {mode_desc})..."
+            f"(Concurrency: {concurrency}, Timeout: {timeout_seconds}s, Mode: {mode_desc})..."
         )
 
         sem = asyncio.Semaphore(concurrency)
@@ -2584,7 +2585,7 @@ class CookieExtractorWorker(QThread):
                     two_factor_secret=secret_2fa,
                     proxy=raw_proxy,
                     headless=headless,
-                    timeout_seconds=45,
+                    timeout_seconds=timeout_seconds,
                     switch_to_page=switch_to_page,
                     log_callback=self._log_bridge
                 )
@@ -15102,7 +15103,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Delay Between Logins
         d_box = QVBoxLayout()
-        d_lbl = QLabel("⏱️ Delay Between Accounts (Sec):")
+        d_lbl = QLabel("⏱️ Delay (Sec):")
         d_lbl.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700;")
         d_box.addWidget(d_lbl)
         self.extract_delay_spin = QDoubleSpinBox()
@@ -15112,6 +15113,20 @@ class FBAutoBotMainWindow(QMainWindow):
         self.extract_delay_spin.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-weight: 800; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 4px;")
         d_box.addWidget(self.extract_delay_spin)
         cfg_row.addLayout(d_box, stretch=1)
+
+        # Login Timeout
+        t_box = QVBoxLayout()
+        t_lbl = QLabel("⏳ Timeout (Sec):")
+        t_lbl.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700;")
+        t_box.addWidget(t_lbl)
+        self.extract_timeout_spin = QSpinBox()
+        self.extract_timeout_spin.setRange(30, 300)
+        self.extract_timeout_spin.setValue(90)
+        self.extract_timeout_spin.setSingleStep(15)
+        self.extract_timeout_spin.setToolTip("Maximum wait time in seconds for Facebook login & authentication before timeout.")
+        self.extract_timeout_spin.setStyleSheet("background-color: #0f172a; color: #38bdf8; font-weight: 800; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; padding: 4px;")
+        t_box.addWidget(self.extract_timeout_spin)
+        cfg_row.addLayout(t_box, stretch=1)
 
         # Network Mode
         net_box = QVBoxLayout()
@@ -15656,6 +15671,7 @@ class FBAutoBotMainWindow(QMainWindow):
         headless = (self.extract_mode_combo.currentIndex() == 0) if hasattr(self, 'extract_mode_combo') else True
         concurrency = self.extract_concurrent_spin.value() if hasattr(self, 'extract_concurrent_spin') else 2
         delay_seconds = self.extract_delay_spin.value() if hasattr(self, 'extract_delay_spin') else 3.0
+        timeout_seconds = self.extract_timeout_spin.value() if hasattr(self, 'extract_timeout_spin') else 90
         network_mode = "direct" if (hasattr(self, 'extract_network_combo') and self.extract_network_combo.currentIndex() == 0) else "proxy"
         switch_to_page = self.chk_switch_to_page.isChecked() if hasattr(self, 'chk_switch_to_page') else True
 
@@ -15664,6 +15680,7 @@ class FBAutoBotMainWindow(QMainWindow):
             "headless": headless,
             "concurrency": concurrency,
             "delay_seconds": delay_seconds,
+            "timeout_seconds": timeout_seconds,
             "network_mode": network_mode,
             "switch_to_page": switch_to_page
         }

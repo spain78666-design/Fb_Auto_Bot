@@ -935,8 +935,8 @@ export default function AdminPanel({ onBackToApp }: AdminPanelProps) {
                         onChange={e => setSelectedPlan(e.target.value)}
                         className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-3 py-2.5 text-xs sm:text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-medium"
                       >
-                        <option value="365">1 Year License - 365 Days ($100)</option>
-                        <option value="30">Monthly License - 30 Days ($10)</option>
+                        <option value="365">1 Year License - 365 Days ($50)</option>
+                        <option value="30">Monthly License - 30 Days ($5)</option>
                         <option value="0">Lifetime Unlimited Access (VIP)</option>
                         <option value="15">15-Day Trial Pass</option>
                         <option value="7">7-Day Free Trial</option>
