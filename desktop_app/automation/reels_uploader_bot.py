@@ -124,7 +124,8 @@ class FacebookReelsUploaderBot:
         selection_mode: str = "Random Pool (No Dup)",
         log_callback: Optional[Callable[[str, str], None]] = None,
         progress_callback: Optional[Callable[[int], None]] = None,
-        counter_callback: Optional[Callable[[str, int], None]] = None
+        counter_callback: Optional[Callable[[str, int], None]] = None,
+        status_callback: Optional[Callable[[str, str], None]] = None
     ):
         self.account_data = account_data
         self.video_files = [f for f in video_files if os.path.isfile(f)]
@@ -136,6 +137,7 @@ class FacebookReelsUploaderBot:
         self.log_cb = log_callback
         self.prog_cb = progress_callback
         self.counter_cb = counter_callback
+        self.status_cb = status_callback
 
         self.account_id = str(account_data.get("id", "unknown"))
         self.account_name = str(account_data.get("name", "Facebook Account"))
@@ -145,6 +147,10 @@ class FacebookReelsUploaderBot:
         self.context = None
         self._cancelled = False
         self.uploaded_count = 0
+
+        self.rate_limited = False
+        self.checkpoint_hit = False
+        self.logged_out = False
 
     def log(self, level: str, message: str):
         full_msg = f"[{self.account_name}] {message}"
@@ -156,6 +162,274 @@ class FacebookReelsUploaderBot:
     def cancel(self):
         self._cancelled = True
         self.log("WARNING", "🛑 Stop command received. Terminating Reels uploader...")
+
+    async def _check_facebook_rate_limit(self, page: Page) -> Tuple[bool, str]:
+        """
+        Detects Facebook temporary posting limits / action blocks:
+        'We limit how often you can post, comment or do other things in a given amount of time...'
+        Returns (is_limit, matched_text_snippet).
+        """
+        try:
+            res = await page.evaluate("""() => {
+                const limitPhrases = [
+                    'we limit how often you can post',
+                    'we limit how often',
+                    'protect the community from spam',
+                    'you can try again later',
+                    'try again later',
+                    "you can't use this feature right now",
+                    "you can't post right now",
+                    "you're temporarily blocked",
+                    "you’re temporarily blocked",
+                    'temporarily blocked from posting',
+                    'action blocked',
+                    'you’ve been temporarily blocked',
+                    'you've been temporarily blocked',
+                    'we added a restriction',
+                    'account is restricted',
+                    'we restricted your account',
+                    'your account is restricted',
+                    'limit reached',
+                    'going too fast',
+                    'misusing this feature',
+                    "couldn't be posted",
+                    "post couldn't be shared",
+                    'something went wrong while posting',
+                    'limitamos a frequência com que você pode',
+                    'limitamos a frequência',
+                    'bloqueado temporariamente',
+                    'bloqueada temporariamente',
+                    'ação bloqueada',
+                    'você não pode publicar agora',
+                    'você não pode publicar',
+                    'sua conta está restrita',
+                    'tente novamente mais tarde',
+                    'limitamos la frecuencia con la que puedes',
+                    'limitamos la frecuencia',
+                    'bloqueado temporalmente',
+                    'bloqueada temporalmente',
+                    'acción bloqueada',
+                    'no puedes publicar en este momento',
+                    'no puedes publicar',
+                    'tu cuenta está restringida',
+                    'inténtalo de nuevo más tarde',
+                    'ہم اس کی حد مقرر کرتے ہیں',
+                    'عارضی طور پر بلاک',
+                    'پوسٹ نہیں کر سکتے'
+                ];
+
+                // 1. Scan alert dialogs, warning banners, red error text containers
+                const containers = Array.from(document.querySelectorAll('div[role="alert"], div[role="alertdialog"], div[role="dialog"], [class*="alert" i], [class*="error" i], [class*="warning" i], span, p, div'));
+                for (const el of containers) {
+                    const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                    if (txt.length >= 8 && txt.length <= 800) {
+                        for (const ph of limitPhrases) {
+                            if (txt.includes(ph)) {
+                                return { found: true, snippet: (el.innerText || el.textContent || '').trim().slice(0, 140) };
+                            }
+                        }
+                    }
+                }
+
+                // 2. Full document body fallback
+                const fullText = (document.body ? document.body.innerText || document.body.textContent || '' : '').toLowerCase();
+                for (const ph of limitPhrases) {
+                    if (fullText.includes(ph)) {
+                        return { found: true, snippet: ph };
+                    }
+                }
+                return { found: false, snippet: '' };
+            }""")
+            if res and res.get("found"):
+                snippet = res.get("snippet", "Facebook posting limit")
+                self.rate_limited = True
+                return True, snippet
+            return False, ""
+        except Exception:
+            return False, ""
+
+    async def _check_checkpoint_or_suspended(self, page: Page) -> Tuple[bool, str]:
+        """
+        Detects Facebook Checkpoint, Account Suspension, or Disabled accounts.
+        Returns (is_checkpoint, matched_text_snippet).
+        """
+        try:
+            curr_url = page.url.lower()
+            checkpoint_url_keywords = [
+                "checkpoint", "suspended", "confirmemail", "recover",
+                "login_approval", "two_step_verification", "account_disabled",
+                "help/contact/"
+            ]
+            for k in checkpoint_url_keywords:
+                if k in curr_url:
+                    self.checkpoint_hit = True
+                    return True, f"URL keyword: {k}"
+
+            res = await page.evaluate("""() => {
+                const phrases = [
+                    'account suspended',
+                    'account has been disabled',
+                    'we suspended your account',
+                    'help us confirm that you own this account',
+                    'confirm your identity',
+                    'enter security code',
+                    'login approval needed',
+                    'approve your login',
+                    'sua conta foi suspensa',
+                    'su cuenta ha sido suspendida',
+                    'آپ کا اکاؤنٹ معطل کر دیا گیا ہے',
+                    'checkpoint'
+                ];
+                const fullText = (document.body ? document.body.innerText || document.body.textContent || '' : '').toLowerCase();
+                for (const phrase of phrases) {
+                    if (fullText.includes(phrase)) {
+                        return { found: true, snippet: phrase };
+                    }
+                }
+                return { found: false, snippet: '' };
+            }""")
+            if res and res.get("found"):
+                snippet = res.get("snippet", "Account Checkpoint / Suspended")
+                self.checkpoint_hit = True
+                return True, snippet
+            return False, ""
+        except Exception:
+            return False, ""
+
+    async def _ensure_logged_in(self, page: Page) -> bool:
+        """
+        Verifies if Facebook session is currently authenticated.
+        If logged out, attempts recovery via saved profile 'Continue as' click or credential submit (up to 2 attempts).
+        If still not logged in, returns False so the uploader can immediately skip and close browser.
+        """
+        for attempt in range(1, 3):
+            if self._cancelled:
+                return False
+
+            try:
+                await page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=40000)
+                await asyncio.sleep(2.5)
+            except Exception as e:
+                self.log("DEBUG", f"Page load notice: {e}")
+
+            # Check 1: Checkpoint
+            is_cp, cp_msg = await self._check_checkpoint_or_suspended(page)
+            if is_cp:
+                self.checkpoint_hit = True
+                clean_uid = "".join(c for c in str(self.account_data.get("uid", "")) if c.isdigit())
+                uid_str = f" (UID: {clean_uid})" if clean_uid else ""
+                self.log("ERROR", f"⚠️ Facebook Checkpoint or Account Suspension detected for {self.account_name}{uid_str}: {cp_msg}!")
+                if self.status_cb:
+                    self.status_cb(self.account_id, "checkpoint")
+                return False
+
+            # Check 2: Check if logged in via DOM elements and cookies
+            is_logged_in = False
+            try:
+                is_logged_in = await page.evaluate("""() => {
+                    const u = window.location.href.toLowerCase();
+                    if (u.includes('/login') || u.includes('/checkpoint')) return false;
+                    
+                    // Look for logged-in UI elements
+                    const hasNav = document.querySelector('div[role="navigation"], div[aria-label="Facebook"][role="navigation"], div[aria-label="Account controls and settings"], div[aria-label*="Your profile" i], svg[aria-label="Your profile"]') !== null;
+                    const hasMe = document.querySelector('a[href*="/me"], a[href*="profile.php"]') !== null;
+                    const hasSearch = document.querySelector('input[placeholder*="Search Facebook" i], input[aria-label*="Search Facebook" i]') !== null;
+                    const hasComposer = document.querySelector('div[role="region"][aria-label*="News Feed" i], div[role="main"]') !== null;
+                    
+                    // If email or password input exists and is visible -> definitely logged out
+                    const emailInp = document.querySelector('input[name="email"], input[id="email"]');
+                    if (emailInp && emailInp.offsetParent !== null) return false;
+
+                    return hasNav || hasMe || hasSearch || hasComposer;
+                }""")
+            except Exception:
+                is_logged_in = False
+
+            if is_logged_in:
+                self.log("SUCCESS", f"✅ Session confirmed LIVE & authenticated for {self.account_name}.")
+                return True
+
+            self.log("WARNING", f"⚠️ Account {self.account_name} appears logged out. Attempting login verification (Attempt {attempt}/2)...")
+
+            # Check for 'Continue as' button or saved login card
+            try:
+                clicked_continue = await page.evaluate("""() => {
+                    const buttons = Array.from(document.querySelectorAll('div[role="button"], button, a, div[tabindex="0"]'));
+                    for (const b of buttons) {
+                        const txt = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').toLowerCase().trim();
+                        if (txt.includes('continue as') || txt.includes('continuar como') || txt.includes('iniciar sesión como') || txt.includes('جاری رکھیں')) {
+                            if (b.offsetParent !== null) {
+                                b.click();
+                                return true;
+                            }
+                        }
+                    }
+                    // Check for profile account tile on login page
+                    const tiles = Array.from(document.querySelectorAll('div[data-testid="login_account_tile"], [role="button"][aria-label*="Log in as" i]'));
+                    if (tiles.length > 0 && tiles[0].offsetParent !== null) {
+                        tiles[0].click();
+                        return true;
+                    }
+                    return false;
+                }""")
+                if clicked_continue:
+                    self.log("INFO", "👉 Clicked 'Continue as' / saved login profile. Waiting for authorization...")
+                    await asyncio.sleep(4.0)
+                    is_cp, _ = await self._check_checkpoint_or_suspended(page)
+                    if not is_cp:
+                        curr = page.url.lower()
+                        if "login" not in curr and "checkpoint" not in curr:
+                            self.log("SUCCESS", f"✅ Successfully logged in via saved profile for {self.account_name}!")
+                            return True
+            except Exception:
+                pass
+
+            # Check for saved credentials in account_data to auto-fill
+            uid = str(self.account_data.get("uid") or self.account_data.get("email") or "")
+            pwd = str(self.account_data.get("password") or "")
+            if pwd and uid:
+                try:
+                    email_input = page.locator('input[name="email"], input[id="email"]').first
+                    pass_input = page.locator('input[name="pass"], input[id="pass"]').first
+                    if await email_input.count() > 0 and await pass_input.count() > 0:
+                        self.log("INFO", f"🔑 Submitting saved credentials for {self.account_name}...")
+                        await email_input.fill(uid)
+                        await pass_input.fill(pwd)
+                        await asyncio.sleep(0.5)
+                        login_btn = page.locator('button[name="login"], button[type="submit"]').first
+                        if await login_btn.count() > 0:
+                            await login_btn.click()
+                        else:
+                            await page.keyboard.press("Enter")
+                        await asyncio.sleep(5.0)
+                        is_cp, _ = await self._check_checkpoint_or_suspended(page)
+                        if not is_cp:
+                            curr = page.url.lower()
+                            if "login" not in curr and "checkpoint" not in curr:
+                                self.log("SUCCESS", f"✅ Successfully logged in via credentials for {self.account_name}!")
+                                return True
+                except Exception as ex:
+                    self.log("DEBUG", f"Credential login attempt notice: {ex}")
+
+            # Re-inject cookies if available
+            raw_cookies = self.account_data.get("cookies", "")
+            if raw_cookies and self.context:
+                try:
+                    formatted = parse_cookie_payload(raw_cookies) if isinstance(raw_cookies, str) else raw_cookies
+                    if formatted:
+                        await self.context.add_cookies(formatted)
+                        self.log("INFO", f"🔄 Re-injected {len(formatted)} cookies. Reloading page...")
+                        await page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=35000)
+                        await asyncio.sleep(3.0)
+                except Exception:
+                    pass
+
+        # If still logged out after 2 attempts:
+        self.log("ERROR", f"🔒 Facebook account {self.account_name} is NOT logged in (session cookies expired). Skipping immediately.")
+        self.logged_out = True
+        if self.status_cb:
+            self.status_cb(self.account_id, "logged_out")
+        return False
 
     async def _init_browser(self):
         """Initializes stealth Chrome instance with account cookies, anti-fingerprinting, and background throttling prevention."""
@@ -177,6 +451,8 @@ class FacebookReelsUploaderBot:
             "--disable-renderer-backgrounding",
             "--no-sandbox",
             "--disable-dev-shm-usage",
+            "--disk-cache-size=33554432",
+            "--media-cache-size=33554432",
             "--lang=en-US",
             "--accept-lang=en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7,es;q=0.6"
         ]
@@ -303,12 +579,26 @@ class FacebookReelsUploaderBot:
 
     async def _dismiss_popups_and_modals(self, page: Page):
         """
-        Detects and automatically dismisses blocking dialogs and popups:
-        - 'What happened' / 'We removed a post from your Page' (clicks top-right (X) close button)
-        - 'We added a restriction' / 'You can't change the...'
-        - 'Can't Read Files' / 'Your photos couldn't be uploaded'
-        - 'Community Standards', 'Notice', 'Alert', 'Review', 'Something went wrong'
+        Detects and automatically dismisses blocking dialogs and popups,
+        while strictly checking for Facebook rate limits or account checkpoints.
         """
+        # First check if the active dialog is a posting limit
+        is_lim, lim_msg = await self._check_facebook_rate_limit(page)
+        if is_lim:
+            self.rate_limited = True
+            self.log("ERROR", f"⛔ Facebook posting limit active on account: '{lim_msg}'!")
+            if self.status_cb:
+                self.status_cb(self.account_id, "LIMIT", self.uploaded_count)
+            return
+
+        is_cp, cp_msg = await self._check_checkpoint_or_suspended(page)
+        if is_cp:
+            self.checkpoint_hit = True
+            self.log("ERROR", f"🔒 Facebook checkpoint / suspension active: '{cp_msg}'!")
+            if self.status_cb:
+                self.status_cb(self.account_id, "CHECKPOINT", self.uploaded_count)
+            return
+
         try:
             # 1. Native DOM query to locate and click close (X) buttons on any warning/notice overlay
             await page.evaluate("""() => {
@@ -542,6 +832,9 @@ class FacebookReelsUploaderBot:
         file_size_mb = os.path.getsize(video_path) / (1024 * 1024)
         self.log("INFO", f"🎬 [Reel #{reel_index}/{total_reels}] Opening Reels Creator for: {file_name} ({file_size_mb:.1f} MB)...")
 
+        if self._cancelled or self.rate_limited or self.checkpoint_hit:
+            return False
+
         # Step 0: Try direct Creator URL first
         creator_ready = False
         try:
@@ -549,8 +842,25 @@ class FacebookReelsUploaderBot:
             await page.goto("https://www.facebook.com/reels/create", wait_until="domcontentloaded", timeout=40000)
             await asyncio.sleep(2.5)
 
+            is_cp, cp_msg = await self._check_checkpoint_or_suspended(page)
+            if is_cp:
+                self.checkpoint_hit = True
+                self.log("ERROR", f"[Reel #{reel_index}] 🔒 Account session checkpoint or expired: {cp_msg}")
+                if self.status_cb:
+                    self.status_cb(self.account_id, "CHECKPOINT", self.uploaded_count)
+                return False
+
+            is_lim, lim_msg = await self._check_facebook_rate_limit(page)
+            if is_lim:
+                self.rate_limited = True
+                self.log("ERROR", f"[Reel #{reel_index}] ⛔ Facebook posting limit active: {lim_msg}")
+                if self.status_cb:
+                    self.status_cb(self.account_id, "LIMIT", self.uploaded_count)
+                return False
+
             curr = page.url.lower()
             if "login" in curr or "checkpoint" in curr:
+                self.checkpoint_hit = True
                 self.log("ERROR", f"[Reel #{reel_index}] ❌ Account session expired.")
                 return False
 
@@ -582,8 +892,25 @@ class FacebookReelsUploaderBot:
             except Exception as ex:
                 self.log("WARNING", f"[Reel #{reel_index}] Navigation notice: {ex}")
 
+            is_cp, cp_msg = await self._check_checkpoint_or_suspended(page)
+            if is_cp:
+                self.checkpoint_hit = True
+                self.log("ERROR", f"[Reel #{reel_index}] 🔒 Account checkpoint / suspension detected: {cp_msg}")
+                if self.status_cb:
+                    self.status_cb(self.account_id, "CHECKPOINT", self.uploaded_count)
+                return False
+
+            is_lim, lim_msg = await self._check_facebook_rate_limit(page)
+            if is_lim:
+                self.rate_limited = True
+                self.log("ERROR", f"[Reel #{reel_index}] ⛔ Facebook posting limit detected: {lim_msg}")
+                if self.status_cb:
+                    self.status_cb(self.account_id, "LIMIT", self.uploaded_count)
+                return False
+
             curr = page.url.lower()
             if "login" in curr or "checkpoint" in curr:
+                self.checkpoint_hit = True
                 self.log("ERROR", f"[Reel #{reel_index}] ❌ Account session expired.")
                 return False
 
@@ -1040,11 +1367,49 @@ class FacebookReelsUploaderBot:
             await asyncio.sleep(1.5)
 
         if published:
-            self.log("INFO", f"[Reel #{reel_index}] ⏳ Waiting 6-8 seconds for Facebook server to complete posting Reel #{reel_index}...")
-            await asyncio.sleep(7.0)
+            self.log("INFO", f"[Reel #{reel_index}] ⏳ Post submitted! Checking for Facebook server response and posting status...")
+            await asyncio.sleep(3.0)
+
+            # Check immediately if Facebook showed a rate limit / action block dialog!
+            is_lim, lim_msg = await self._check_facebook_rate_limit(page)
+            if is_lim:
+                self.rate_limited = True
+                self.log("ERROR", f"⛔ [POST BLOCKED BY FACEBOOK LIMIT] Account {self.account_name} hit posting limit upon clicking Post: '{lim_msg}'. Skipping account!")
+                if self.status_cb:
+                    self.status_cb(self.account_id, "LIMIT", self.uploaded_count)
+                return False
+
+            # Check if Facebook redirected to checkpoint
+            is_cp, cp_msg = await self._check_checkpoint_or_suspended(page)
+            if is_cp:
+                self.checkpoint_hit = True
+                self.log("ERROR", f"🔒 [CHECKPOINT DETECTED] Account {self.account_name} triggered checkpoint upon posting: '{cp_msg}'. Skipping account!")
+                if self.status_cb:
+                    self.status_cb(self.account_id, "CHECKPOINT", self.uploaded_count)
+                return False
+
+            # Wait remaining seconds for upload processing
+            await asyncio.sleep(4.0)
+
+            # Secondary verification
+            is_lim, lim_msg = await self._check_facebook_rate_limit(page)
+            if is_lim:
+                self.rate_limited = True
+                self.log("ERROR", f"⛔ [POST BLOCKED BY FACEBOOK LIMIT] Facebook confirmed rate limit: '{lim_msg}'. Skipping account!")
+                if self.status_cb:
+                    self.status_cb(self.account_id, "LIMIT", self.uploaded_count)
+                return False
+
             return True
         else:
             self.log("ERROR", f"[Reel #{reel_index}] ❌ Could not click Post button for {file_name}.")
+            # Check if Post button was blocked by an active limit
+            is_lim, lim_msg = await self._check_facebook_rate_limit(page)
+            if is_lim:
+                self.rate_limited = True
+                self.log("ERROR", f"⛔ [POSTING LIMIT DETECTED] Reel #{reel_index} blocked by limit: '{lim_msg}'!")
+                if self.status_cb:
+                    self.status_cb(self.account_id, "LIMIT", self.uploaded_count)
             return False
 
     async def close(self):
@@ -1069,6 +1434,12 @@ class FacebookReelsUploaderBot:
         except Exception:
             pass
         self.playwright = None
+
+        try:
+            import gc
+            gc.collect()
+        except Exception:
+            pass
 
     async def run(self) -> Dict[str, Any]:
         """
@@ -1116,10 +1487,31 @@ class FacebookReelsUploaderBot:
             except Exception:
                 pass
 
+            # Check if account is in Checkpoint / Suspended
+            is_cp, cp_msg = await self._check_checkpoint_or_suspended(main_page)
+            if is_cp:
+                self.checkpoint_hit = True
+                self.log("ERROR", f"🔒 [CHECKPOINT DETECTED] Facebook checkpoint or suspension on startup: {cp_msg}. Skipping account immediately!")
+                if self.status_cb:
+                    self.status_cb(self.account_id, "CHECKPOINT", 0)
+                return {"success": False, "status": "CHECKPOINT", "count": 0, "message": f"Checkpoint detected: {cp_msg}"}
+
+            # Check if account has an active rate limit
+            is_lim, lim_msg = await self._check_facebook_rate_limit(main_page)
+            if is_lim:
+                self.rate_limited = True
+                self.log("WARNING", f"⛔ [POSTING LIMIT ACTIVE] Facebook posting limit active on startup: {lim_msg}. Skipping account immediately!")
+                if self.status_cb:
+                    self.status_cb(self.account_id, "LIMIT", 0)
+                return {"success": False, "status": "LIMIT", "count": 0, "message": f"Rate limit detected: {lim_msg}"}
+
             curr_url = main_page.url.lower()
             if "login" in curr_url or "checkpoint" in curr_url:
+                self.checkpoint_hit = True
                 self.log("ERROR", "❌ Facebook account session expired. Please update cookies or login.")
-                return {"success": False, "count": 0, "message": "Session expired"}
+                if self.status_cb:
+                    self.status_cb(self.account_id, "CHECKPOINT", 0)
+                return {"success": False, "status": "CHECKPOINT", "count": 0, "message": "Session expired"}
 
             # Auto-detect profile/page URL
             base_reels_url = ""
@@ -1152,6 +1544,9 @@ class FacebookReelsUploaderBot:
                 if self._cancelled:
                     self.log("WARNING", "Upload cancelled by user.")
                     break
+                if self.rate_limited or self.checkpoint_hit:
+                    self.log("WARNING", f"⛔ Halting reels upload on {self.account_name} due to limit/checkpoint. Skipping remaining {total_reels - idx} reel(s).")
+                    break
 
                 tab_idx = idx + 1
                 caption_text = resolve_spintax(self.caption_template)
@@ -1160,7 +1555,7 @@ class FacebookReelsUploaderBot:
 
                 try:
                     for reel_attempt in range(1, 3):
-                        if self._cancelled:
+                        if self._cancelled or self.rate_limited or self.checkpoint_hit:
                             break
                         if reel_attempt > 1:
                             self.log("INFO", f"[Reel #{tab_idx}] 🔄 Retrying Reel #{tab_idx} upload (Attempt {reel_attempt}/2)...")
@@ -1174,12 +1569,17 @@ class FacebookReelsUploaderBot:
                             total_reels=total_reels,
                             base_reels_url=base_reels_url
                         )
+                        if self.rate_limited or self.checkpoint_hit:
+                            break
+
                         if ok:
                             uploaded_this_reel = True
                             self.uploaded_count += 1
                             self.log("SUCCESS", f"✨ Reel #{tab_idx} ({os.path.basename(v_path)}) successfully uploaded & posted!")
                             if self.counter_cb:
                                 self.counter_cb(self.account_id, self.uploaded_count)
+                            if self.status_cb:
+                                self.status_cb(self.account_id, "UPLOADED", self.uploaded_count)
                             break
                         else:
                             self.log("WARNING", f"⚠️ Reel #{tab_idx} attempt {reel_attempt} was incomplete.")
@@ -1191,17 +1591,44 @@ class FacebookReelsUploaderBot:
                     except Exception:
                         pass
 
+                # If rate limited or checkpoint occurred on this reel, break out of all remaining reels immediately!
+                if self.rate_limited:
+                    self.log("WARNING", f"⛔ Facebook posting limit hit on Reel #{tab_idx}. Stopping remaining reels for {self.account_name} immediately!")
+                    if self.status_cb:
+                        self.status_cb(self.account_id, "LIMIT", self.uploaded_count)
+                    break
+                if self.checkpoint_hit:
+                    self.log("ERROR", f"🔒 Facebook checkpoint hit on Reel #{tab_idx}. Stopping remaining reels for {self.account_name} immediately!")
+                    if self.status_cb:
+                        self.status_cb(self.account_id, "CHECKPOINT", self.uploaded_count)
+                    break
+
                 # Delay cooldown between consecutive reels on the same account
                 if idx < total_reels - 1 and not self._cancelled:
                     cooldown = max(2.0, self.delay_seconds)
                     self.log("INFO", f"⏳ Cooldown delay of {cooldown:.1f}s before uploading next reel to {self.account_name}...")
                     await asyncio.sleep(cooldown)
 
-            self.log("SUCCESS", f"🎉 Finished all reels for {self.account_name}! Total successfully uploaded: {self.uploaded_count}/{total_reels}.")
+            final_status = "COMPLETED"
+            if self.rate_limited:
+                final_status = "LIMIT"
+            elif self.checkpoint_hit:
+                final_status = "CHECKPOINT"
+            elif self.uploaded_count == 0 and total_reels > 0:
+                final_status = "FAILED"
+
+            if final_status == "LIMIT":
+                self.log("WARNING", f"⛔ Account {self.account_name} stopped due to Facebook Limit. Total uploaded: {self.uploaded_count}/{total_reels}.")
+            elif final_status == "CHECKPOINT":
+                self.log("ERROR", f"🔒 Account {self.account_name} stopped due to Checkpoint. Total uploaded: {self.uploaded_count}/{total_reels}.")
+            else:
+                self.log("SUCCESS", f"🎉 Finished all reels for {self.account_name}! Total successfully uploaded: {self.uploaded_count}/{total_reels}.")
+
             return {
-                "success": (self.uploaded_count > 0 or total_reels == 0),
+                "success": (self.uploaded_count > 0 and not self.rate_limited and not self.checkpoint_hit),
+                "status": final_status,
                 "count": self.uploaded_count,
-                "message": f"Successfully uploaded {self.uploaded_count} reels"
+                "message": f"Finished reels for {self.account_name}. Status: {final_status} (Uploaded: {self.uploaded_count}/{total_reels})"
             }
 
         except Exception as e:

@@ -223,14 +223,30 @@ class SessionCookieParser:
 
     @staticmethod
     def cookies_to_semicolon_string(cookies: List[Dict[str, Any]]) -> str:
-        """Converts normalized cookie list to string format 'c_user=...; xs=...'."""
-        parts = []
+        """
+        Converts normalized cookie list to string format matching
+        the Chrome extension 'Get Token Cookie' (sb, datr, _fbp, c_user, i_user, xs...).
+        """
+        priority_names = ["sb", "datr", "_fbp", "c_user", "i_user", "xs", "fr", "presence", "wd", "dpr"]
+        c_map = {}
         for c in cookies:
             n = c.get("name")
             v = c.get("value")
             if n and v is not None:
-                parts.append(f"{n}={v}")
-        return "; ".join(parts)
+                c_map[n] = v
+
+        parts = []
+        seen = set()
+        for p in priority_names:
+            if p in c_map:
+                parts.append(f"{p}={c_map[p]}")
+                seen.add(p)
+
+        for k, v in c_map.items():
+            if k not in seen:
+                parts.append(f"{k}={v}")
+
+        return ";".join(parts) + (";" if parts else "")
 
     # Convenience alias
     parse_cookies = normalize_cookies

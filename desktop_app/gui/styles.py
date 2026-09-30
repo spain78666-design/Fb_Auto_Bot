@@ -13,6 +13,11 @@ QWidget {
     font-size: 13px;
 }
 
+QLabel {
+    border: none;
+    background: transparent;
+}
+
 /* Sidebar Styling */
 QFrame#sidebarFrame {
     background-color: #111827;

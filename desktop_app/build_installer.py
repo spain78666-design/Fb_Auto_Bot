@@ -88,6 +88,11 @@ def main():
         "--collect-all", "playwright_stealth",
         "--collect-all", "PIL",
         "--collect-all", "PyQt5",
+        "--hidden-import", "csv",
+        "--hidden-import", "webbrowser",
+        "--hidden-import", "ctypes",
+        "--hidden-import", "urllib.parse",
+        "--hidden-import", "urllib.request",
         "app.py"
     ]
     if os.path.exists(icon_path):
