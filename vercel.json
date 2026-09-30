@@ -1,16 +1,19 @@
 {
-  "cleanUrls": true,
+  "version": 2,
+  "builds": [
+    { "src": "landing_page/**", "use": "@vercel/static" }
+  ],
   "routes": [
-    { "src": "/assets/(.*)", "dest": "/landing_page/assets/$1" },
-    { "src": "/admin-panel", "dest": "/landing_page/admin-panel.html" },
-    { "src": "/admin", "dest": "/landing_page/admin-panel.html" },
     { "src": "/sitemap.xml", "dest": "/landing_page/sitemap.xml" },
     { "src": "/robots.txt", "dest": "/landing_page/robots.txt" },
     { "src": "/og-image.jpg", "dest": "/landing_page/og-image.jpg" },
     { "src": "/og-poster.jpg", "dest": "/landing_page/og-poster.jpg" },
     { "src": "/googlefc3e3cef9d8c86fb.html", "dest": "/landing_page/googlefc3e3cef9d8c86fb.html" },
     { "src": "/google-DFNIxK3mS0PQhWs4Rms0DHO3JiCnpPRY1q5GHLJFPk.html", "dest": "/landing_page/googlefc3e3cef9d8c86fb.html" },
-    { "handle": "filesystem" },
+    { "src": "/admin-panel", "dest": "/landing_page/admin-panel.html" },
+    { "src": "/admin-panel/(.*)", "dest": "/landing_page/admin-panel.html" },
+    { "src": "/admin", "dest": "/landing_page/admin-panel.html" },
+    { "src": "/assets/(.*)", "dest": "/landing_page/assets/$1" },
     { "src": "/(.*)", "dest": "/landing_page/index.html" }
   ]
 }
