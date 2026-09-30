@@ -325,7 +325,7 @@ export default function App() {
               </div>
             )}
             <a
-              href="https://drive.google.com/file/d/1cFeyiPXEz9I5qLv25y0mgxhXDZmQD90u/view?usp=sharing"
+              href="https://drive.google.com/drive/folders/1H3BDvhZQkvrTizcP9K3GMVZyq_CzH7j-?usp=sharing"
               target="_blank"
               rel="noopener noreferrer"
               className="hidden lg:flex items-center space-x-1.5 px-3 py-1 rounded-md text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-sm shadow-emerald-600/30 border border-emerald-400/30 transition-all ml-1"
@@ -1349,7 +1349,7 @@ export default function App() {
                   </div>
 
                   <a
-                    href="https://drive.google.com/uc?export=download&id=1cFeyiPXEz9I5qLv25y0mgxhXDZmQD90u"
+                    href="https://drive.google.com/drive/folders/1H3BDvhZQkvrTizcP9K3GMVZyq_CzH7j-?usp=sharing"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-md shadow-emerald-600/30 border border-emerald-400/30 transition-all"
