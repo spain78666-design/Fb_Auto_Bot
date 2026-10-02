@@ -222,29 +222,47 @@ class SessionCookieParser:
         return cookie_item
 
     @staticmethod
-    def cookies_to_semicolon_string(cookies: List[Dict[str, Any]]) -> str:
+    def cookies_to_semicolon_string(cookies: List[Dict[str, Any]], page_id: str = "") -> str:
         """
         Converts normalized cookie list to string format matching
-        the Chrome extension 'Get Token Cookie' (sb, datr, _fbp, c_user, i_user, xs...).
+        the Chrome extension 'Get Token Cookie':
+        sb -> datr -> dpr -> wd -> c_user -> [others: oo, _fbp, fr, presence...] -> xs -> i_user;
         """
-        priority_names = ["sb", "datr", "_fbp", "c_user", "i_user", "xs", "fr", "presence", "wd", "dpr"]
         c_map = {}
         for c in cookies:
             n = c.get("name")
             v = c.get("value")
             if n and v is not None:
-                c_map[n] = v
+                c_map[str(n)] = str(v).strip()
+
+        # If page_id is provided and i_user not yet set
+        if page_id and "i_user" not in c_map:
+            c_map["i_user"] = str(page_id).strip()
 
         parts = []
         seen = set()
-        for p in priority_names:
+
+        # 1. Leading priority matching Get Token Cookie extension
+        for p in ["sb", "datr", "dpr", "wd", "c_user"]:
             if p in c_map:
                 parts.append(f"{p}={c_map[p]}")
                 seen.add(p)
 
+        # 2. Intermediate cookies (oo, _fbp, fr, presence, etc.)
         for k, v in c_map.items():
-            if k not in seen:
+            if k not in seen and k not in ("xs", "i_user"):
                 parts.append(f"{k}={v}")
+                seen.add(k)
+
+        # 3. Session key xs
+        if "xs" in c_map:
+            parts.append(f"xs={c_map['xs']}")
+            seen.add("xs")
+
+        # 4. Page active profile i_user
+        if "i_user" in c_map:
+            parts.append(f"i_user={c_map['i_user']}")
+            seen.add("i_user")
 
         return ";".join(parts) + (";" if parts else "")
 

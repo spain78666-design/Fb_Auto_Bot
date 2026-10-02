@@ -2547,7 +2547,7 @@ class CookieExtractorWorker(QThread):
         delay_seconds = float(self.payload.get("delay_seconds", 3.0))
         network_mode = self.payload.get("network_mode", "direct")
         switch_to_page = bool(self.payload.get("switch_to_page", True))
-        timeout_seconds = max(30, int(self.payload.get("timeout_seconds", 90)))
+        timeout_seconds = max(10, min(60, int(self.payload.get("timeout_seconds", 20))))
 
         mode_desc = f"{'Silent Background' if headless else 'Visible Browser'} | {'Page Profile (Use Page)' if switch_to_page else 'Personal Profile'}"
         self.log_signal.emit(
@@ -2568,10 +2568,10 @@ class CookieExtractorWorker(QThread):
                 if not self._is_running:
                     return
 
-                # Protective natural stagger delay between accounts to prevent IP correlation & bot farm flags
+                # User configured stagger delay between accounts
                 if idx > 0:
-                    delay_secs = random.uniform(2.5, 4.5) if network_mode == "direct" else random.uniform(1.2, 2.5)
-                    self.log_signal.emit("INFO", f"⏳ Anti-chain cooldown delay ({delay_secs:.1f}s) before next account extraction...")
+                    delay_secs = max(0.5, float(self.payload.get("delay_seconds", 2.0)))
+                    self.log_signal.emit("INFO", f"⏳ Delay ({delay_secs:.1f}s) before next account extraction...")
                     await asyncio.sleep(delay_secs)
 
                 uid = str(item.get("uid", "")).strip()
@@ -15120,9 +15120,9 @@ class FBAutoBotMainWindow(QMainWindow):
         t_lbl.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700;")
         t_box.addWidget(t_lbl)
         self.extract_timeout_spin = QSpinBox()
-        self.extract_timeout_spin.setRange(30, 300)
-        self.extract_timeout_spin.setValue(90)
-        self.extract_timeout_spin.setSingleStep(15)
+        self.extract_timeout_spin.setRange(10, 120)
+        self.extract_timeout_spin.setValue(20)
+        self.extract_timeout_spin.setSingleStep(5)
         self.extract_timeout_spin.setToolTip("Maximum wait time in seconds for Facebook login & authentication before timeout.")
         self.extract_timeout_spin.setStyleSheet("background-color: #0f172a; color: #38bdf8; font-weight: 800; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; padding: 4px;")
         t_box.addWidget(self.extract_timeout_spin)
