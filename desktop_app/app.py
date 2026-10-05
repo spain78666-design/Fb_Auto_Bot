@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-from __future__ import annotations
-
 """
 FB Auto Bot - Enterprise Facebook Marketplace Automation Suite
 Phase 1: Modern Dark Glassmorphic Desktop GUI (PyQt5)
@@ -9,22 +7,16 @@ Phase 1: Modern Dark Glassmorphic Desktop GUI (PyQt5)
 import sys
 import os
 import re
-import gc
-import csv
 import json
 import time
 import random
 import socket
 import uuid
 import platform
-import ctypes
-import webbrowser
 import urllib.request
-import urllib.parse
 import asyncio
 import traceback
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Union, Tuple, Set
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QStackedWidget, QPushButton, QLabel, QLineEdit, QTextEdit,
@@ -350,6 +342,17 @@ except ImportError:
     except ImportError:
         HAS_COOKIE_EXTRACTOR_BOT = False
 
+# Phase 13: Facebook Auto Like & Comment Engine
+try:
+    from automation.like_comment_bot import FacebookLikeCommentBot
+    HAS_LIKE_COMMENT_BOT = True
+except ImportError:
+    try:
+        from desktop_app.automation.like_comment_bot import FacebookLikeCommentBot
+        HAS_LIKE_COMMENT_BOT = True
+    except ImportError:
+        HAS_LIKE_COMMENT_BOT = False
+
 # Licensing Subsystem & Anti-Tamper Protection
 try:
     from utils.licensing import (
@@ -454,15 +457,15 @@ def get_best_logo_path() -> Optional[str]:
 # Modern Dark Glassmorphic QSS Stylesheet (Ultra Polished & Seamless)
 # ------------------------------------------------------------------------------
 GLASS_STYLESHEET = """
-QMainWindow, QWidget#centralWidget, QWidget#contentContainer, QStackedWidget#pagesStack,
-QWidget.pageRoot, QScrollArea, QScrollArea > QWidget, QScrollArea > QWidget > QWidget {
-    background-color: #080c14 !important;
+QMainWindow {
+    background-color: #080c14;
 }
 
 QWidget {
     color: #f1f5f9;
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
     font-size: 13px;
+    background-color: transparent;
 }
 
 /* Fix Windows ScrollArea default white backgrounds */
@@ -785,357 +788,6 @@ QDialog QLineEdit, QInputDialog QLineEdit {
 }
 """
 
-DARK_STYLESHEET = GLASS_STYLESHEET
-
-# ------------------------------------------------------------------------------
-# Futuristic 2027 Light Theme QSS Stylesheet (Ultra Crisp, High Contrast & Pristine)
-# ------------------------------------------------------------------------------
-LIGHT_STYLESHEET = """
-QMainWindow, QWidget#centralWidget, QWidget#contentContainer, QStackedWidget#pagesStack,
-QWidget.pageRoot, QScrollArea, QScrollArea > QWidget, QScrollArea > QWidget > QWidget {
-    background-color: #f8fafc !important;
-}
-
-QWidget {
-    color: #0f172a;
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
-    font-size: 13px;
-}
-
-/* Fix Windows ScrollArea default white backgrounds */
-QScrollArea {
-    background-color: #f8fafc !important;
-    border: none !important;
-}
-
-QScrollArea > QWidget > QWidget {
-    background-color: transparent !important;
-}
-
-QScrollBar:vertical {
-    background: transparent;
-    width: 8px;
-    margin: 0px;
-}
-
-QScrollBar::handle:vertical {
-    background: rgba(100, 116, 139, 0.25);
-    min-height: 24px;
-    border-radius: 4px;
-}
-
-QScrollBar::handle:vertical:hover {
-    background: rgba(100, 116, 139, 0.45);
-}
-
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-    background: none;
-    border: none;
-}
-
-/* Top Header Bar - Futuristic 2027 Frosted Clean Style */
-QFrame#topHeaderBar {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #ffffff, stop:1 #f1f5f9);
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-}
-
-QFrame#topHeaderBar QLabel {
-    color: #0f172a;
-}
-
-/* Sidebar - Crisp Futuristic 2027 Light Glass Style */
-QFrame#sidebarFrame {
-    background-color: #ffffff;
-    border-right: 1px solid #e2e8f0;
-}
-
-QFrame#sidebarFrame QLabel {
-    color: #0f172a;
-}
-
-QPushButton.navBtn {
-    background-color: rgba(241, 245, 249, 0.85);
-    color: #334155;
-    text-align: left;
-    padding: 10px 14px;
-    border-radius: 11px;
-    font-size: 13px;
-    font-weight: 600;
-    border: 1px solid #e2e8f0;
-    margin: 2px 2px;
-}
-
-QPushButton.navBtn:hover {
-    background-color: #e0e7ff;
-    color: #1d4ed8;
-    border: 1px solid #c7d2fe;
-}
-
-QPushButton.navBtnActive {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2563eb, stop:1 #3b82f6);
-    color: #ffffff;
-    border: 1px solid #1d4ed8;
-    border-radius: 11px;
-    font-weight: 700;
-    margin: 2px 4px;
-}
-
-/* 2027 Crisp White Page Content Cards */
-QFrame.glassCard {
-    background-color: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 14px;
-    padding: 16px;
-}
-
-QFrame.glassCardHeader {
-    border-bottom: 1px solid #e2e8f0;
-    padding-bottom: 10px;
-    margin-bottom: 14px;
-}
-
-/* Page Labels & High Contrast Typography */
-QLabel {
-    color: #0f172a;
-    font-weight: 600;
-}
-
-QLabel.pageTitle {
-    font-size: 22px;
-    font-weight: 800;
-    color: #0f172a;
-    letter-spacing: -0.4px;
-}
-
-QLabel.pageSubtitle {
-    font-size: 13px;
-    color: #64748b;
-    font-weight: 500;
-}
-
-QLabel.cardTitle {
-    font-size: 15px;
-    font-weight: 800;
-    color: #0f172a;
-    letter-spacing: -0.2px;
-}
-
-/* Crisp Modern Inputs & Form Fields */
-QLineEdit, QTextEdit, QComboBox, QSpinBox {
-    background-color: #ffffff;
-    border: 1.5px solid #cbd5e1;
-    border-radius: 9px;
-    color: #0f172a;
-    font-weight: 500;
-    padding: 8px 12px;
-    selection-background-color: #2563eb;
-    selection-color: #ffffff;
-}
-
-QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus {
-    border: 1.5px solid #2563eb;
-    background-color: #ffffff;
-    color: #0f172a;
-}
-
-QComboBox::drop-down {
-    border: none;
-    padding-right: 10px;
-}
-
-QComboBox QAbstractItemView {
-    background-color: #ffffff;
-    border: 1.5px solid #2563eb;
-    selection-background-color: #2563eb;
-    selection-color: #ffffff;
-    color: #0f172a;
-    border-radius: 8px;
-    padding: 4px;
-}
-
-/* Interactive Action Buttons */
-QPushButton.primaryBtn {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2563eb, stop:1 #3b82f6);
-    color: #ffffff;
-    font-weight: 700;
-    border: 1px solid #1d4ed8;
-    border-radius: 10px;
-    padding: 9px 20px;
-}
-
-QPushButton.primaryBtn:hover {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1d4ed8, stop:1 #2563eb);
-}
-
-QPushButton.successBtn {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #15803d, stop:1 #16a34a);
-    color: #ffffff;
-    font-weight: 700;
-    border: 1px solid #15803d;
-    border-radius: 10px;
-    padding: 10px 22px;
-    font-size: 13px;
-}
-
-QPushButton.successBtn:hover {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #166534, stop:1 #15803d);
-}
-
-QPushButton.dangerBtn {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #b91c1c, stop:1 #dc2626);
-    color: #ffffff;
-    font-weight: 700;
-    border: 1px solid #b91c1c;
-    border-radius: 10px;
-    padding: 9px 20px;
-}
-
-QPushButton.dangerBtn:hover {
-    background: #991b1b;
-}
-
-QPushButton.secondaryBtn {
-    background-color: #f1f5f9;
-    color: #1e293b;
-    font-weight: 700;
-    border: 1px solid #cbd5e1;
-    border-radius: 10px;
-    padding: 8px 16px;
-}
-
-QPushButton.secondaryBtn:hover {
-    background-color: #e2e8f0;
-    border: 1px solid #94a3b8;
-    color: #0f172a;
-}
-
-/* 2027 Clean Tables */
-QTableWidget {
-    background-color: #ffffff;
-    color: #0f172a;
-    border: 1px solid #e2e8f0;
-    border-radius: 11px;
-    gridline-color: #f1f5f9;
-}
-
-QTableWidget::item {
-    color: #0f172a;
-    padding: 7px 10px;
-    border-bottom: 1px solid #f1f5f9;
-    font-weight: 500;
-}
-
-QTableWidget::item:selected {
-    background-color: #2563eb;
-    color: #ffffff;
-}
-
-QHeaderView::section {
-    background-color: #f8fafc;
-    color: #0284c7;
-    font-weight: 700;
-    font-size: 12px;
-    padding: 8px 10px;
-    border: none;
-    border-bottom: 2px solid #0284c7;
-}
-
-/* Checkboxes */
-QCheckBox {
-    color: #1e293b;
-    font-weight: 600;
-    spacing: 8px;
-}
-
-QCheckBox::indicator {
-    width: 18px;
-    height: 18px;
-    background-color: #ffffff;
-    border: 1.5px solid #cbd5e1;
-    border-radius: 5px;
-}
-
-QCheckBox::indicator:checked {
-    background-color: #2563eb;
-    border-color: #1d4ed8;
-}
-
-/* Futuristic Developer Terminal Console Box in Light Mode */
-QTextEdit#consoleBox {
-    background-color: #ffffff;
-    border: 1.5px solid #cbd5e1;
-    border-radius: 12px;
-    color: #0f172a;
-    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
-    font-size: 12px;
-    padding: 12px;
-}
-
-/* Progress Bar */
-QProgressBar {
-    background-color: #e2e8f0;
-    border: 1px solid #cbd5e1;
-    border-radius: 7px;
-    text-align: center;
-    color: #0f172a;
-    font-size: 11px;
-    font-weight: 800;
-    height: 16px;
-}
-
-QProgressBar::chunk {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2563eb, stop:1 #10b981);
-    border-radius: 6px;
-}
-
-/* 2027 Light Popups, Notifications & Dialogs (Ultra Clean & High Contrast) */
-QDialog, QMessageBox, QInputDialog {
-    background-color: #ffffff !important;
-    color: #0f172a !important;
-    border: 1.5px solid #cbd5e1 !important;
-    border-radius: 12px;
-}
-
-QDialog QLabel, QMessageBox QLabel, QInputDialog QLabel {
-    color: #0f172a !important;
-    background-color: transparent !important;
-    font-size: 13px;
-    font-weight: 600;
-}
-
-QDialog QPushButton, QMessageBox QPushButton, QInputDialog QPushButton {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2563eb, stop:1 #3b82f6) !important;
-    color: #ffffff !important;
-    border-radius: 8px !important;
-    padding: 7px 20px !important;
-    font-weight: 700 !important;
-    border: 1px solid #1d4ed8 !important;
-    min-width: 80px;
-}
-
-QDialog QPushButton:hover, QMessageBox QPushButton:hover, QInputDialog QPushButton:hover {
-    background: #1d4ed8 !important;
-}
-
-QDialog QLineEdit, QInputDialog QLineEdit {
-    background-color: #f8fafc !important;
-    color: #0f172a !important;
-    border: 1.5px solid #cbd5e1 !important;
-    border-radius: 8px !important;
-    padding: 8px 12px !important;
-}
-
-QDialog QTextEdit, QMessageBox QTextEdit {
-    background-color: #f8fafc !important;
-    color: #0f172a !important;
-    border: 1px solid #cbd5e1 !important;
-    border-radius: 8px !important;
-}
-"""
-
-
 # Helper to safely configure asyncio on Windows in background QThreads
 def setup_windows_asyncio():
     if sys.platform == "win32":
@@ -1282,16 +934,15 @@ class MasterFewFeedWorker(QThread):
 class CredentialLoginWorker(QThread):
     """
     Asynchronously authenticates a Facebook account using UID / Email and Password,
-    handling 2FA challenges automatically and capturing full session cookies with Page / Profile support.
+    handling 2FA challenges automatically and capturing full session cookies.
     """
     log_signal = pyqtSignal(str, str)
     finished_signal = pyqtSignal(str, bool, str, dict)  # (account_id, success, message, account_data)
 
-    def __init__(self, account_id: str, headless: bool = True, switch_to_page: bool = True):
+    def __init__(self, account_id: str, headless: bool = False):
         super().__init__()
         self.account_id = account_id
         self.headless = headless
-        self.switch_to_page = switch_to_page
 
     def _log_bridge(self, lvl: str, msg: str):
         self.log_signal.emit(lvl, msg)
@@ -1302,52 +953,7 @@ class CredentialLoginWorker(QThread):
         asyncio.set_event_loop(loop)
         try:
             sm = get_session_manager() if HAS_SESSION_MANAGER else None
-            account = sm.get_account(self.account_id) if sm else None
-            if sm and account and HAS_COOKIE_EXTRACTOR_BOT:
-                uid = str(account.get("uid") or account.get("email") or "").strip()
-                pwd = str(account.get("password") or "").strip()
-                two_fa = str(account.get("two_factor_secret") or "").strip()
-                raw_proxy = str(account.get("proxy") or "").strip()
-                if raw_proxy == "Direct (No Proxy)":
-                    raw_proxy = ""
-
-                mode_label = "Facebook Page ('Use Page')" if self.switch_to_page else "Personal Profile"
-                self.log_signal.emit("INFO", f"🚀 Starting login & cookie capture for [{account.get('name', uid)}] (Mode: {mode_label})...")
-
-                bot = FacebookCookieExtractorBot(
-                    uid_or_email=uid,
-                    password=pwd,
-                    two_factor_secret=two_fa,
-                    proxy=raw_proxy,
-                    headless=self.headless,
-                    timeout_seconds=90,
-                    switch_to_page=self.switch_to_page,
-                    log_callback=self._log_bridge
-                )
-                res = loop.run_until_complete(bot.extract_cookie())
-                success = res.get("success", False)
-                cookies = res.get("cookie", "")
-                is_cp = res.get("is_checkpoint", False)
-
-                if (success or cookies) and not is_cp:
-                    account["cookies"] = cookies
-                    account["status"] = "Healthy"
-                    account["name"] = res.get("name") or account.get("name")
-                    account["last_checked"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    sm.add_or_update_account(account)
-                    self.finished_signal.emit(self.account_id, True, f"Fresh cookies captured successfully ({mode_label})!", account)
-                elif is_cp:
-                    account["status"] = "Checkpoint"
-                    account["cookies"] = cookies
-                    account["last_checked"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    sm.add_or_update_account(account)
-                    self.finished_signal.emit(self.account_id, False, "Account triggered Facebook security checkpoint.", account)
-                else:
-                    err = res.get("message") or "Login failed"
-                    account["status"] = res.get("status") or "Failed"
-                    sm.add_or_update_account(account)
-                    self.finished_signal.emit(self.account_id, False, err, account)
-            elif sm:
+            if sm:
                 success, msg, acc_data = loop.run_until_complete(
                     sm.login_with_credentials_async(
                         self.account_id,
@@ -2103,7 +1709,6 @@ class ReelsUploaderWorker(QThread):
     log_signal = pyqtSignal(str, str)
     progress_signal = pyqtSignal(int)
     counter_signal = pyqtSignal(str, int)  # (account_id, uploaded_count)
-    status_signal = pyqtSignal(str, str, int)  # (account_id, status_code, uploaded_count)
     account_completed_signal = pyqtSignal(str)  # (account_id) unchecks account in UI
     finished_signal = pyqtSignal(bool, str)
 
@@ -2122,9 +1727,6 @@ class ReelsUploaderWorker(QThread):
 
     def _counter_bridge(self, account_id: str, count: int):
         self.counter_signal.emit(account_id, count)
-
-    def _status_bridge(self, account_id: str, status: str, count: int = 0):
-        self.status_signal.emit(account_id, status, count)
 
     def stop(self):
         self._is_running = False
@@ -2227,8 +1829,7 @@ class ReelsUploaderWorker(QThread):
                         selection_mode=selection_mode,
                         log_callback=self._log_bridge,
                         progress_callback=self._progress_bridge,
-                        counter_callback=self._counter_bridge,
-                        status_callback=self._status_bridge
+                        counter_callback=self._counter_bridge
                     )
                     self.active_bots.append(bot)
 
@@ -2236,18 +1837,7 @@ class ReelsUploaderWorker(QThread):
                         res = await bot.run()
                         c = res.get("count", 0)
                         total_uploaded += c
-                        res_status = str(res.get("status", ""))
-
-                        if res_status in ("LIMIT", "CHECKPOINT"):
-                            self.status_signal.emit(acc_id, res_status, c)
-                            if res_status == "LIMIT":
-                                self.log_signal.emit("WARNING", f"⛔ {tag} Facebook posting limit active ({c} reels uploaded). Halting further attempts and skipping account!")
-                            else:
-                                self.log_signal.emit("ERROR", f"🔒 {tag} Facebook checkpoint / suspension detected. Halting further attempts and skipping account!")
-                            break  # Do NOT retry! Move immediately to next account to save time!
-
                         if res.get("success", False) or c > 0:
-                            self.status_signal.emit(acc_id, "COMPLETED", c)
                             break
                         elif attempt < max_attempts and self._is_running:
                             self.log_signal.emit("WARNING", f"⚠️ {tag} Attempt {attempt} completed with 0 reels. Retrying with a clean browser...")
@@ -2546,21 +2136,17 @@ class CookieExtractorWorker(QThread):
         concurrency = max(1, int(self.payload.get("concurrency", 2)))
         delay_seconds = float(self.payload.get("delay_seconds", 3.0))
         network_mode = self.payload.get("network_mode", "direct")
-        switch_to_page = bool(self.payload.get("switch_to_page", True))
-        timeout_seconds = max(10, min(60, int(self.payload.get("timeout_seconds", 20))))
 
-        mode_desc = f"{'Silent Background' if headless else 'Visible Browser'} | {'Page Profile (Use Page)' if switch_to_page else 'Personal Profile'}"
         self.log_signal.emit(
             "INFO",
             f"🚀 Starting Auto Cookie Extraction on {len(accounts)} account(s) "
-            f"(Concurrency: {concurrency}, Timeout: {timeout_seconds}s, Mode: {mode_desc})..."
+            f"(Concurrency: {concurrency}, Mode: {'Silent Background' if headless else 'Visible Browser'})..."
         )
 
         sem = asyncio.Semaphore(concurrency)
         total_accs = len(accounts)
         completed_accs = 0
         success_accounts = []
-        checkpoint_accounts = []
 
         async def _process_item(item: Dict[str, Any], idx: int):
             nonlocal completed_accs
@@ -2568,11 +2154,11 @@ class CookieExtractorWorker(QThread):
                 if not self._is_running:
                     return
 
-                # User configured stagger delay between accounts
-                if idx > 0:
-                    delay_secs = max(0.5, float(self.payload.get("delay_seconds", 2.0)))
-                    self.log_signal.emit("INFO", f"⏳ Delay ({delay_secs:.1f}s) before next account extraction...")
-                    await asyncio.sleep(delay_secs)
+                # Stagger startup
+                if idx > 0 and concurrency > 1:
+                    stagger = min(4.0, (idx % concurrency) * 1.5)
+                    if stagger > 0:
+                        await asyncio.sleep(stagger)
 
                 uid = str(item.get("uid", "")).strip()
                 pwd = str(item.get("password", "")).strip()
@@ -2585,8 +2171,7 @@ class CookieExtractorWorker(QThread):
                     two_factor_secret=secret_2fa,
                     proxy=raw_proxy,
                     headless=headless,
-                    timeout_seconds=timeout_seconds,
-                    switch_to_page=switch_to_page,
+                    timeout_seconds=45,
                     log_callback=self._log_bridge
                 )
                 self.active_bots.append(bot)
@@ -2598,7 +2183,6 @@ class CookieExtractorWorker(QThread):
                     "name": "",
                     "cookie": "",
                     "status": "Failed",
-                    "is_checkpoint": False,
                     "message": "Unknown error"
                 }
 
@@ -2608,18 +2192,10 @@ class CookieExtractorWorker(QThread):
                     result_data["name"] = res.get("name") or f"FB User ({uid})"
                     result_data["cookie"] = res.get("cookie", "")
                     result_data["status"] = res.get("status", "Failed")
-                    result_data["is_checkpoint"] = bool(res.get("is_checkpoint", False) or "checkpoint" in str(res.get("status", "")).lower())
                     result_data["message"] = res.get("message", "")
 
-                    if result_data["is_checkpoint"]:
-                        result_data["status"] = "Checkpoint"
-                        checkpoint_accounts.append(result_data)
-                        self.log_signal.emit("WARNING", f"[{uid}] 🔒 Checkpoint ID detected! Kept in separate Checkpoint column (not mixed with Live).")
-                    elif (res.get("success") or "live" in result_data["status"].lower() or "success" in result_data["status"].lower()) and res.get("cookie"):
-                        if result_data["status"] == "Success":
-                            result_data["status"] = "Live"
+                    if res.get("success") and res.get("cookie"):
                         success_accounts.append(result_data)
-                        self.log_signal.emit("SUCCESS", f"[{uid}] 🟢 Account is LIVE! Cookie saved in Live column.")
                 except Exception as ex:
                     result_data["status"] = "Error"
                     result_data["message"] = str(ex)
@@ -2649,10 +2225,164 @@ class CookieExtractorWorker(QThread):
         await asyncio.gather(*tasks, return_exceptions=True)
 
         if self._is_running:
-            summary = f"🎉 Cookie Extraction finished! Live accounts: {len(success_accounts)} | Checkpoint accounts: {len(checkpoint_accounts)} (out of {len(accounts)})."
+            summary = f"🎉 Cookie Extraction finished! Successfully extracted {len(success_accounts)} of {len(accounts)} account(s)."
             self.log_signal.emit("SUCCESS", summary)
             self.progress_signal.emit(100)
             self.finished_signal.emit(True, summary, success_accounts)
+
+
+# ------------------------------------------------------------------------------
+# Asynchronous Auto Like & Comment Worker Thread (Phase 13: Playwright Engagement Engine)
+# ------------------------------------------------------------------------------
+class LikeCommentWorker(QThread):
+    """
+    Asynchronous background worker that orchestrates Facebook Auto Like & Comment
+    automation across target profile and page URLs for selected accounts.
+    Supports concurrent browser instances and automatic unchecking of completed accounts.
+    """
+    log_signal = pyqtSignal(str, str)
+    progress_signal = pyqtSignal(int)
+    counter_signal = pyqtSignal(str, int, int)  # (account_id, likes, comments)
+    account_completed_signal = pyqtSignal(str)   # (account_id) unchecks completed account in UI
+    finished_signal = pyqtSignal(bool, str)
+
+    def __init__(self, payload: Dict[str, Any]):
+        super().__init__()
+        self.payload = payload
+        self.active_bots: List[Any] = []
+        self.loop = None
+        self._is_running = True
+
+    def _log_bridge(self, level: str, message: str):
+        self.log_signal.emit(level, message)
+
+    def _progress_bridge(self, percent: int):
+        self.progress_signal.emit(percent)
+
+    def _counter_bridge(self, account_id: str, likes: int, comments: int):
+        self.counter_signal.emit(account_id, likes, comments)
+
+    def stop(self):
+        self._is_running = False
+        self.log_signal.emit("WARNING", "🛑 Stop command received for Auto Like & Comment Automation...")
+        for bot in list(self.active_bots):
+            try:
+                bot.cancel()
+            except Exception:
+                pass
+        self.finished_signal.emit(False, "Auto Like & Comment Automation stopped by user.")
+
+    def run(self):
+        setup_windows_asyncio()
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        try:
+            self.loop.run_until_complete(self._execute_task())
+        except Exception as e:
+            if self._is_running:
+                self.log_signal.emit("ERROR", f"Auto Like & Comment Worker error: {str(e)}")
+                self.finished_signal.emit(False, str(e))
+        finally:
+            try:
+                self.loop.close()
+            except Exception:
+                pass
+
+    async def _execute_task(self):
+        if not HAS_LIKE_COMMENT_BOT:
+            self.log_signal.emit("ERROR", "Auto Like & Comment Bot engine module not available.")
+            self.finished_signal.emit(False, "Auto Like & Comment Bot module missing.")
+            return
+
+        accounts = self.payload.get("accounts", [])
+        if not accounts:
+            self.log_signal.emit("ERROR", "No target Facebook accounts selected.")
+            self.finished_signal.emit(False, "No accounts selected.")
+            return
+
+        profile_urls = self.payload.get("profile_urls", [])
+        comments_pool = self.payload.get("comments_pool", [])
+        single_post_mode = self.payload.get("single_post_mode", False)
+        posts_scope = self.payload.get("posts_scope", "first_5")
+        auto_like = self.payload.get("auto_like", True)
+        auto_comment = self.payload.get("auto_comment", True)
+        click_delay = float(self.payload.get("click_delay", 1.5))
+        concurrent_browsers = max(1, int(self.payload.get("concurrent_browsers", 2)))
+        network_mode = self.payload.get("network_mode", "direct")
+
+        mode_desc = "Single Post Mode (Direct Links)" if single_post_mode else f"Timeline Mode (Scope: '{posts_scope}')"
+        self.log_signal.emit(
+            "INFO",
+            f"🚀 Starting Auto Like & Comment on {len(accounts)} account(s) across {len(profile_urls)} URL(s) "
+            f"(Concurrency: {concurrent_browsers} browser(s), Mode: {mode_desc})..."
+        )
+
+        sem = asyncio.Semaphore(concurrent_browsers)
+        total_accs = len(accounts)
+        completed_accs = 0
+        total_likes = 0
+        total_comments = 0
+
+        async def _process_account(acc: Dict[str, Any], acc_idx: int):
+            nonlocal completed_accs, total_likes, total_comments
+            async with sem:
+                if not self._is_running:
+                    return
+
+                acc_copy = dict(acc)
+                acc_copy["network_mode"] = network_mode
+                acc_id = str(acc.get("id", ""))
+                if HAS_SESSION_MANAGER and acc_id:
+                    try:
+                        sm = get_session_manager()
+                        acc_copy["profile_dir"] = sm.get_profile_dir(acc_id)
+                    except Exception:
+                        pass
+
+                bot = FacebookLikeCommentBot(
+                    account_data=acc_copy,
+                    profile_urls=profile_urls,
+                    comments_pool=comments_pool,
+                    posts_scope=posts_scope,
+                    auto_like=auto_like,
+                    auto_comment=auto_comment,
+                    single_post_mode=single_post_mode,
+                    click_delay=click_delay,
+                    log_callback=self._log_bridge,
+                    progress_callback=self._progress_bridge,
+                    counter_callback=self._counter_bridge
+                )
+                self.active_bots.append(bot)
+
+                try:
+                    res = await bot.run()
+                    total_likes += res.get("likes", 0)
+                    total_comments += res.get("comments", 0)
+                except Exception as ex:
+                    self.log_signal.emit("ERROR", f"[{acc.get('name')}] Error: {str(ex)}")
+                finally:
+                    if bot in self.active_bots:
+                        self.active_bots.remove(bot)
+
+                completed_accs += 1
+                percent = int((completed_accs / total_accs) * 100)
+                self.progress_signal.emit(percent)
+                # Uncheck completed account in UI
+                acc_id = str(acc.get("id", ""))
+                if acc_id:
+                    self.account_completed_signal.emit(acc_id)
+
+        tasks = [_process_account(acc, idx) for idx, acc in enumerate(accounts)]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        if self._is_running:
+            msg = (
+                f"🎉 Auto Like & Comment completed! Total Likes: {total_likes} | Total Comments: {total_comments} "
+                f"across {len(accounts)} account(s)."
+            )
+            self.log_signal.emit("SUCCESS", msg)
+            self.progress_signal.emit(100)
+            self.finished_signal.emit(True, msg)
 
 
 # ------------------------------------------------------------------------------
@@ -3790,7 +3520,6 @@ class FBAutoBotMainWindow(QMainWindow):
         self.current_editing_project_id = None
         self.current_editing_tab_index = 0
         self.project_tab_images = []
-        self.current_theme = "dark"
 
         self.init_ui()
         self.update_dashboard_account_filter()
@@ -3815,25 +3544,25 @@ class FBAutoBotMainWindow(QMainWindow):
         if platform.system() == "Windows":
             try:
                 hwnd = int(self.winId())
-                is_dark = (getattr(self, 'current_theme', 'dark') == 'dark')
-                dark_flag = ctypes.c_int(1 if is_dark else 0)
                 # DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 11, newer Win10)
                 ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                    hwnd, 20, ctypes.byref(dark_flag), ctypes.sizeof(dark_flag)
+                    hwnd, 20, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
                 )
                 # DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19 (older Win10)
                 ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                    hwnd, 19, ctypes.byref(dark_flag), ctypes.sizeof(dark_flag)
+                    hwnd, 19, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int)
                 )
                 
                 # DWMWA_CAPTION_COLOR = 35 (Windows 11)
-                color = 0x001e110a if is_dark else 0x00f8fafc
+                # For #0a111e, color value in BGR is 0x001e110a
+                color = 0x001e110a
                 ctypes.windll.dwmapi.DwmSetWindowAttribute(
                     hwnd, 35, ctypes.byref(ctypes.c_int(color)), ctypes.sizeof(ctypes.c_int)
                 )
                 
                 # DWMWA_TEXT_COLOR = 36 (Windows 11)
-                text_color = 0x00ffffff if is_dark else 0x000f172a
+                # For white text (#ffffff), color value in BGR is 0x00ffffff
+                text_color = 0x00ffffff
                 ctypes.windll.dwmapi.DwmSetWindowAttribute(
                     hwnd, 36, ctypes.byref(ctypes.c_int(text_color)), ctypes.sizeof(ctypes.c_int)
                 )
@@ -3862,8 +3591,6 @@ class FBAutoBotMainWindow(QMainWindow):
     def init_ui(self):
         # Central widget
         central_widget = QWidget()
-        central_widget.setObjectName("centralWidget")
-        self.central_widget_ref = central_widget
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -3875,8 +3602,6 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # 2. Right Content Area (Top Header + Stacked Widget + Bottom Console)
         content_container = QWidget()
-        content_container.setObjectName("contentContainer")
-        self.content_container_ref = content_container
         content_layout = QVBoxLayout(content_container)
         content_layout.setContentsMargins(18, 6, 18, 10)
         content_layout.setSpacing(6)
@@ -3887,7 +3612,6 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Top stacked views
         self.pages_stack = QStackedWidget()
-        self.pages_stack.setObjectName("pagesStack")
         self.page_dashboard = self.create_dashboard_page()
         self.page_accounts = self.create_accounts_page()
         self.page_automation = self.create_automation_page()
@@ -3898,6 +3622,9 @@ class FBAutoBotMainWindow(QMainWindow):
         self.page_friend_request = self.create_friend_request_page()
         self.page_profile_picture = self.create_profile_picture_page()
         self.page_extract_cookie = self.create_extract_cookie_page()
+        self.page_like_comment = self.create_like_comment_page()
+        self.page_ai = self.create_ai_page()
+        self.page_settings = self.create_settings_page()
         self.page_profile = self.create_profile_page()
 
         self.pages_stack.addWidget(self.page_dashboard)        # Index 0
@@ -3910,7 +3637,10 @@ class FBAutoBotMainWindow(QMainWindow):
         self.pages_stack.addWidget(self.page_friend_request)   # Index 7 (Auto FB Request Accept)
         self.pages_stack.addWidget(self.page_profile_picture)  # Index 8 (Add Profile Picture)
         self.pages_stack.addWidget(self.page_extract_cookie)   # Index 9 (Extract ID Cookie)
-        self.pages_stack.addWidget(self.page_profile)          # Index 10 (User Profile & Activity Logs)
+        self.pages_stack.addWidget(self.page_like_comment)     # Index 10 (Auto Like & Comment)
+        self.pages_stack.addWidget(self.page_ai)               # Index 11 (AI Content Spinner)
+        self.pages_stack.addWidget(self.page_settings)         # Index 12 (Settings & Stealth)
+        self.pages_stack.addWidget(self.page_profile)          # Index 13 (User Profile & Activity Logs)
 
         content_layout.addWidget(self.pages_stack, stretch=7)
 
@@ -3924,248 +3654,8 @@ class FBAutoBotMainWindow(QMainWindow):
         self.switch_tab(0)
 
     # --------------------------------------------------------------------------
-    # Cyber Dark Glass Engine (Permanently Locked to Sleek Cyber Dark Theme)
+    # Modern Top Header Bar
     # --------------------------------------------------------------------------
-    def toggle_theme(self):
-        """Maintains permanent sleek Cyber Dark Mode."""
-        self.current_theme = "dark"
-        self.apply_theme_to_all_widgets("dark")
-        self.apply_dark_title_bar()
-
-    def apply_theme_to_all_widgets(self, theme_name: str = "dark"):
-        """Applies pristine contrast, cyber dark colors, and surfaces across every page."""
-        self.current_theme = "dark"
-        is_light = False
-        app = QApplication.instance()
-        if app:
-            app.setStyleSheet(GLASS_STYLESHEET)
-
-        bg_col = "#080c14"
-
-        # 1. Main Root Containers
-        if hasattr(self, 'central_widget_ref') and self.central_widget_ref:
-            self.central_widget_ref.setStyleSheet(f"background-color: {bg_col};")
-        if hasattr(self, 'content_container_ref') and self.content_container_ref:
-            self.content_container_ref.setStyleSheet(f"background-color: {bg_col};")
-        if hasattr(self, 'pages_stack') and self.pages_stack:
-            self.pages_stack.setStyleSheet(f"background-color: {bg_col};")
-
-        # 2. Top Header Elements
-        if hasattr(self, 'btn_theme_toggle'):
-            self.btn_theme_toggle.setText("🌙")
-            self.btn_theme_toggle.setToolTip("Permanent Cyber Dark Theme Active")
-            self.btn_theme_toggle.setStyleSheet("""
-                QPushButton {
-                    background: rgba(99, 102, 241, 0.16);
-                    color: #4f46e5;
-                    border: 1.5px solid rgba(99, 102, 241, 0.45);
-                    border-radius: 18px;
-                    font-size: 16px;
-                    font-weight: 800;
-                    padding: 0px;
-                }
-            """)
-        if hasattr(self, 'header_page_title'):
-            self.header_page_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #f8fafc; border: none; background: transparent;")
-        if hasattr(self, 'brand_title'):
-            self.brand_title.setStyleSheet("font-size: 18px; font-weight: 800; color: #ffffff; border: none; background: transparent;")
-        if hasattr(self, 'header_sep'):
-            self.header_sep.setStyleSheet("font-size: 14px; font-weight: 700; color: rgba(255, 255, 255, 0.25); border: none; background: transparent;")
-        if hasattr(self, 'header_user_chip'):
-            self.header_user_chip.setStyleSheet(
-                "background-color: rgba(255, 255, 255, 0.05); color: #f1f5f9; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px; font-size: 11px; font-weight: 600; padding: 4px 12px;"
-            )
-        if hasattr(self, 'btn_key_header'):
-            self.btn_key_header.setStyleSheet(
-                "background-color: #1e293b; color: #e2e8f0; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 8px; font-size: 11px; font-weight: 600; padding: 4px 9px;"
-            )
-        if hasattr(self, 'header_countdown_pill'):
-            self.header_countdown_pill.setStyleSheet(
-                "background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); color: #818cf8; border-radius: 10px; font-size: 11px; font-weight: 600; padding: 4px 12px;"
-            )
-        if hasattr(self, 'header_stealth_pill'):
-            self.header_stealth_pill.setStyleSheet(
-                "background-color: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; font-size: 10px; font-weight: 800; padding: 3px 8px;"
-            )
-
-        # 3. Sidebar Frame
-        if hasattr(self, 'sidebar_frame'):
-            self.sidebar_frame.setStyleSheet(
-                "background-color: #0b101c; border-right: 1px solid rgba(255, 255, 255, 0.08);"
-            )
-
-        # 4. Dashboard License Card & Countdown Clocks
-        if hasattr(self, 'dash_license_card'):
-            self.dash_license_card.setObjectName("dashLicenseCard")
-            self.dash_license_card.setStyleSheet(
-                "QFrame#dashLicenseCard { background-color: #0b1120; border: 1.5px solid rgba(99, 102, 241, 0.35); border-radius: 14px; padding: 16px; } QLabel { border: none; background: transparent; }"
-            )
-        if hasattr(self, 'dash_license_title_lbl'):
-            self.dash_license_title_lbl.setStyleSheet("font-size: 16px; font-weight: 800; color: #f8fafc; border: none; background: transparent;")
-        if hasattr(self, 'dash_license_sub'):
-            self.dash_license_sub.setStyleSheet("font-size: 11px; color: #94a3b8; border: none; background: transparent;")
-
-        for box in [getattr(self, 'dash_box_days', None), getattr(self, 'dash_box_hours', None), getattr(self, 'dash_box_mins', None), getattr(self, 'dash_box_secs', None)]:
-            if box:
-                box.setObjectName("countdownDigitBox")
-                box.setStyleSheet("QFrame#countdownDigitBox { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #111827, stop:1 #070b14); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 10px; } QLabel { border: none; background: transparent; }")
-                if hasattr(box, 'num_lbl'):
-                    box.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #60a5fa; font-family: 'Consolas', 'Menlo', monospace; border: none; background: transparent;")
-                if hasattr(box, 'tag_lbl'):
-                    box.tag_lbl.setStyleSheet("font-size: 10px; font-weight: 700; color: #64748b; letter-spacing: 0.8px; border: none; background: transparent;")
-
-        # 5. User Profile Diagnostics & Credentials (Screenshot 1)
-        if hasattr(self, 'prof_name_lbl'):
-            self.prof_name_lbl.setStyleSheet("font-size: 14px; font-weight: 800; color: #0f172a;" if is_light else "font-size: 14px; font-weight: 700; color: #f8fafc;")
-        if hasattr(self, 'prof_expiry_lbl'):
-            self.prof_expiry_lbl.setStyleSheet("font-size: 12px; color: #475569;" if is_light else "font-size: 12px; color: #cbd5e1;")
-        if hasattr(self, 'prof_key_input'):
-            self.prof_key_input.setStyleSheet(
-                "font-family: monospace; font-size: 11px; background-color: #ffffff; color: #047857; border: 1.5px solid #cbd5e1; border-radius: 8px; font-weight: bold; padding: 6px 10px;"
-                if is_light else
-                "font-family: monospace; font-size: 11px; background-color: #070a13; color: #34d399; font-weight: bold;"
-            )
-        if hasattr(self, 'prof_hwid_input'):
-            self.prof_hwid_input.setStyleSheet(
-                "font-family: monospace; font-size: 11px; background-color: #ffffff; color: #1d4ed8; border: 1.5px solid #cbd5e1; border-radius: 8px; font-weight: bold; padding: 6px 10px;"
-                if is_light else
-                "font-family: monospace; font-size: 11px; background-color: #070a13; color: #60a5fa; font-weight: bold;"
-            )
-        if hasattr(self, 'prof_ip_input'):
-            self.prof_ip_input.setStyleSheet(
-                "font-family: monospace; font-size: 11px; background-color: #ffffff; color: #b45309; border: 1.5px solid #cbd5e1; border-radius: 8px; font-weight: bold; padding: 6px 10px;"
-                if is_light else
-                "font-family: monospace; font-size: 11px; background-color: #070a13; color: #f59e0b; font-weight: bold;"
-            )
-
-        # 6. Standard & Bulk Listing Marketplace (Screenshot 3)
-        if hasattr(self, 'std_acc_box'):
-            self.std_acc_box.setStyleSheet(
-                "background-color: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 12px;"
-                if is_light else
-                "background-color: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px;"
-            )
-        if hasattr(self, 'std_img_box'):
-            self.std_img_box.setStyleSheet(
-                "background-color: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 12px;"
-                if is_light else
-                "background-color: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px;"
-            )
-        if hasattr(self, 'acc_checklist_scroll'):
-            self.acc_checklist_scroll.setStyleSheet(
-                "QScrollArea { border: 1.5px solid #cbd5e1; background: #f8fafc; border-radius: 6px; }"
-                if is_light else
-                "QScrollArea { border: 1px solid rgba(255, 255, 255, 0.05); background: rgba(15, 23, 42, 0.6); border-radius: 6px; }"
-            )
-        if hasattr(self, 'img_dropdown_btn'):
-            if is_light:
-                self.img_dropdown_btn.setStyleSheet("""
-                    QPushButton {
-                        background-color: #ffffff;
-                        border: 1.5px solid #cbd5e1;
-                        border-radius: 8px;
-                        color: #0f172a;
-                        font-size: 12px;
-                        font-weight: 600;
-                        padding: 7px 12px;
-                        text-align: left;
-                    }
-                    QPushButton:hover {
-                        border-color: #2563eb;
-                        background-color: #f1f5f9;
-                    }
-                """)
-            else:
-                self.img_dropdown_btn.setStyleSheet("""
-                    QPushButton {
-                        background-color: rgba(15, 23, 42, 0.9);
-                        border: 1px solid rgba(59, 130, 246, 0.6);
-                        border-radius: 8px;
-                        color: #f1f5f9;
-                        font-size: 12px;
-                        font-weight: 600;
-                        padding: 7px 12px;
-                        text-align: left;
-                    }
-                    QPushButton:hover {
-                        border-color: #60a5fa;
-                        background-color: rgba(30, 41, 59, 0.95);
-                    }
-                """)
-        if hasattr(self, 'img_dropdown_panel'):
-            self.img_dropdown_panel.setStyleSheet(
-                "QFrame { background-color: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; }"
-                if is_light else
-                "QFrame { background-color: rgba(15, 23, 42, 0.98); border: 1px solid rgba(59, 130, 246, 0.5); border-radius: 8px; }"
-            )
-        if hasattr(self, 'img_dropdown_scroll'):
-            self.img_dropdown_scroll.setStyleSheet(
-                "QScrollArea { border: 1.5px solid #e2e8f0; background: #f8fafc; border-radius: 6px; } QScrollBar { background: transparent; }"
-                if is_light else
-                "QScrollArea { border: 1px solid rgba(255, 255, 255, 0.05); background: rgba(2, 6, 23, 0.7); border-radius: 6px; } QScrollBar { background: transparent; }"
-            )
-        if hasattr(self, 'std_prop_adv_box'):
-            self.std_prop_adv_box.setStyleSheet(
-                "background-color: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 9px; padding: 10px;"
-                if is_light else
-                "background-color: #090d16; border: 1.5px solid #1e2d4a; border-radius: 9px; padding: 10px;"
-            )
-
-        # 7. Project Tab Editor & Project Directory (Screenshot 2)
-        if hasattr(self, 'proj_tabs_bar_card'):
-            self.proj_tabs_bar_card.setStyleSheet(
-                "background-color: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 10px;"
-                if is_light else
-                "background-color: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 10px;"
-            )
-        if hasattr(self, 'proj_tab_quick_combo'):
-            self.proj_tab_quick_combo.setStyleSheet(
-                "QComboBox { background-color: #ffffff; color: #0f172a; border: 1.5px solid #cbd5e1; border-radius: 6px; padding: 3px 10px; font-size: 12px; }"
-                if is_light else
-                "QComboBox { background-color: #0f172a; color: #f8fafc; border: 1px solid #38bdf8; border-radius: 6px; padding: 3px 10px; font-size: 12px; }"
-            )
-        if hasattr(self, 'proj_acc_checklist_scroll'):
-            self.proj_acc_checklist_scroll.setStyleSheet(
-                "QScrollArea { border: 1.5px solid #cbd5e1; background: #f8fafc; border-radius: 6px; } QScrollBar { background: transparent; }"
-                if is_light else
-                "QScrollArea { border: 1px solid rgba(255, 255, 255, 0.05); background: rgba(15, 23, 42, 0.6); border-radius: 6px; } QScrollBar { background: transparent; }"
-            )
-        if hasattr(self, 'proj_editor_title_lbl'):
-            self.proj_editor_title_lbl.setStyleSheet("font-size: 16px; font-weight: 800; color: #4338ca; margin-left: 10px;" if is_light else "font-size: 16px; font-weight: 800; color: #818cf8; margin-left: 10px;")
-
-        # Re-render project cards with proper theme
-        if hasattr(self, 'render_projects_grid'):
-            self.render_projects_grid()
-
-        # Re-populate account checklist so labels take light/dark color
-        if hasattr(self, 'populate_accounts_checklist'):
-            self.populate_accounts_checklist()
-
-        # 8. Accounts & Session Manager (Screenshot 4)
-        if hasattr(self, 'acc_left_card'):
-            self.acc_left_card.setStyleSheet("background-color: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 14px;" if is_light else "background-color: #0b1120; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px;")
-        if hasattr(self, 'acc_right_card'):
-            self.acc_right_card.setStyleSheet("background-color: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 14px;" if is_light else "background-color: #0b1120; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px;")
-
-        # 9. Bottom Live Console & Terminal (All 5 Screenshots)
-        if hasattr(self, 'con_panel'):
-            self.con_panel.setStyleSheet(
-                "QFrame { background-color: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 14px; padding: 12px; }"
-                if is_light else
-                "QFrame { background-color: #0b1120; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px; padding: 12px; }"
-            )
-        if hasattr(self, 'con_title'):
-            self.con_title.setStyleSheet("font-size: 13px; font-weight: 800; color: #0f172a;" if is_light else "font-size: 13px; font-weight: 700; color: #cbd5e1;")
-        if hasattr(self, 'console_box'):
-            if is_light:
-                self.console_box.setStyleSheet("background-color: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 10px; color: #0f172a; font-family: 'Consolas', 'Menlo', monospace; font-size: 12px; padding: 8px;")
-            else:
-                self.console_box.setStyleSheet("background-color: #090d16; border: 1px solid #1e2d4a; border-radius: 10px; color: #4ade80; font-family: 'Consolas', 'Menlo', monospace; font-size: 12px; padding: 8px;")
-
-        # 10. Re-apply active navigation button highlighting
-        current_tab_idx = getattr(self, 'current_active_tab_index', 0)
-        self.switch_tab(current_tab_idx)
-
     def create_top_header(self):
         header_frame = QFrame()
         header_frame.setObjectName("topHeaderBar")
@@ -4174,14 +3664,34 @@ class FBAutoBotMainWindow(QMainWindow):
         header_layout.setContentsMargins(16, 6, 16, 6)
         header_layout.setSpacing(12)
 
-        # Left Section: Breadcrumb Title
+        # Left Section: Breadcrumb & Engine Status
         left_layout = QHBoxLayout()
         left_layout.setSpacing(10)
 
-        self.header_page_title = QLabel("Operational Dashboard")
-        self.header_page_title.setStyleSheet("font-size: 15px; font-weight: 800; color: #f8fafc; letter-spacing: 0.3px;")
+        app_badge = QLabel("⚡ FB AUTO BOT")
+        app_badge.setStyleSheet("font-size: 11px; font-weight: 900; color: #818cf8; letter-spacing: 0.8px;")
 
+        sep = QLabel("›")
+        sep.setStyleSheet("font-size: 14px; font-weight: 700; color: rgba(255, 255, 255, 0.25);")
+
+        self.header_page_title = QLabel("Operational Dashboard")
+        self.header_page_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #f8fafc;")
+
+        self.header_stealth_pill = QLabel("● STEALTH ARMED")
+        self.header_stealth_pill.setStyleSheet("""
+            background-color: rgba(16, 185, 129, 0.12);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 800;
+            padding: 3px 8px;
+        """)
+
+        left_layout.addWidget(app_badge)
+        left_layout.addWidget(sep)
         left_layout.addWidget(self.header_page_title)
+        left_layout.addWidget(self.header_stealth_pill)
         header_layout.addLayout(left_layout)
 
         header_layout.addStretch()
@@ -4203,7 +3713,7 @@ class FBAutoBotMainWindow(QMainWindow):
             font-weight: 700;
             padding: 4px 10px;
         """)
-        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(10)
+        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(11)
         right_layout.addWidget(self.header_countdown_pill)
 
         # User Profile Chip
@@ -4227,14 +3737,14 @@ class FBAutoBotMainWindow(QMainWindow):
                 border: 1px solid rgba(255, 255, 255, 0.25);
             }
         """)
-        self.header_user_chip.clicked.connect(lambda: self.switch_tab(10))
+        self.header_user_chip.clicked.connect(lambda: self.switch_tab(11))
         right_layout.addWidget(self.header_user_chip)
 
         # Quick Key Button
-        self.btn_key_header = QPushButton("🔑 Key")
-        self.btn_key_header.setToolTip("Activate or update software license key")
-        self.btn_key_header.setCursor(Qt.PointingHandCursor)
-        self.btn_key_header.setStyleSheet("""
+        btn_key = QPushButton("🔑 Key")
+        btn_key.setToolTip("Activate or update software license key")
+        btn_key.setCursor(Qt.PointingHandCursor)
+        btn_key.setStyleSheet("""
             QPushButton {
                 background-color: #1e293b;
                 color: #e2e8f0;
@@ -4249,14 +3759,14 @@ class FBAutoBotMainWindow(QMainWindow):
                 color: #ffffff;
             }
         """)
-        self.btn_key_header.clicked.connect(self.open_license_activation_dialog)
-        right_layout.addWidget(self.btn_key_header)
+        btn_key.clicked.connect(self.open_license_activation_dialog)
+        right_layout.addWidget(btn_key)
 
         # WhatsApp Support Button
-        self.btn_wa_header = QPushButton("💬 Support")
-        self.btn_wa_header.setToolTip("Direct WhatsApp Support (+14015721696)")
-        self.btn_wa_header.setCursor(Qt.PointingHandCursor)
-        self.btn_wa_header.setStyleSheet("""
+        btn_wa = QPushButton("💬 Support")
+        btn_wa.setToolTip("Direct WhatsApp Support (+14015721696)")
+        btn_wa.setCursor(Qt.PointingHandCursor)
+        btn_wa.setStyleSheet("""
             QPushButton {
                 background-color: rgba(5, 150, 105, 0.2);
                 color: #34d399;
@@ -4271,8 +3781,8 @@ class FBAutoBotMainWindow(QMainWindow):
                 color: #ffffff;
             }
         """)
-        self.btn_wa_header.clicked.connect(self.open_whatsapp_support)
-        right_layout.addWidget(self.btn_wa_header)
+        btn_wa.clicked.connect(self.open_whatsapp_support)
+        right_layout.addWidget(btn_wa)
 
         header_layout.addLayout(right_layout)
         return header_frame
@@ -4306,25 +3816,17 @@ class FBAutoBotMainWindow(QMainWindow):
             logo_icon.setStyleSheet("font-size: 24px; color: #3b82f6;")
             brand_box.addWidget(logo_icon)
 
-        self.brand_title = QLabel("FB Auto Bot")
-        self.brand_title.setStyleSheet("font-size: 18px; font-weight: 800; color: #ffffff;")
-        brand_box.addWidget(self.brand_title)
+        brand_title = QLabel("FB Auto Bot")
+        brand_title.setStyleSheet("font-size: 18px; font-weight: 800; color: #ffffff;")
+        brand_box.addWidget(brand_title)
         brand_box.addStretch()
         layout.addLayout(brand_box)
 
-        company_lbl = QLabel("ABM CodeSpace")
-        company_lbl.setStyleSheet("""
-            font-size: 11px;
-            font-weight: 800;
-            color: #38bdf8;
-            letter-spacing: 1.2px;
-            margin-bottom: 14px;
-            margin-top: 2px;
-            font-family: 'SF Pro Display', 'Segoe UI', -apple-system, sans-serif;
-        """)
-        layout.addWidget(company_lbl)
+        version_lbl = QLabel("ENTERPRISE EDITION v2.4")
+        version_lbl.setStyleSheet("font-size: 10px; font-weight: 700; color: #6366f1; letter-spacing: 1px; margin-bottom: 16px;")
+        layout.addWidget(version_lbl)
 
-        # Navigation Buttons (11 Essential Tabs)
+        # Navigation Buttons (14 Tabs)
         self.nav_buttons = []
         nav_items = [
             ("📊 Dashboard", 0),
@@ -4337,7 +3839,10 @@ class FBAutoBotMainWindow(QMainWindow):
             ("🤝 Auto FB Friend Accept", 7),
             ("🖼️ Add Profile Picture", 8),
             ("🍪 Extract ID Cookie", 9),
-            ("👤 User Profile & Logs", 10),
+            ("👍 Auto Like & Comment", 10),
+            ("🧠 AI Content Spinner", 11),
+            ("⚙️ Settings & Stealth", 12),
+            ("👤 User Profile & Logs", 13),
         ]
 
         for text, index in nav_items:
@@ -4388,193 +3893,96 @@ class FBAutoBotMainWindow(QMainWindow):
             "Auto FB Friend Accept & Reject",
             "Add Profile Picture & Cover Photo",
             "Extract ID Cookie & Session Tokens",
+            "Auto Like & Comment Engine",
+            "AI Content Spinner & Intelligence",
+            "Settings & Stealth Parameters",
             "User Profile & Activity Logs"
         ]
         if 0 <= index < len(tab_names) and hasattr(self, 'header_page_title'):
             self.header_page_title.setText(tab_names[index])
 
         # If switching to profile page, ensure data is fresh
-        if index == 10 and hasattr(self, 'update_profile_page_data'):
+        if index == 13 and hasattr(self, 'update_profile_page_data'):
             self.update_profile_page_data()
 
     # --------------------------------------------------------------------------
-    # Countdown Segment Digit Box Helper (2027 Cyber HUD Design)
+    # Countdown Segment Digit Box Helper
     # --------------------------------------------------------------------------
     def create_countdown_digit_box(self, initial_val: str, label_text: str):
         box = QFrame()
-        box.setObjectName("countdownDigitBox")
         box.setStyleSheet("""
-            QFrame#countdownDigitBox {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0f172a, stop:0.5 #090e1a, stop:1 #030712);
-                border: 1.5px solid rgba(56, 189, 248, 0.25);
-                border-radius: 12px;
-            }
-            QFrame#countdownDigitBox:hover {
-                border: 1.5px solid rgba(56, 189, 248, 0.6);
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1e293b, stop:0.5 #0f172a, stop:1 #060b14);
-            }
-            QLabel {
-                border: none;
-                background: transparent;
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #111827, stop:1 #070b14);
+                border: 1px solid rgba(255, 255, 255, 0.10);
+                border-radius: 10px;
             }
         """)
         layout = QVBoxLayout(box)
-        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(2)
         layout.setAlignment(Qt.AlignCenter)
 
         num_lbl = QLabel(initial_val)
         num_lbl.setAlignment(Qt.AlignCenter)
-        num_lbl.setStyleSheet("""
-            font-size: 26px;
-            font-weight: 900;
-            color: #38bdf8;
-            font-family: 'SF Pro Display', 'Consolas', 'Segoe UI', monospace;
-            letter-spacing: 1px;
-            border: none;
-            background: transparent;
-        """)
+        num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #60a5fa; font-family: 'Consolas', 'Menlo', monospace;")
         
         tag_lbl = QLabel(label_text)
         tag_lbl.setAlignment(Qt.AlignCenter)
-        tag_lbl.setStyleSheet("""
-            font-size: 10px;
-            font-weight: 800;
-            color: #94a3b8;
-            letter-spacing: 1.2px;
-            border: none;
-            background: transparent;
-        """)
+        tag_lbl.setStyleSheet("font-size: 10px; font-weight: 700; color: #64748b; letter-spacing: 0.8px;")
 
         layout.addWidget(num_lbl)
         layout.addWidget(tag_lbl)
         box.num_lbl = num_lbl
-        box.tag_lbl = tag_lbl
         return box
 
     # --------------------------------------------------------------------------
-    # Tab 1: 20x Better Ultra-Futuristic Cyber HUD Operational Dashboard
+    # Tab 1: Dashboard
     # --------------------------------------------------------------------------
     def create_dashboard_page(self):
         page = QWidget()
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
+        layout.setSpacing(16)
 
-        # 1. Futuristic Header Command Bar
-        head_card = QFrame()
-        head_card.setObjectName("dashHeadCard")
-        head_card.setStyleSheet("""
-            QFrame#dashHeadCard {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(15, 23, 42, 0.85), stop:0.5 rgba(30, 41, 59, 0.7), stop:1 rgba(15, 23, 42, 0.85));
-                border: 1px solid rgba(56, 189, 248, 0.2);
-                border-radius: 14px;
-                padding: 6px;
-            }
-            QLabel {
-                border: none;
-                background: transparent;
-            }
-        """)
-        head_layout = QHBoxLayout(head_card)
-        head_layout.setContentsMargins(16, 12, 16, 12)
+        # Header
+        title = QLabel("Operational Dashboard")
+        title.setProperty("class", "pageTitle")
+        sub = QLabel("Real-time telemetry, license duration countdown, and automated posting statistics.")
+        sub.setProperty("class", "pageSubtitle")
+        layout.addWidget(title)
+        layout.addWidget(sub)
 
-        head_info = QVBoxLayout()
-        head_info.setSpacing(3)
-
-        title_row = QHBoxLayout()
-        title_row.setSpacing(10)
-        
-        h_icon = QLabel("⚡")
-        h_icon.setStyleSheet("font-size: 20px; border: none; background: transparent;")
-        
-        title = QLabel("CYBER COMMAND CENTER")
-        title.setStyleSheet("font-size: 17px; font-weight: 900; color: #f8fafc; letter-spacing: 0.5px; border: none; background: transparent;")
-
-        title_row.addWidget(h_icon)
-        title_row.addWidget(title)
-        title_row.addStretch()
-
-        sub = QLabel("Real-Time Multi-Thread Telemetry • Cryptographic HWID License Security • Automated Multi-Account Fleet")
-        sub.setStyleSheet("font-size: 11px; color: #94a3b8; font-weight: 500; border: none; background: transparent;")
-
-        head_info.addLayout(title_row)
-        head_info.addWidget(sub)
-        head_layout.addLayout(head_info, stretch=1)
-
-        # Quick action buttons in top bar
-        btn_top_refresh = QPushButton("🔄 Refresh Telemetry")
-        btn_top_refresh.setStyleSheet("""
-            QPushButton {
-                background: rgba(56, 189, 248, 0.12);
-                color: #38bdf8;
-                border: 1px solid rgba(56, 189, 248, 0.3);
-                border-radius: 8px;
-                font-size: 11px;
-                font-weight: 700;
-                padding: 6px 12px;
-            }
-            QPushButton:hover {
-                background: rgba(56, 189, 248, 0.25);
-                border: 1px solid #38bdf8;
-                color: #ffffff;
-            }
-        """)
-        btn_top_refresh.setCursor(Qt.PointingHandCursor)
-        btn_top_refresh.clicked.connect(self.refresh_dashboard_metrics)
-
-        head_layout.addWidget(btn_top_refresh)
-        layout.addWidget(head_card)
-
-        # 2. Futuristic Holographic License & Countdown Tracker Card
+        # --- DEDICATED LIVE LICENSE & TRIAL DURATION TRACKER CARD ---
         self.dash_license_card = QFrame()
-        self.dash_license_card.setObjectName("dashLicenseCard")
-        self.dash_license_card.setStyleSheet("""
-            QFrame#dashLicenseCard {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0d1527, stop:0.5 #090e1a, stop:1 #060a12);
-                border: 1.5px solid rgba(99, 102, 241, 0.35);
-                border-radius: 14px;
-            }
-            QLabel {
-                border: none;
-                background: transparent;
-            }
-        """)
+        self.dash_license_card.setProperty("class", "glassCard")
         lc_layout = QVBoxLayout(self.dash_license_card)
-        lc_layout.setContentsMargins(18, 14, 18, 14)
+        lc_layout.setContentsMargins(18, 16, 18, 16)
         lc_layout.setSpacing(12)
 
         # Header row inside license card
         lc_header = QHBoxLayout()
         lc_title_box = QVBoxLayout()
-        lc_title_box.setSpacing(2)
-
         lc_title_row = QHBoxLayout()
-        lc_title_row.setSpacing(8)
-        
         lc_icon = QLabel("🔑")
-        lc_icon.setStyleSheet("font-size: 17px; border: none; background: transparent;")
+        lc_icon.setStyleSheet("font-size: 18px;")
+        lc_title = QLabel("License & Trial Duration Tracker")
+        lc_title.setStyleSheet("font-size: 16px; font-weight: 800; color: #f8fafc;")
         
-        self.dash_license_title_lbl = QLabel("Cryptographic License & Trial Duration Tracker")
-        self.dash_license_title_lbl.setStyleSheet("font-size: 15px; font-weight: 800; color: #f8fafc; border: none; background: transparent;")
-        lc_title = self.dash_license_title_lbl
-        
-        self.dash_license_tier_badge = QLabel("PRO ENTERPRISE • HWID LOCKED")
-        self.dash_license_tier_badge.setStyleSheet("color: #818cf8; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; border: none; background: transparent;")
+        self.dash_license_tier_badge = QLabel("PRO ENTERPRISE")
+        self.dash_license_tier_badge.setStyleSheet("background-color: #4f46e5; color: #ffffff; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; letter-spacing: 0.5px;")
         
         lc_title_row.addWidget(lc_icon)
         lc_title_row.addWidget(lc_title)
         lc_title_row.addWidget(self.dash_license_tier_badge)
         lc_title_row.addStretch()
 
-        self.dash_license_sub = QLabel("Military-Grade SHA-256 Signature Binding • Real-Time Dynamic Countdown Telemetry")
-        self.dash_license_sub.setStyleSheet("font-size: 11px; color: #94a3b8; border: none; background: transparent;")
+        self.dash_license_sub = QLabel("Cryptographic HWID Signature Binding • Real-Time Countdown Telemetry")
+        self.dash_license_sub.setStyleSheet("font-size: 11px; color: #94a3b8;")
 
         lc_title_box.addLayout(lc_title_row)
         lc_title_box.addWidget(self.dash_license_sub)
@@ -4583,40 +3991,12 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Action Buttons in Card Header
         btn_update_key = QPushButton("🔑 Update Key")
-        btn_update_key.setStyleSheet("""
-            QPushButton {
-                background: rgba(99, 102, 241, 0.15);
-                color: #a5b4fc;
-                border: 1px solid rgba(99, 102, 241, 0.35);
-                border-radius: 8px;
-                font-size: 11px;
-                font-weight: 700;
-                padding: 6px 12px;
-            }
-            QPushButton:hover {
-                background: rgba(99, 102, 241, 0.3);
-                border: 1px solid #818cf8;
-                color: #ffffff;
-            }
-        """)
+        btn_update_key.setProperty("class", "secondaryBtn")
         btn_update_key.setCursor(Qt.PointingHandCursor)
         btn_update_key.clicked.connect(self.open_license_activation_dialog)
 
         btn_extend_wa = QPushButton("💬 Extend on WhatsApp")
-        btn_extend_wa.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10b981);
-                color: #ffffff;
-                font-weight: 800;
-                font-size: 11px;
-                padding: 6px 14px;
-                border-radius: 8px;
-                border: none;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #047857, stop:1 #059669);
-            }
-        """)
+        btn_extend_wa.setStyleSheet("background-color: #059669; color: #ffffff; font-weight: 700; font-size: 11px; padding: 6px 12px; border-radius: 8px;")
         btn_extend_wa.setCursor(Qt.PointingHandCursor)
         btn_extend_wa.clicked.connect(self.open_whatsapp_support)
 
@@ -4628,7 +4008,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.countdown_clock_row = QHBoxLayout()
         self.countdown_clock_row.setSpacing(10)
 
-        self.dash_box_days = self.create_countdown_digit_box("00", "DAYS REMAINING")
+        self.dash_box_days = self.create_countdown_digit_box("00", "DAYS")
         self.dash_box_hours = self.create_countdown_digit_box("00", "HOURS")
         self.dash_box_mins = self.create_countdown_digit_box("00", "MINUTES")
         self.dash_box_secs = self.create_countdown_digit_box("00", "SECONDS")
@@ -4643,14 +4023,14 @@ class FBAutoBotMainWindow(QMainWindow):
         details_row = QHBoxLayout()
         details_row.setSpacing(14)
         
-        self.dash_lic_user_lbl = QLabel("👤 License Bound User: Initializing...")
-        self.dash_lic_user_lbl.setStyleSheet("color: #cbd5e1; font-size: 12px; font-weight: 600; border: none; background: transparent;")
+        self.dash_lic_user_lbl = QLabel("👤 User: Initializing...")
+        self.dash_lic_user_lbl.setStyleSheet("color: #cbd5e1; font-size: 12px; font-weight: 600;")
         
-        self.dash_lic_expiry_lbl = QLabel("📅 Expiry Timestamp: Initializing...")
-        self.dash_lic_expiry_lbl.setStyleSheet("color: #94a3b8; font-size: 12px; border: none; background: transparent;")
+        self.dash_lic_expiry_lbl = QLabel("📅 Expiry: Initializing...")
+        self.dash_lic_expiry_lbl.setStyleSheet("color: #94a3b8; font-size: 12px;")
 
-        self.dash_lic_status_badge = QLabel("● ACTIVE PRO SUITE")
-        self.dash_lic_status_badge.setStyleSheet("color: #10b981; font-size: 12px; font-weight: 800; border: none; background: transparent;")
+        self.dash_lic_status_badge = QLabel("● ACTIVE")
+        self.dash_lic_status_badge.setStyleSheet("color: #10b981; font-size: 12px; font-weight: 800;")
 
         details_row.addWidget(self.dash_lic_user_lbl)
         details_row.addWidget(self.dash_lic_expiry_lbl)
@@ -4665,10 +4045,10 @@ class FBAutoBotMainWindow(QMainWindow):
         eb_layout.setContentsMargins(12, 10, 12, 10)
         
         eb_icon = QLabel("⚠️")
-        eb_icon.setStyleSheet("font-size: 20px; border: none; background: transparent;")
+        eb_icon.setStyleSheet("font-size: 20px;")
         
-        self.dash_expire_banner_text = QLabel("License duration expired! Please update your license key or contact support to continue using automation.")
-        self.dash_expire_banner_text.setStyleSheet("color: #fca5a5; font-size: 13px; font-weight: 700; border: none; background: transparent;")
+        self.dash_expire_banner_text = QLabel("License duration expired! Please update your license key or please update your balance to continue using automation.")
+        self.dash_expire_banner_text.setStyleSheet("color: #fca5a5; font-size: 13px; font-weight: 700;")
         self.dash_expire_banner_text.setWordWrap(True)
 
         eb_btn = QPushButton("🔑 Update License Key Now")
@@ -4684,116 +4064,65 @@ class FBAutoBotMainWindow(QMainWindow):
 
         layout.addWidget(self.dash_license_card)
 
-        # 3. Row of 4 Sleek Futuristic Metric Columns
+        # Metrics cards row
         metrics_row = QHBoxLayout()
         metrics_row.setSpacing(12)
 
-        # Metric Column 1: Connected Profiles & Accounts Fleet
+        # Card 1: Total Accounts (Real Dynamic)
         c1 = QFrame()
-        c1.setObjectName("dashMetricCol1")
-        c1.setStyleSheet("""
-            QFrame#dashMetricCol1 {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0e1628, stop:1 #070b14);
-                border: 1px solid rgba(99, 102, 241, 0.25);
-                border-radius: 12px;
-            }
-            QFrame#dashMetricCol1:hover {
-                border: 1px solid rgba(99, 102, 241, 0.55);
-            }
-            QLabel {
-                border: none;
-                background: transparent;
-            }
-        """)
+        c1.setProperty("class", "glassCard")
         cl1 = QVBoxLayout(c1)
-        cl1.setContentsMargins(14, 12, 14, 12)
-        cl1.setSpacing(4)
-        
-        c1_top = QHBoxLayout()
-        t1 = QLabel("👥 Connected Accounts")
-        t1.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: 700; border: none; background: transparent;")
-        c1_top.addWidget(t1)
-        c1_top.addStretch()
-        p1 = QLabel("● VAULT")
-        p1.setStyleSheet("color: #818cf8; font-size: 11px; font-weight: 800; border: none; background: transparent;")
-        c1_top.addWidget(p1)
-        cl1.addLayout(c1_top)
-
-        self.dash_acc_val = QLabel(f"{len(self.accounts_list)} Saved Profiles")
-        self.dash_acc_val.setStyleSheet("color: #818cf8; font-size: 20px; font-weight: 900; font-family: 'Consolas', monospace; border: none; background: transparent;")
+        cl1.setContentsMargins(16, 14, 16, 14)
+        cl1.setSpacing(6)
+        t1 = QLabel("Active Profiles")
+        t1.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: 600;")
+        self.dash_acc_val = QLabel(f"{len(self.accounts_list)} Saved")
+        self.dash_acc_val.setStyleSheet("color: #4f46e5; font-size: 20px; font-weight: 800;")
+        s1 = QLabel("Profiles in Accounts Vault")
+        s1.setStyleSheet("color: #64748b; font-size: 11px;")
+        cl1.addWidget(t1)
         cl1.addWidget(self.dash_acc_val)
-        
-        s1 = QLabel("🛡️ Isolated browser sessions & cookies")
-        s1.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 500; border: none; background: transparent;")
         cl1.addWidget(s1)
         metrics_row.addWidget(c1)
 
-        # Metric Column 2: Total Listings Telemetry with Filters
+        # Card 2: Total Listings (Real Dynamic with Account & 10/15-Day Timeframes)
         c2 = QFrame()
-        c2.setObjectName("dashMetricCol2")
-        c2.setStyleSheet("""
-            QFrame#dashMetricCol2 {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0b1c1d, stop:1 #060f12);
-                border: 1px solid rgba(16, 185, 129, 0.25);
-                border-radius: 12px;
-            }
-            QFrame#dashMetricCol2:hover {
-                border: 1px solid rgba(16, 185, 129, 0.55);
-            }
-            QLabel {
-                border: none;
-                background: transparent;
-            }
-        """)
+        c2.setProperty("class", "glassCard")
         cl2 = QVBoxLayout(c2)
         cl2.setContentsMargins(14, 12, 14, 12)
         cl2.setSpacing(4)
 
         t2_row = QHBoxLayout()
-        t2 = QLabel("📊 Total Listings")
-        t2.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: 700; border: none; background: transparent;")
+        t2 = QLabel("Total Listings")
+        t2.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: 700;")
         t2_row.addWidget(t2)
         t2_row.addStretch()
 
         self.dash_period_filter = QComboBox()
         self.dash_period_filter.setFixedHeight(22)
-        self.dash_period_filter.setStyleSheet("background-color: #0f172a; color: #38bdf8; font-size: 10px; font-weight: 700; padding: 1px 4px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3);")
+        self.dash_period_filter.setStyleSheet("background-color: #1e293b; color: #38bdf8; font-size: 11px; font-weight: 600; padding: 1px 4px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.3);")
         self.dash_period_filter.addItems(["All Time", "Last 15 Days", "Last 10 Days", "Last 7 Days", "Today"])
         self.dash_period_filter.currentIndexChanged.connect(self.refresh_dashboard_metrics)
         t2_row.addWidget(self.dash_period_filter)
 
         self.dash_acc_filter = QComboBox()
         self.dash_acc_filter.setFixedHeight(22)
-        self.dash_acc_filter.setMaximumWidth(110)
-        self.dash_acc_filter.setStyleSheet("background-color: #0f172a; color: #e2e8f0; font-size: 10px; font-weight: 700; padding: 1px 4px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.12);")
-        self.dash_acc_filter.addItem("👥 All Profiles")
+        self.dash_acc_filter.setMaximumWidth(125)
+        self.dash_acc_filter.setStyleSheet("background-color: #1e293b; color: #e2e8f0; font-size: 11px; font-weight: 600; padding: 1px 4px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.1);")
+        self.dash_acc_filter.addItem("👥 All Accounts")
         self.dash_acc_filter.currentIndexChanged.connect(self.refresh_dashboard_metrics)
         t2_row.addWidget(self.dash_acc_filter)
         cl2.addLayout(t2_row)
 
         val_row = QHBoxLayout()
         self.dash_listings_val = QLabel("0 Completed")
-        self.dash_listings_val.setStyleSheet("color: #34d399; font-size: 20px; font-weight: 900; font-family: 'Consolas', monospace; border: none; background: transparent;")
+        self.dash_listings_val.setStyleSheet("color: #10b981; font-size: 19px; font-weight: 800;")
         val_row.addWidget(self.dash_listings_val)
         val_row.addStretch()
 
         btn_hist = QPushButton("📜 History")
         btn_hist.setFixedHeight(22)
-        btn_hist.setStyleSheet("""
-            QPushButton {
-                background-color: rgba(16, 185, 129, 0.18);
-                color: #34d399;
-                font-size: 10px;
-                font-weight: 800;
-                padding: 2px 7px;
-                border-radius: 4px;
-                border: 1px solid rgba(16, 185, 129, 0.35);
-            }
-            QPushButton:hover {
-                background-color: #10b981;
-                color: #ffffff;
-            }
-        """)
+        btn_hist.setStyleSheet("background-color: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.3);")
         btn_hist.setCursor(Qt.PointingHandCursor)
         btn_hist.setToolTip("View full detailed log of all marketplace listings with dates and accounts")
         btn_hist.clicked.connect(self.show_listings_history_dialog)
@@ -4801,154 +4130,99 @@ class FBAutoBotMainWindow(QMainWindow):
         cl2.addLayout(val_row)
 
         self.dash_listings_sub = QLabel("🕒 Last 10 Days: 0 | 15 Days: 0 | Total: 0")
-        self.dash_listings_sub.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 500; border: none; background: transparent;")
+        self.dash_listings_sub.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 500;")
         cl2.addWidget(self.dash_listings_sub)
         metrics_row.addWidget(c2)
 
-        # Metric Column 3: Anti-Ban & Fingerprint Cloaking
+        # Card 3: Anti-Duplicate Shield
         c3 = QFrame()
-        c3.setObjectName("dashMetricCol3")
-        c3.setStyleSheet("""
-            QFrame#dashMetricCol3 {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #191428, stop:1 #0a0814);
-                border: 1px solid rgba(168, 85, 247, 0.25);
-                border-radius: 12px;
-            }
-            QFrame#dashMetricCol3:hover {
-                border: 1px solid rgba(168, 85, 247, 0.55);
-            }
-            QLabel {
-                border: none;
-                background: transparent;
-            }
-        """)
+        c3.setProperty("class", "glassCard")
         cl3 = QVBoxLayout(c3)
-        cl3.setContentsMargins(14, 12, 14, 12)
-        cl3.setSpacing(4)
-        
-        c3_top = QHBoxLayout()
-        t3 = QLabel("🛡️ Anti-Ban Engine")
-        t3.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: 700; border: none; background: transparent;")
-        c3_top.addWidget(t3)
-        c3_top.addStretch()
-        p3 = QLabel("● ARMED")
-        p3.setStyleSheet("color: #c084fc; font-size: 11px; font-weight: 800; border: none; background: transparent;")
-        c3_top.addWidget(p3)
-        cl3.addLayout(c3_top)
-
-        v3 = QLabel("100% Stealth Ready")
-        v3.setStyleSheet("color: #c084fc; font-size: 18px; font-weight: 900; font-family: 'Consolas', monospace; border: none; background: transparent;")
+        cl3.setContentsMargins(16, 14, 16, 14)
+        cl3.setSpacing(6)
+        t3 = QLabel("Duplicate Shield")
+        t3.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: 600;")
+        v3 = QLabel("Active & Ready")
+        v3.setStyleSheet("color: #f59e0b; font-size: 20px; font-weight: 800;")
+        s3 = QLabel("OpenCV image micro-alteration")
+        s3.setStyleSheet("color: #64748b; font-size: 11px;")
+        cl3.addWidget(t3)
         cl3.addWidget(v3)
-        
-        s3 = QLabel("WebGL, Canvas & Human Cadence active")
-        s3.setStyleSheet("color: #64748b; font-size: 11px; border: none; background: transparent;")
         cl3.addWidget(s3)
         metrics_row.addWidget(c3)
 
-        # Metric Column 4: Image & Metadata Shield
+        # Card 4: Stealth & Proxy Engine
         c4 = QFrame()
-        c4.setObjectName("dashMetricCol4")
-        c4.setStyleSheet("""
-            QFrame#dashMetricCol4 {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1a1710, stop:1 #0e0c08);
-                border: 1px solid rgba(245, 158, 11, 0.25);
-                border-radius: 12px;
-            }
-            QFrame#dashMetricCol4:hover {
-                border: 1px solid rgba(245, 158, 11, 0.55);
-            }
-            QLabel {
-                border: none;
-                background: transparent;
-            }
-        """)
+        c4.setProperty("class", "glassCard")
         cl4 = QVBoxLayout(c4)
-        cl4.setContentsMargins(14, 12, 14, 12)
-        cl4.setSpacing(4)
-        
-        c4_top = QHBoxLayout()
-        t4 = QLabel("⚡ Duplicate Shield")
-        t4.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: 700; border: none; background: transparent;")
-        c4_top.addWidget(t4)
-        c4_top.addStretch()
-        p4 = QLabel("● OPENCV")
-        p4.setStyleSheet("color: #fbbf24; font-size: 11px; font-weight: 800; border: none; background: transparent;")
-        c4_top.addWidget(p4)
-        cl4.addLayout(c4_top)
-
-        v4 = QLabel("Active & Ready")
-        v4.setStyleSheet("color: #fbbf24; font-size: 18px; font-weight: 900; font-family: 'Consolas', monospace; border: none; background: transparent;")
+        cl4.setContentsMargins(16, 14, 16, 14)
+        cl4.setSpacing(6)
+        t4 = QLabel("Stealth Architecture")
+        t4.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: 600;")
+        v4 = QLabel("Armed & Isolated")
+        v4.setStyleSheet("color: #06b6d4; font-size: 20px; font-weight: 800;")
+        s4 = QLabel("Isolated profile storage")
+        s4.setStyleSheet("color: #64748b; font-size: 11px;")
+        cl4.addWidget(t4)
         cl4.addWidget(v4)
-        
-        s4 = QLabel("Lossless metadata & pixel noise mod")
-        s4.setStyleSheet("color: #64748b; font-size: 11px; border: none; background: transparent;")
         cl4.addWidget(s4)
         metrics_row.addWidget(c4)
 
         layout.addLayout(metrics_row)
 
-        # 4. Engine & Hardware Telemetry (Full Futuristic Card)
-        col_b = QFrame()
-        col_b.setObjectName("dashColTelemetry")
-        col_b.setStyleSheet("""
-            QFrame#dashColTelemetry {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0f172a, stop:1 #080d18);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 14px;
-            }
-            QLabel {
-                border: none;
-                background: transparent;
-            }
-        """)
-        col_b_layout = QVBoxLayout(col_b)
-        col_b_layout.setContentsMargins(18, 16, 18, 16)
-        col_b_layout.setSpacing(12)
+        # Quick action launchpad
+        quick_card = QFrame()
+        quick_card.setProperty("class", "glassCard")
+        q_layout = QVBoxLayout(quick_card)
+        
+        q_header = QLabel("Quick Deployment Shortcuts")
+        q_header.setProperty("class", "cardTitle")
+        q_layout.addWidget(q_header)
 
-        cb_title = QLabel("💻 Engine & Hardware Telemetry")
-        cb_title.setStyleSheet("font-size: 14px; font-weight: 800; color: #f8fafc; border: none; background: transparent;")
-        col_b_layout.addWidget(cb_title)
+        btn_row = QHBoxLayout()
+        b1 = QPushButton("⚡ Launch New Auto-Listing")
+        b1.setProperty("class", "primaryBtn")
+        b1.clicked.connect(lambda: self.switch_tab(2))
 
-        grid_telem = QGridLayout()
-        grid_telem.setSpacing(12)
+        b2 = QPushButton("👥 Accounts")
+        b2.setProperty("class", "secondaryBtn")
+        b2.clicked.connect(lambda: self.switch_tab(1))
 
-        def make_telemetry_widget(icon: str, label: str, value: str, val_color: str = "#38bdf8"):
-            box = QFrame()
-            box.setObjectName("telemRowBox")
-            box.setStyleSheet("""
-                QFrame#telemRowBox {
-                    background: rgba(255, 255, 255, 0.02);
-                    border: 1px solid rgba(255, 255, 255, 0.05);
-                    border-radius: 8px;
-                    padding: 6px 10px;
-                }
-                QLabel {
-                    border: none;
-                    background: transparent;
-                }
-            """)
-            r_lay = QHBoxLayout(box)
-            r_lay.setContentsMargins(4, 2, 4, 2)
-            lbl = QLabel(f"{icon} {label}")
-            lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 600; border: none; background: transparent;")
-            val = QLabel(value)
-            val.setStyleSheet(f"color: {val_color}; font-size: 11px; font-weight: 800; font-family: 'Consolas', monospace; border: none; background: transparent;")
-            r_lay.addWidget(lbl)
-            r_lay.addStretch()
-            r_lay.addWidget(val)
-            return box
+        b_grp = QPushButton("📢 FB Group Posting")
+        b_grp.setProperty("class", "secondaryBtn")
+        b_grp.clicked.connect(lambda: self.switch_tab(4))
 
-        grid_telem.addWidget(make_telemetry_widget("⚡", "Multi-Thread Engine:", "8 Concurrent Workers", "#34d399"), 0, 0)
-        grid_telem.addWidget(make_telemetry_widget("🛡️", "Anti-Detection Core:", "Playwright 2027 Stealth", "#38bdf8"), 0, 1)
-        grid_telem.addWidget(make_telemetry_widget("🌐", "Proxy Architecture:", "Per-Profile Isolation", "#a78bfa"), 1, 0)
-        grid_telem.addWidget(make_telemetry_widget("🧹", "Memory Guard:", "Auto GC Recycled", "#fbbf24"), 1, 1)
-        grid_telem.addWidget(make_telemetry_widget("🔒", "Security Checkpoints:", "0 Flags / 100% Pass", "#34d399"), 2, 0)
-        grid_telem.addWidget(make_telemetry_widget("🍪", "Cookie Engine:", "Semicolon & JSON Sync", "#38bdf8"), 2, 1)
-        grid_telem.addWidget(make_telemetry_widget("🖥️", "Browser Sandbox:", "Chromium Headless Native", "#c084fc"), 3, 0)
-        grid_telem.addWidget(make_telemetry_widget("💾", "Session Persistence:", "High-Fidelity SQLite & JSON", "#34d399"), 3, 1)
+        b_page = QPushButton("📄 Create FB Pages")
+        b_page.setProperty("class", "secondaryBtn")
+        b_page.clicked.connect(lambda: self.switch_tab(5))
 
-        col_b_layout.addLayout(grid_telem)
-        layout.addWidget(col_b)
+        b_reels = QPushButton("🎥 Upload FB Reels")
+        b_reels.setProperty("class", "secondaryBtn")
+        b_reels.clicked.connect(lambda: self.switch_tab(6))
+
+        b_req = QPushButton("🤝 Auto FB Friend Accept")
+        b_req.setProperty("class", "secondaryBtn")
+        b_req.clicked.connect(lambda: self.switch_tab(7))
+
+        b3 = QPushButton("🧠 AI Spinner")
+        b3.setProperty("class", "secondaryBtn")
+        b3.clicked.connect(lambda: self.switch_tab(8))
+
+        b4 = QPushButton("👤 Profile")
+        b4.setProperty("class", "secondaryBtn")
+        b4.clicked.connect(lambda: self.switch_tab(10))
+
+        btn_row.addWidget(b1)
+        btn_row.addWidget(b2)
+        btn_row.addWidget(b_grp)
+        btn_row.addWidget(b_page)
+        btn_row.addWidget(b_reels)
+        btn_row.addWidget(b_req)
+        btn_row.addWidget(b3)
+        btn_row.addWidget(b4)
+        btn_row.addStretch()
+        q_layout.addLayout(btn_row)
+        layout.addWidget(quick_card)
 
         layout.addStretch()
         scroll.setWidget(container)
@@ -4978,14 +4252,14 @@ class FBAutoBotMainWindow(QMainWindow):
 
         if is_lifetime:
             self.dash_license_tier_badge.setText(f"{tier.upper()} LIFETIME")
-            self.dash_license_tier_badge.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; border: none; background: transparent;")
+            self.dash_license_tier_badge.setStyleSheet("background-color: #059669; color: #ffffff; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; letter-spacing: 0.5px;")
             self.dash_box_days.num_lbl.setText("∞")
             self.dash_box_hours.num_lbl.setText("LIFE")
-            self.dash_box_hours.num_lbl.setStyleSheet("font-size: 18px; font-weight: 900; color: #10b981; font-family: 'Consolas', monospace; border: none; background: transparent;")
+            self.dash_box_hours.num_lbl.setStyleSheet("font-size: 18px; font-weight: 900; color: #10b981; font-family: 'Consolas', monospace;")
             self.dash_box_mins.num_lbl.setText("TIME")
-            self.dash_box_mins.num_lbl.setStyleSheet("font-size: 18px; font-weight: 900; color: #10b981; font-family: 'Consolas', monospace; border: none; background: transparent;")
+            self.dash_box_mins.num_lbl.setStyleSheet("font-size: 18px; font-weight: 900; color: #10b981; font-family: 'Consolas', monospace;")
             self.dash_box_secs.num_lbl.setText("PASS")
-            self.dash_box_secs.num_lbl.setStyleSheet("font-size: 18px; font-weight: 900; color: #10b981; font-family: 'Consolas', monospace; border: none; background: transparent;")
+            self.dash_box_secs.num_lbl.setStyleSheet("font-size: 18px; font-weight: 900; color: #10b981; font-family: 'Consolas', monospace;")
             
             if hasattr(self, 'header_countdown_pill'):
                 self.header_countdown_pill.setText("⚡ Lifetime Unlimited")
@@ -4994,7 +4268,7 @@ class FBAutoBotMainWindow(QMainWindow):
             self.dash_lic_user_lbl.setText(f"👤 Registered: {customer}")
             self.dash_lic_expiry_lbl.setText("📅 Duration: Lifetime Unlimited Access")
             self.dash_lic_status_badge.setText("● VERIFIED & ACTIVE")
-            self.dash_lic_status_badge.setStyleSheet("color: #10b981; font-size: 12px; font-weight: 800; border: none; background: transparent;")
+            self.dash_lic_status_badge.setStyleSheet("color: #10b981; font-size: 12px; font-weight: 800;")
             self.dash_expire_banner.setVisible(False)
             return
 
@@ -5008,15 +4282,15 @@ class FBAutoBotMainWindow(QMainWindow):
             secs = diff % 60
 
             self.dash_license_tier_badge.setText(f"{tier.upper()} TIER")
-            self.dash_license_tier_badge.setStyleSheet("color: #818cf8; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; border: none; background: transparent;")
+            self.dash_license_tier_badge.setStyleSheet("background-color: #4f46e5; color: #ffffff; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; letter-spacing: 0.5px;")
 
             self.dash_box_days.num_lbl.setText(f"{days:02d}")
             self.dash_box_hours.num_lbl.setText(f"{hours:02d}")
-            self.dash_box_hours.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #60a5fa; font-family: 'Consolas', monospace; border: none; background: transparent;")
+            self.dash_box_hours.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #60a5fa; font-family: 'Consolas', monospace;")
             self.dash_box_mins.num_lbl.setText(f"{mins:02d}")
-            self.dash_box_mins.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #60a5fa; font-family: 'Consolas', monospace; border: none; background: transparent;")
+            self.dash_box_mins.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #60a5fa; font-family: 'Consolas', monospace;")
             self.dash_box_secs.num_lbl.setText(f"{secs:02d}")
-            self.dash_box_secs.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #60a5fa; font-family: 'Consolas', monospace; border: none; background: transparent;")
+            self.dash_box_secs.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #60a5fa; font-family: 'Consolas', monospace;")
 
             if hasattr(self, 'header_countdown_pill'):
                 self.header_countdown_pill.setText(f"⏳ {days}d {hours:02d}h {mins:02d}m {secs:02d}s")
@@ -5026,7 +4300,7 @@ class FBAutoBotMainWindow(QMainWindow):
             self.dash_lic_user_lbl.setText(f"👤 Registered: {customer}")
             self.dash_lic_expiry_lbl.setText(f"📅 Expiry: {expiry_date_str}")
             self.dash_lic_status_badge.setText("● ACTIVE")
-            self.dash_lic_status_badge.setStyleSheet("color: #10b981; font-size: 12px; font-weight: 800; border: none; background: transparent;")
+            self.dash_lic_status_badge.setStyleSheet("color: #10b981; font-size: 12px; font-weight: 800;")
 
             if days < 3:
                 self.dash_expire_banner.setVisible(True)
@@ -5037,15 +4311,15 @@ class FBAutoBotMainWindow(QMainWindow):
         else:
             # Expired or Inactive
             self.dash_license_tier_badge.setText("EXPIRED / INACTIVE")
-            self.dash_license_tier_badge.setStyleSheet("color: #ef4444; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; border: none; background: transparent;")
+            self.dash_license_tier_badge.setStyleSheet("background-color: #b91c1c; color: #ffffff; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; letter-spacing: 0.5px;")
 
             self.dash_box_days.num_lbl.setText("00")
             self.dash_box_hours.num_lbl.setText("00")
-            self.dash_box_hours.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #ef4444; font-family: 'Consolas', monospace; border: none; background: transparent;")
+            self.dash_box_hours.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #ef4444; font-family: 'Consolas', monospace;")
             self.dash_box_mins.num_lbl.setText("00")
-            self.dash_box_mins.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #ef4444; font-family: 'Consolas', monospace; border: none; background: transparent;")
+            self.dash_box_mins.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #ef4444; font-family: 'Consolas', monospace;")
             self.dash_box_secs.num_lbl.setText("00")
-            self.dash_box_secs.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #ef4444; font-family: 'Consolas', monospace; border: none; background: transparent;")
+            self.dash_box_secs.num_lbl.setStyleSheet("font-size: 24px; font-weight: 900; color: #ef4444; font-family: 'Consolas', monospace;")
 
             if hasattr(self, 'header_countdown_pill'):
                 self.header_countdown_pill.setText("🔴 EXPIRED (00:00:00)")
@@ -5054,7 +4328,7 @@ class FBAutoBotMainWindow(QMainWindow):
             self.dash_lic_user_lbl.setText(f"👤 Client: {customer}")
             self.dash_lic_expiry_lbl.setText("📅 Duration: Expired / Key Renewal Needed")
             self.dash_lic_status_badge.setText("● EXPIRED")
-            self.dash_lic_status_badge.setStyleSheet("color: #ef4444; font-size: 12px; font-weight: 800; border: none; background: transparent;")
+            self.dash_lic_status_badge.setStyleSheet("color: #ef4444; font-size: 12px; font-weight: 800;")
 
             self.dash_expire_banner.setVisible(True)
             self.dash_expire_banner_text.setText("⚠️ Warning: Your license or trial period has ended! Please update your license key or please update your balance to continue using automation.")
@@ -5490,7 +4764,6 @@ class FBAutoBotMainWindow(QMainWindow):
         # Left Card: Cookies-Only Import Form
         left_card = QFrame()
         left_card.setProperty("class", "glassCard")
-        self.acc_left_card = left_card
         left_card.setMinimumWidth(380)
         left_card_layout = QVBoxLayout(left_card)
         left_card_layout.setContentsMargins(12, 12, 12, 12)
@@ -5528,7 +4801,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Main Cookie & Credential Input Textarea
         lbl_cookies = QLabel("Paste Facebook Accounts (UID/Password or Cookies - 1, 10, 40, 100+ Accounts):")
-        lbl_cookies.setStyleSheet("font-weight: 700; font-size: 12px;")
+        lbl_cookies.setStyleSheet("font-weight: 700; color: #f8fafc; font-size: 12px;")
         left_card_layout.addWidget(lbl_cookies)
 
         self.acc_cookies_input = QTextEdit()
@@ -5544,47 +4817,6 @@ class FBAutoBotMainWindow(QMainWindow):
         )
         self.acc_cookies_input.setMinimumHeight(150)
         left_card_layout.addWidget(self.acc_cookies_input)
-
-        # Target Mode Selector: Facebook Page vs Personal Profile
-        target_mode_card = QFrame()
-        target_mode_card.setStyleSheet("background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 6px 8px;")
-        tm_layout = QVBoxLayout(target_mode_card)
-        tm_layout.setContentsMargins(6, 4, 6, 4)
-        tm_layout.setSpacing(4)
-
-        tm_hdr_row = QHBoxLayout()
-        tm_lbl = QLabel("🎯 Cookie Extraction Target Mode (For UID/Pass Logins):")
-        tm_lbl.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700;")
-        tm_hdr_row.addWidget(tm_lbl)
-        tm_hdr_row.addStretch()
-        tm_layout.addLayout(tm_hdr_row)
-
-        btn_mode_row = QHBoxLayout()
-        btn_mode_row.setSpacing(8)
-
-        self.btn_mode_page = QPushButton("📄 Facebook Page (Use Page)")
-        self.btn_mode_page.setCursor(Qt.PointingHandCursor)
-        self.btn_mode_page.setToolTip("Extracts Page-active session cookies so browser and automation bots open directly into the Facebook Page!")
-
-        self.btn_mode_profile = QPushButton("👤 Personal Profile")
-        self.btn_mode_profile.setCursor(Qt.PointingHandCursor)
-        self.btn_mode_profile.setToolTip("Extracts standard personal profile session cookies so browser opens the main personal profile.")
-
-        self.btn_mode_page.clicked.connect(lambda: self.set_account_target_mode("page"))
-        self.btn_mode_profile.clicked.connect(lambda: self.set_account_target_mode("profile"))
-
-        btn_mode_row.addWidget(self.btn_mode_page)
-        btn_mode_row.addWidget(self.btn_mode_profile)
-        btn_mode_row.addStretch()
-        tm_layout.addLayout(btn_mode_row)
-
-        self.tm_tip = QLabel("💡 When 'Facebook Page' is active, UID/Pass accounts will auto-switch to Page mode so fresh cookies open directly to your Page.")
-        self.tm_tip.setStyleSheet("color: #38bdf8; font-size: 10px; font-weight: 600;")
-        tm_layout.addWidget(self.tm_tip)
-
-        left_card_layout.addWidget(target_mode_card)
-        self.account_target_mode = "page"
-        self.set_account_target_mode("page")
 
         # Profile Alias (Optional)
         lbl_alias = QLabel("Profile Alias / Name (Optional - Auto-detected from UID/cookies):")
@@ -5639,11 +4871,11 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Action Buttons
         btn_action_row = QHBoxLayout()
-        self.btn_add_cookies = QPushButton("➕ Import / Add Account(s)")
-        self.btn_add_cookies.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: 800; font-size: 12px; padding: 10px 14px; border-radius: 6px;")
-        self.btn_add_cookies.setCursor(Qt.PointingHandCursor)
-        self.btn_add_cookies.setToolTip("Parses single or bulk UID/Pass (e.g. 61594735472478/@broolove@) or cookies and adds all accounts directly to vault.")
-        self.btn_add_cookies.clicked.connect(self.parse_and_save_bulk_cookies)
+        btn_add_cookies = QPushButton("➕ Import / Add Account(s)")
+        btn_add_cookies.setStyleSheet("background-color: #2563eb; color: #ffffff; font-weight: 800; font-size: 12px; padding: 10px 14px; border-radius: 6px;")
+        btn_add_cookies.setCursor(Qt.PointingHandCursor)
+        btn_add_cookies.setToolTip("Parses single or bulk UID/Pass (e.g. 61594735472478/@broolove@) or cookies and adds all accounts directly to vault.")
+        btn_add_cookies.clicked.connect(self.parse_and_save_bulk_cookies)
 
         btn_capture = QPushButton("🌐 Capture via Browser")
         btn_capture.setProperty("class", "secondaryBtn")
@@ -5652,49 +4884,9 @@ class FBAutoBotMainWindow(QMainWindow):
         btn_capture.setToolTip("Open browser window to log in manually and capture cookies")
         btn_capture.clicked.connect(self.extract_cookies_for_form)
 
-        btn_action_row.addWidget(self.btn_add_cookies)
+        btn_action_row.addWidget(btn_add_cookies)
         btn_action_row.addWidget(btn_capture)
         left_card_layout.addLayout(btn_action_row)
-
-        # In-form Live Progress Card for UID/Pass Cookie Extraction
-        self.acc_extract_card = QFrame()
-        self.acc_extract_card.setStyleSheet("background: rgba(15, 23, 42, 0.7); border: 1px solid #0284c7; border-radius: 8px; padding: 8px;")
-        acc_ext_layout = QVBoxLayout(self.acc_extract_card)
-        acc_ext_layout.setContentsMargins(6, 6, 6, 6)
-        acc_ext_layout.setSpacing(4)
-
-        acc_ext_hdr = QHBoxLayout()
-        self.acc_extract_status_lbl = QLabel("● Extracting Live Cookies...")
-        self.acc_extract_status_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
-        acc_ext_hdr.addWidget(self.acc_extract_status_lbl)
-        acc_ext_hdr.addStretch()
-
-        self.btn_acc_stop_extract = QPushButton("🛑 Stop")
-        self.btn_acc_stop_extract.setStyleSheet("background-color: #dc2626; color: #ffffff; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px;")
-        self.btn_acc_stop_extract.setCursor(Qt.PointingHandCursor)
-        self.btn_acc_stop_extract.clicked.connect(self.stop_acc_manager_extraction)
-        acc_ext_hdr.addWidget(self.btn_acc_stop_extract)
-        acc_ext_layout.addLayout(acc_ext_hdr)
-
-        self.acc_extract_progress_bar = QProgressBar()
-        self.acc_extract_progress_bar.setFixedHeight(8)
-        self.acc_extract_progress_bar.setStyleSheet("""
-            QProgressBar {
-                background: #1e293b;
-                border-radius: 4px;
-                text-align: center;
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #38bdf8);
-                border-radius: 4px;
-            }
-        """)
-        self.acc_extract_progress_bar.setValue(0)
-        acc_ext_layout.addWidget(self.acc_extract_progress_bar)
-
-        self.acc_extract_card.setVisible(False)
-        left_card_layout.addWidget(self.acc_extract_card)
-
         left_card_layout.addStretch()
 
         splitter.addWidget(left_card)
@@ -5702,7 +4894,6 @@ class FBAutoBotMainWindow(QMainWindow):
         # Right Card: Accounts Table & Multi-Account Action Suite
         right_card = QFrame()
         right_card.setProperty("class", "glassCard")
-        self.acc_right_card = right_card
         table_layout = QVBoxLayout(right_card)
         table_layout.setSpacing(10)
 
@@ -6515,7 +5706,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.clear_account_form()
         self.log_message("INFO", f"🔑 Initiating Facebook automated login & cookie extraction for [{name}]...")
 
-        self.cred_worker = CredentialLoginWorker(acc_id, headless=False, switch_to_page=(getattr(self, 'account_target_mode', 'page') == 'page'))
+        self.cred_worker = CredentialLoginWorker(acc_id, headless=False)
         self.cred_worker.log_signal.connect(self.log_message)
         self.cred_worker.finished_signal.connect(self.on_credential_login_finished)
         self.cred_worker.start()
@@ -6554,7 +5745,7 @@ class FBAutoBotMainWindow(QMainWindow):
                     self.accounts_table.setItem(r, 5, status_item)
                     break
 
-            self.cred_worker = CredentialLoginWorker(acc_id, headless=False, switch_to_page=(getattr(self, 'account_target_mode', 'page') == 'page'))
+            self.cred_worker = CredentialLoginWorker(acc_id, headless=False)
             self.cred_worker.log_signal.connect(self.log_message)
             self.cred_worker.finished_signal.connect(self.on_credential_login_finished)
             self.cred_worker.start()
@@ -6613,7 +5804,7 @@ class FBAutoBotMainWindow(QMainWindow):
                 break
 
         self.log_message("INFO", f"Bulk Login Queue: Logging in account {self.bulk_login_index + 1}/{len(self.bulk_login_queue)} ({acc_id})...")
-        self.cred_worker = CredentialLoginWorker(acc_id, headless=False, switch_to_page=(getattr(self, 'account_target_mode', 'page') == 'page'))
+        self.cred_worker = CredentialLoginWorker(acc_id, headless=False)
         self.cred_worker.log_signal.connect(self.log_message)
         self.cred_worker.finished_signal.connect(self.on_credential_login_finished)
         self.cred_worker.start()
@@ -7175,30 +6366,6 @@ class FBAutoBotMainWindow(QMainWindow):
         if hasattr(self, 'acc_mode_stack'):
             self.acc_mode_stack.setCurrentIndex(0)
 
-    def set_account_target_mode(self, mode: str):
-        self.account_target_mode = mode.lower()
-        if self.account_target_mode == "page":
-            if hasattr(self, 'btn_mode_page'):
-                self.btn_mode_page.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1d4ed8, stop:1 #2563eb); color: #ffffff; font-weight: 800; font-size: 11px; padding: 6px 14px; border-radius: 6px; border: 1px solid #3b82f6;")
-                self.btn_mode_page.setText("✅ 📄 Facebook Page (Use Page)")
-            if hasattr(self, 'btn_mode_profile'):
-                self.btn_mode_profile.setStyleSheet("background-color: #1e293b; color: #cbd5e1; font-weight: 600; font-size: 11px; padding: 6px 14px; border-radius: 6px; border: 1px solid #334155;")
-                self.btn_mode_profile.setText("👤 Personal Profile")
-            if hasattr(self, 'tm_tip'):
-                self.tm_tip.setText("🎯 Active Target: Facebook Page — Auto-switches to Page mode so fresh cookies open directly to your Page.")
-                self.tm_tip.setStyleSheet("color: #38bdf8; font-size: 10px; font-weight: 600;")
-        else:
-            self.account_target_mode = "profile"
-            if hasattr(self, 'btn_mode_profile'):
-                self.btn_mode_profile.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0f766e, stop:1 #0d9488); color: #ffffff; font-weight: 800; font-size: 11px; padding: 6px 14px; border-radius: 6px; border: 1px solid #14b8a6;")
-                self.btn_mode_profile.setText("✅ 👤 Personal Profile (Active)")
-            if hasattr(self, 'btn_mode_page'):
-                self.btn_mode_page.setStyleSheet("background-color: #1e293b; color: #cbd5e1; font-weight: 600; font-size: 11px; padding: 6px 14px; border-radius: 6px; border: 1px solid #334155;")
-                self.btn_mode_page.setText("📄 Facebook Page")
-            if hasattr(self, 'tm_tip'):
-                self.tm_tip.setText("🎯 Active Target: Personal Profile — Extracts personal profile session cookies so browser opens the main profile.")
-                self.tm_tip.setStyleSheet("color: #2dd4bf; font-size: 10px; font-weight: 600;")
-
     def parse_and_save_bulk_cookies(self):
         """Parses single or bulk credentials (UID/Pass, 61594735472478/@broolove@, UID|Pass) or cookies (raw string / JSON) pasted into acc_cookies_input and saves all accounts."""
         raw_text = self.acc_cookies_input.toPlainText().strip() if hasattr(self, 'acc_cookies_input') else ""
@@ -7363,21 +6530,8 @@ class FBAutoBotMainWindow(QMainWindow):
             QMessageBox.warning(self, "No Accounts Found", "Could not parse valid accounts, credentials, or cookies.")
             return
 
-        # Separate accounts that already have full session cookies vs UID/Password credentials needing live extraction
-        cookie_accounts = []
-        credential_accounts = []
-
-        for acc in parsed_accounts:
-            c_str = str(acc.get("cookies", "")).strip()
-            # If line has UID + password and lacks full session token 'xs=':
-            if acc.get("password") and acc.get("uid") and "xs=" not in c_str:
-                credential_accounts.append(acc)
-            else:
-                cookie_accounts.append(acc)
-
-        # 1. Process accounts that already have complete cookies directly into vault
-        added_cookie_count = 0
-        for acc_info in cookie_accounts:
+        added_count = 0
+        for acc_info in parsed_accounts:
             name = acc_info.get("name") or "FB_Account"
             uid = acc_info.get("uid", "")
             pwd = acc_info.get("password", "")
@@ -7401,7 +6555,7 @@ class FBAutoBotMainWindow(QMainWindow):
                     proxy_type=ptype,
                     proxy_user=puser,
                     proxy_pass=ppass,
-                    notes="Direct Cookie Import",
+                    notes="Imported Account (UID/Pass or Cookie)",
                     status="Healthy"
                 )
             else:
@@ -7417,231 +6571,20 @@ class FBAutoBotMainWindow(QMainWindow):
                     "proxy_user": puser,
                     "proxy_pass": ppass,
                     "cookies": cookies,
-                    "notes": "Direct Cookie Import",
+                    "notes": "Imported Account (UID/Pass or Cookie)",
                     "status": "Healthy",
                     "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 })
-            added_cookie_count += 1
+            added_count += 1
 
-        if added_cookie_count > 0:
-            self.log_message("SUCCESS", f"🎉 Added {added_cookie_count} Cookie Account(s) with HEALTHY status into vault!")
-            self.refresh_accounts_table()
-            self.update_account_dropdown()
-            self.refresh_dashboard_metrics()
-
-        # 2. Process UID/Password accounts via fast background Playwright extraction
-        if credential_accounts:
-            if HAS_COOKIE_EXTRACTOR_BOT:
-                switch_to_page = (getattr(self, 'account_target_mode', 'page') == 'page')
-                mode_str = "Facebook Page ('Use Page')" if switch_to_page else "Personal Profile"
-
-                self.acc_extract_proxies = {
-                    str(acc.get("uid", "")).strip(): acc.get("proxy", proxy)
-                    for acc in credential_accounts
-                }
-
-                if hasattr(self, 'acc_extract_card'):
-                    self.acc_extract_card.setVisible(True)
-                if hasattr(self, 'btn_add_cookies'):
-                    self.btn_add_cookies.setEnabled(False)
-                if hasattr(self, 'acc_extract_status_lbl'):
-                    self.acc_extract_status_lbl.setText(f"● Extracting fresh {mode_str} cookies (0/{len(credential_accounts)})...")
-                if hasattr(self, 'acc_extract_progress_bar'):
-                    self.acc_extract_progress_bar.setValue(0)
-
-                payload = {
-                    "accounts": [
-                        {
-                            "uid": str(acc.get("uid", "")).strip(),
-                            "password": str(acc.get("password", "")).strip(),
-                            "two_factor_secret": str(acc.get("two_fa", "")).strip(),
-                            "proxy": str(acc.get("proxy", "")).strip() if acc.get("proxy") != "Direct (No Proxy)" else ""
-                        }
-                        for acc in credential_accounts
-                    ],
-                    "headless": True,
-                    "concurrency": min(3, max(1, len(credential_accounts))),
-                    "delay_seconds": 2.0,
-                    "network_mode": "direct" if not any(acc.get("proxy") and "direct" not in acc.get("proxy", "").lower() for acc in credential_accounts) else "proxy",
-                    "switch_to_page": switch_to_page
-                }
-
-                self.log_message(
-                    "INFO",
-                    f"🚀 Background Session Extraction: Launching automated cookie extractor for "
-                    f"{len(credential_accounts)} UID/Pass account(s) (Target: {mode_str})..."
-                )
-
-                self.acc_cookie_worker = CookieExtractorWorker(payload=payload)
-                self.acc_cookie_worker.log_signal.connect(self.log_message)
-                self.acc_cookie_worker.progress_signal.connect(self.on_acc_manager_extract_progress)
-                self.acc_cookie_worker.account_result_signal.connect(self.on_acc_manager_extract_account_result)
-                self.acc_cookie_worker.finished_signal.connect(self.on_acc_manager_extract_finished)
-                self.acc_cookie_worker.start()
-            else:
-                # Fallback if bot module is not installed
-                for acc_info in credential_accounts:
-                    name = acc_info.get("name") or "FB_Account"
-                    uid = acc_info.get("uid", "")
-                    clean_slug = re.sub(r'[^a-zA-Z0-9_-]', '_', str(name)).lower()
-                    acc_id = f"acc_{clean_slug}_{uuid.uuid4().hex[:4]}"
-                    if self.session_manager:
-                        self.session_manager.save_account(
-                            account_id=acc_id,
-                            name=name,
-                            uid=uid,
-                            email=uid if "@" in uid else "",
-                            password=acc_info.get("password", ""),
-                            two_factor_secret=acc_info.get("two_fa", ""),
-                            cookies=acc_info.get("cookies", ""),
-                            proxy=acc_info.get("proxy", proxy) or "Direct (No Proxy)",
-                            notes="UID/Pass Account",
-                            status="Healthy"
-                        )
-                if hasattr(self, 'acc_cookies_input'):
-                    self.acc_cookies_input.clear()
-                self.refresh_accounts_table()
-                self.update_account_dropdown()
-                self.refresh_dashboard_metrics()
-        else:
-            if hasattr(self, 'acc_cookies_input'):
-                self.acc_cookies_input.clear()
-            if hasattr(self, 'acc_name_input'):
-                self.acc_name_input.clear()
-
-    def on_acc_manager_extract_progress(self, percent: int):
-        if hasattr(self, 'acc_extract_progress_bar'):
-            self.acc_extract_progress_bar.setValue(percent)
-        if hasattr(self, 'acc_extract_status_lbl'):
-            switch_to_page = (getattr(self, 'account_target_mode', 'page') == 'page')
-            mode_str = "Facebook Page" if switch_to_page else "Personal Profile"
-            self.acc_extract_status_lbl.setText(f"● Extracting fresh {mode_str} cookies... {percent}%")
-
-    def on_acc_manager_extract_account_result(self, result: dict):
-        uid = str(result.get("uid", "")).strip()
-        name = str(result.get("name", "")).strip() or f"FB_{uid}"
-        pwd = str(result.get("password", "")).strip()
-        two_fa = str(result.get("two_factor_secret", "")).strip()
-        cookie = str(result.get("cookie", "")).strip()
-        status = str(result.get("status", "Failed")).strip()
-        is_cp = bool(result.get("is_checkpoint", False) or "checkpoint" in status.lower())
-        msg = str(result.get("message", "")).strip()
-
-        switch_to_page = (getattr(self, 'account_target_mode', 'page') == 'page')
-        mode_str = "Page" if switch_to_page else "Profile"
-
-        proxy = "Direct (No Proxy)"
-        ptype = "HTTP"
-        puser = ""
-        ppass = ""
-        if hasattr(self, 'acc_extract_proxies') and uid in self.acc_extract_proxies:
-            proxy = self.acc_extract_proxies[uid]
-        elif hasattr(self, 'proxy_host') and self.proxy_host.text().strip():
-            proxy = self.proxy_host.text().strip()
-            ptype = self.proxy_type.currentText()
-            puser = self.proxy_user.text().strip()
-            ppass = self.proxy_pass.text().strip()
-
-        clean_slug = re.sub(r'[^a-zA-Z0-9_-]', '_', str(name)).lower()
-        acc_id = f"acc_{clean_slug}_{uuid.uuid4().hex[:4]}"
-
-        if is_cp:
-            acc_status = "Checkpoint"
-            acc_notes = f"⚠️ Checkpoint Account ({mode_str} Mode)"
-            self.log_message("WARNING", f"[{uid}] 🔒 Account triggered Facebook Checkpoint! Saved with Checkpoint status.")
-        elif (result.get("success") or "live" in status.lower() or "success" in status.lower()) and cookie:
-            acc_status = "Healthy"
-            acc_notes = f"✅ Live Fresh Session ({mode_str} Mode)"
-            self.log_message("SUCCESS", f"[{uid}] 🟢 Successfully extracted fresh {mode_str} cookies! Added as HEALTHY.")
-        else:
-            acc_status = "Failed"
-            acc_notes = f"❌ Extraction Failed: {msg[:40]}"
-            self.log_message("ERROR", f"[{uid}] Extraction failed: {msg}")
-
-        # Check if account already exists in vault by UID to update existing record
-        existing_found = False
-        if self.session_manager:
-            for ex_id, ex_data in list(self.session_manager.accounts.items()):
-                if str(ex_data.get("uid", "")).strip() == uid:
-                    acc_id = ex_id
-                    existing_found = True
-                    break
-
-            self.session_manager.save_account(
-                account_id=acc_id,
-                name=name,
-                uid=uid,
-                email=uid if "@" in uid else "",
-                password=pwd,
-                two_factor_secret=two_fa,
-                cookies=cookie or (f"c_user={uid};" if uid else ""),
-                proxy=proxy,
-                proxy_type=ptype,
-                proxy_user=puser,
-                proxy_pass=ppass,
-                notes=acc_notes,
-                status=acc_status
-            )
-        else:
-            for a in self.accounts_list:
-                if str(a.get("uid", "")).strip() == uid:
-                    a["name"] = name
-                    a["password"] = pwd
-                    a["two_factor_secret"] = two_fa
-                    a["cookies"] = cookie or (f"c_user={uid};" if uid else "")
-                    a["status"] = acc_status
-                    a["notes"] = acc_notes
-                    a["proxy"] = proxy
-                    a["last_checked"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    existing_found = True
-                    break
-            if not existing_found:
-                self.accounts_list.append({
-                    "id": acc_id,
-                    "name": name,
-                    "uid": uid,
-                    "email": uid if "@" in uid else "",
-                    "password": pwd,
-                    "two_factor_secret": two_fa,
-                    "proxy": proxy,
-                    "proxy_type": ptype,
-                    "proxy_user": puser,
-                    "proxy_pass": ppass,
-                    "cookies": cookie or (f"c_user={uid};" if uid else ""),
-                    "notes": acc_notes,
-                    "status": acc_status,
-                    "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                })
-
-        self.refresh_accounts_table()
-        self.update_account_dropdown()
-        self.refresh_dashboard_metrics()
-
-    def on_acc_manager_extract_finished(self, success: bool, message: str, results: list):
-        if hasattr(self, 'acc_extract_card'):
-            self.acc_extract_card.setVisible(False)
-        if hasattr(self, 'btn_add_cookies'):
-            self.btn_add_cookies.setEnabled(True)
+        self.log_message("SUCCESS", f"🎉 Successfully added {added_count} Facebook Account(s) (UID/Pass & Cookies) with HEALTHY status into vault!")
         if hasattr(self, 'acc_cookies_input'):
             self.acc_cookies_input.clear()
         if hasattr(self, 'acc_name_input'):
             self.acc_name_input.clear()
-
-        switch_to_page = (getattr(self, 'account_target_mode', 'page') == 'page')
-        mode_str = "Facebook Page ('Use Page')" if switch_to_page else "Personal Profile"
-        self.log_message("SUCCESS", f"🎉 Finished adding UID/Pass accounts with fresh {mode_str} cookies into Accounts Manager vault!")
         self.refresh_accounts_table()
         self.update_account_dropdown()
         self.refresh_dashboard_metrics()
-
-    def stop_acc_manager_extraction(self):
-        if hasattr(self, 'acc_cookie_worker') and self.acc_cookie_worker:
-            self.acc_cookie_worker.stop()
-            self.log_message("WARNING", "🛑 Stopping Accounts Manager cookie extraction...")
-        if hasattr(self, 'acc_extract_card'):
-            self.acc_extract_card.setVisible(False)
-        if hasattr(self, 'btn_add_cookies'):
-            self.btn_add_cookies.setEnabled(True)
 
     def upload_bulk_accounts_file(self):
         """Loads a .txt or .json file containing multiple credentials or cookie lines."""
@@ -7866,8 +6809,10 @@ class FBAutoBotMainWindow(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; } QScrollBar { background: transparent; }")
 
         container = QWidget()
+        container.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
@@ -7922,9 +6867,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Left 50%: Target Facebook Accounts Box
         acc_box = QFrame()
-        self.std_acc_box = acc_box
-        is_light = (getattr(self, 'current_theme', 'dark') == 'light')
-        acc_box.setStyleSheet("background-color: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 12px;" if is_light else "background-color: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px;")
+        acc_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px;")
         ab_layout = QVBoxLayout(acc_box)
         ab_layout.setSpacing(8)
 
@@ -7978,8 +6921,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Right 50%: Product Images & Anti-Duplicate Shield Box
         img_box = QFrame()
-        self.std_img_box = img_box
-        img_box.setStyleSheet("background-color: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 12px;" if is_light else "background-color: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px;")
+        img_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px;")
         ib_layout = QVBoxLayout(img_box)
         ib_layout.setSpacing(8)
 
@@ -8514,8 +7456,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Property Row 4: Advanced Details (Optional - Facebook Marketplace Standard)
         prop_adv_box = QFrame()
-        self.std_prop_adv_box = prop_adv_box
-        prop_adv_box.setStyleSheet("background-color: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 9px; padding: 10px;" if is_light else "background-color: #090d16; border: 1.5px solid #1e2d4a; border-radius: 9px; padding: 10px;")
+        prop_adv_box.setStyleSheet("background-color: #090d16; border: 1.5px solid #1e2d4a; border-radius: 9px; padding: 10px;")
         padv_layout = QVBoxLayout(prop_adv_box)
         padv_layout.setContentsMargins(8, 8, 8, 8)
         padv_layout.setSpacing(8)
@@ -8669,6 +7610,8 @@ class FBAutoBotMainWindow(QMainWindow):
             self.populate_req_accounts_checklist()
         if hasattr(self, 'populate_page_creation_accounts_checklist'):
             self.populate_page_creation_accounts_checklist()
+        if hasattr(self, 'populate_like_comment_accounts_checklist'):
+            self.populate_like_comment_accounts_checklist()
         self.log_message("INFO", "🔄 Account list refreshed across all automation forms!")
 
     def populate_accounts_checklist(self):
@@ -8699,8 +7642,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
             icon = "🟢" if status in ("Healthy", "Active", "Ready", "Logged in") else "🟡"
             chk = QCheckBox(f"#{idx}  {icon} {name}  [{status}]  •  Proxy: {proxy}")
-            is_light = (getattr(self, 'current_theme', 'dark') == 'light')
-            chk.setStyleSheet("font-size: 12px; color: #0f172a; padding: 2px 0;" if is_light else "font-size: 12px; color: #f8fafc; padding: 2px 0;")
+            chk.setStyleSheet("font-size: 12px; color: #f8fafc; padding: 2px 0;")
             chk.setProperty("account_data", acc)
             chk.setChecked(True)
             chk.stateChanged.connect(self.update_account_selection_summary)
@@ -8842,8 +7784,10 @@ class FBAutoBotMainWindow(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; } QScrollBar { background: transparent; }")
 
         container = QWidget()
+        container.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
@@ -8895,15 +7839,13 @@ class FBAutoBotMainWindow(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
 
-        is_light = (getattr(self, 'current_theme', 'dark') == 'light')
-
         if not self.projects_list:
             empty_card = QFrame()
             empty_card.setProperty("class", "glassCard")
             e_layout = QVBoxLayout(empty_card)
             e_layout.setContentsMargins(30, 40, 30, 40)
             e_lbl = QLabel("📂 No Projects Created Yet")
-            e_lbl.setStyleSheet("font-size: 16px; font-weight: 700; color: #94a3b8; text-align: center;" if not is_light else "font-size: 16px; font-weight: 700; color: #475569; text-align: center;")
+            e_lbl.setStyleSheet("font-size: 16px; font-weight: 700; color: #94a3b8; text-align: center;")
             e_sub = QLabel("Click '+ Add Project' above to create your first project folder with custom multi-tab campaign settings.")
             e_sub.setStyleSheet("font-size: 12px; color: #64748b; text-align: center;")
             btn_create = QPushButton("➕ Add Your First Project")
@@ -8925,32 +7867,18 @@ class FBAutoBotMainWindow(QMainWindow):
 
             card = QFrame()
             card.setProperty("class", "glassCard")
-            if is_light:
-                card.setStyleSheet("""
-                    QFrame.glassCard {
-                        background-color: #ffffff;
-                        border: 1.5px solid #e2e8f0;
-                        border-radius: 12px;
-                        padding: 16px;
-                    }
-                    QFrame.glassCard:hover {
-                        border: 1.5px solid #6366f1;
-                        background-color: #f8fafc;
-                    }
-                """)
-            else:
-                card.setStyleSheet("""
-                    QFrame.glassCard {
-                        background-color: rgba(15, 23, 42, 0.65);
-                        border: 1px solid rgba(255, 255, 255, 0.08);
-                        border-radius: 12px;
-                        padding: 16px;
-                    }
-                    QFrame.glassCard:hover {
-                        border: 1px solid rgba(99, 102, 241, 0.4);
-                        background-color: rgba(15, 23, 42, 0.85);
-                    }
-                """)
+            card.setStyleSheet("""
+                QFrame.glassCard {
+                    background-color: rgba(15, 23, 42, 0.65);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 12px;
+                    padding: 16px;
+                }
+                QFrame.glassCard:hover {
+                    border: 1px solid rgba(99, 102, 241, 0.4);
+                    background-color: rgba(15, 23, 42, 0.85);
+                }
+            """)
 
             c_layout = QHBoxLayout(card)
             c_layout.setContentsMargins(16, 14, 16, 14)
@@ -8959,10 +7887,10 @@ class FBAutoBotMainWindow(QMainWindow):
             info_box = QVBoxLayout()
             info_box.setSpacing(4)
             name_lbl = QLabel(f"📁  {p_name}")
-            name_lbl.setStyleSheet("font-size: 15px; font-weight: 800; color: #0f172a;" if is_light else "font-size: 15px; font-weight: 800; color: #f8fafc;")
+            name_lbl.setStyleSheet("font-size: 15px; font-weight: 800; color: #f8fafc;")
 
             sub_lbl = QLabel(f"📅 Created: {p_date}   |   📑 {tabs_count} Tab(s) Configured")
-            sub_lbl.setStyleSheet("font-size: 11px; font-weight: 600; color: #64748b;" if is_light else "font-size: 11px; font-weight: 600; color: #94a3b8;")
+            sub_lbl.setStyleSheet("font-size: 11px; font-weight: 600; color: #94a3b8;")
 
             info_box.addWidget(name_lbl)
             info_box.addWidget(sub_lbl)
@@ -9109,8 +8037,10 @@ class FBAutoBotMainWindow(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; } QScrollBar { background: transparent; }")
 
         container = QWidget()
+        container.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
@@ -9125,8 +8055,7 @@ class FBAutoBotMainWindow(QMainWindow):
         top_bar.addWidget(btn_back)
 
         self.proj_editor_title_lbl = QLabel("📁 Folder: Project Name")
-        is_light = (getattr(self, 'current_theme', 'dark') == 'light')
-        self.proj_editor_title_lbl.setStyleSheet("font-size: 16px; font-weight: 800; color: #4338ca; margin-left: 10px;" if is_light else "font-size: 16px; font-weight: 800; color: #818cf8; margin-left: 10px;")
+        self.proj_editor_title_lbl.setStyleSheet("font-size: 16px; font-weight: 800; color: #818cf8; margin-left: 10px;")
         top_bar.addWidget(self.proj_editor_title_lbl)
         top_bar.addStretch()
 
@@ -9160,8 +8089,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Tab Selector Pills Container & Multi-Tab Hub (Prevents preview collapse on 14+ tabs)
         tabs_bar_card = QFrame()
-        self.proj_tabs_bar_card = tabs_bar_card
-        tabs_bar_card.setStyleSheet("background-color: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 10px;" if is_light else "background-color: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 10px;")
+        tabs_bar_card.setStyleSheet("background-color: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 10px;")
         tb_main_layout = QVBoxLayout(tabs_bar_card)
         tb_main_layout.setContentsMargins(10, 8, 10, 8)
         tb_main_layout.setSpacing(8)
@@ -9306,9 +8234,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Right 50%: Product Images & Anti-Duplicate Shield Box
         img_box = QFrame()
-        self.proj_img_box = img_box
-        is_light = (getattr(self, 'current_theme', 'dark') == 'light')
-        img_box.setStyleSheet("background-color: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 12px;" if is_light else "background-color: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px;")
+        img_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px;")
         ib_layout = QVBoxLayout(img_box)
         ib_layout.setSpacing(8)
 
@@ -11157,16 +10083,32 @@ class FBAutoBotMainWindow(QMainWindow):
         ac_layout.setSpacing(10)
 
         # Step Workflow Banner
-        workflow_banner = QLabel("⚡ <b>FEWFEED Automated Sequence:</b> Desktop Chrome opens with Account Cookies → Logs into FewFeed in background → Runs <b>Auto Join</b> (Card #2) if group list is provided → Then opens <b>Auto Post</b> (Card #1), selects all groups, injects descriptions/links, sets thread & delay, runs 2 posting cycles, and closes Chrome.")
+        workflow_banner = QLabel("⚡ <b>FEWFEED Automated Sequence:</b> Desktop Chrome opens with Account Cookies → Logs into FewFeed with user credentials → Runs <b>Auto Join</b> (Card #2) if group list is provided → Then opens <b>Auto Post</b> (Card #1), selects all groups, injects descriptions/links, sets thread & delay, runs 2 posting cycles, and closes Chrome.")
         workflow_banner.setStyleSheet("color: #e0e7ff; font-size: 12px; line-height: 1.4;")
         workflow_banner.setWordWrap(True)
         ac_layout.addWidget(workflow_banner)
 
-        # FewFeed Account Credentials (Saved & Maintained in Background / Config)
+        # FewFeed Account Credentials (Gmail & Password)
+        ff_cred_row = QHBoxLayout()
+        ff_cred_row.setSpacing(10)
+        ff_cred_lbl = QLabel("🔑 <b>FewFeed Account:</b>")
+        ff_cred_lbl.setStyleSheet("color: #38bdf8; font-size: 12px;")
+        ff_cred_row.addWidget(ff_cred_lbl)
+
+        ff_cred_row.addWidget(QLabel("Gmail / Email:"))
         self.grp_fewfeed_email_input = QLineEdit()
+        self.grp_fewfeed_email_input.setPlaceholderText("your-email@gmail.com")
         self.grp_fewfeed_email_input.setText("codeabm71@gmail.com")
+        self.grp_fewfeed_email_input.setStyleSheet("padding: 7px 10px; background-color: #0f172a; color: #38bdf8; font-weight: 600; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px;")
+        ff_cred_row.addWidget(self.grp_fewfeed_email_input, stretch=2)
+
+        ff_cred_row.addWidget(QLabel("Password:"))
         self.grp_fewfeed_pass_input = QLineEdit()
+        self.grp_fewfeed_pass_input.setPlaceholderText("FewFeed Password")
+        self.grp_fewfeed_pass_input.setEchoMode(QLineEdit.Password)
         self.grp_fewfeed_pass_input.setText("Fewfeew")
+        self.grp_fewfeed_pass_input.setStyleSheet("padding: 7px 10px; background-color: #0f172a; color: #f8fafc; font-weight: 600; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px;")
+        ff_cred_row.addWidget(self.grp_fewfeed_pass_input, stretch=2)
 
         # Load saved credentials from config/group_settings.json if present
         try:
@@ -11180,6 +10122,8 @@ class FBAutoBotMainWindow(QMainWindow):
                         self.grp_fewfeed_pass_input.setText(cfg_data["cuefeed_pass"])
         except Exception:
             pass
+
+        ac_layout.addLayout(ff_cred_row)
 
         # Single Unified Start & Stop Buttons + Session Sync
         u_btn_row = QHBoxLayout()
@@ -12779,7 +11723,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Accounts checklist scroll
         self.reels_acc_scroll = QScrollArea()
-        self.reels_acc_scroll.setFixedHeight(150)
+        self.reels_acc_scroll.setFixedHeight(115)
         self.reels_acc_scroll.setWidgetResizable(True)
         self.reels_acc_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(15, 23, 42, 0.7); border-radius: 6px; }")
 
@@ -13164,17 +12108,8 @@ class FBAutoBotMainWindow(QMainWindow):
 
             r_layout.addStretch()
 
-            cnt_lbl = QLabel("Ready (0)")
-            cnt_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); padding: 2px 7px; border-radius: 4px;")
-            if status in ("Rate Limited", "Limit", "Temporarily Blocked"):
-                cnt_lbl.setText("⛔ LIMIT")
-                cnt_lbl.setStyleSheet("color: #ffffff; background-color: #dc2626; font-size: 11px; font-weight: 900; padding: 2px 8px; border-radius: 4px; border: 1px solid #ef4444;")
-                chk.setChecked(False)
-            elif status in ("Checkpoint", "Suspended"):
-                cnt_lbl.setText("🔒 CHECKPOINT")
-                cnt_lbl.setStyleSheet("color: #ffffff; background-color: #c2410c; font-size: 11px; font-weight: 900; padding: 2px 8px; border-radius: 4px; border: 1px solid #f97316;")
-                chk.setChecked(False)
-
+            cnt_lbl = QLabel("Uploaded: 0")
+            cnt_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.05); padding: 1px 6px; border-radius: 4px;")
             r_layout.addWidget(cnt_lbl)
 
             self.reels_acc_layout.addWidget(row_widget)
@@ -13372,7 +12307,6 @@ class FBAutoBotMainWindow(QMainWindow):
         self.reels_worker.log_signal.connect(self.log_reels_console)
         self.reels_worker.progress_signal.connect(self.update_reels_progress)
         self.reels_worker.counter_signal.connect(self.on_reels_counter_update)
-        self.reels_worker.status_signal.connect(self.on_reels_status_update)
         self.reels_worker.account_completed_signal.connect(self.on_reels_account_completed)
         self.reels_worker.finished_signal.connect(self.on_reels_upload_finished)
         self.reels_worker.start()
@@ -13390,51 +12324,8 @@ class FBAutoBotMainWindow(QMainWindow):
     def on_reels_counter_update(self, account_id: str, count: int):
         if hasattr(self, 'reels_acc_counter_labels') and account_id in self.reels_acc_counter_labels:
             lbl = self.reels_acc_counter_labels[account_id]
-            lbl.setText(f"✅ Uploaded: {count}")
-            lbl.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 800; background: rgba(16, 185, 129, 0.18); border: 1px solid #10b981; padding: 2px 8px; border-radius: 4px;")
-
-    def on_reels_status_update(self, account_id: str, status: str, count: int):
-        """Updates the status badge next to an account with prominent color badges."""
-        if hasattr(self, 'reels_acc_counter_labels') and account_id in self.reels_acc_counter_labels:
-            lbl = self.reels_acc_counter_labels[account_id]
-            if status == "LIMIT":
-                txt = "⛔ LIMIT" if count == 0 else f"⛔ LIMIT ({count} posted)"
-                lbl.setText(txt)
-                lbl.setStyleSheet("color: #ffffff; background-color: #dc2626; font-size: 11px; font-weight: 900; padding: 2px 8px; border-radius: 4px; border: 1px solid #ef4444;")
-                self.update_account_status_in_manager(account_id, "Rate Limited")
-                self.on_reels_account_completed(account_id)
-            elif status == "CHECKPOINT":
-                lbl.setText("🔒 CHECKPOINT")
-                lbl.setStyleSheet("color: #ffffff; background-color: #c2410c; font-size: 11px; font-weight: 900; padding: 2px 8px; border-radius: 4px; border: 1px solid #f97316;")
-                self.update_account_status_in_manager(account_id, "Checkpoint")
-                self.on_reels_account_completed(account_id)
-            elif status in ("UPLOADED", "COMPLETED"):
-                lbl.setText(f"✅ Uploaded: {count}")
-                lbl.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 800; background: rgba(16, 185, 129, 0.18); border: 1px solid #10b981; padding: 2px 8px; border-radius: 4px;")
-
-    def update_account_status_in_manager(self, account_id: str, new_status: str):
-        """Updates account status in session manager storage and active list."""
-        try:
-            if hasattr(self, 'session_manager') and self.session_manager:
-                acc = self.session_manager.get_account(account_id)
-                if acc:
-                    acc['status'] = new_status
-                    self.session_manager.save_account(
-                        acc_id=account_id,
-                        name=acc.get("name", ""),
-                        cookies=acc.get("cookies", ""),
-                        proxy=acc.get("proxy", ""),
-                        status=new_status,
-                        uid=acc.get("uid", ""),
-                        password=acc.get("password", "")
-                    )
-            if hasattr(self, 'accounts_list') and self.accounts_list:
-                for a in self.accounts_list:
-                    if str(a.get("id")) == str(account_id):
-                        a["status"] = new_status
-                        break
-        except Exception:
-            pass
+            lbl.setText(f"Uploaded: {count}")
+            lbl.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 800; background: rgba(16, 185, 129, 0.15); padding: 1px 6px; border-radius: 4px;")
 
     def on_reels_account_completed(self, account_id: str):
         """When an account completes uploading its reels, uncheck it in the checklist."""
@@ -15103,7 +13994,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
         # Delay Between Logins
         d_box = QVBoxLayout()
-        d_lbl = QLabel("⏱️ Delay (Sec):")
+        d_lbl = QLabel("⏱️ Delay Between Accounts (Sec):")
         d_lbl.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700;")
         d_box.addWidget(d_lbl)
         self.extract_delay_spin = QDoubleSpinBox()
@@ -15113,20 +14004,6 @@ class FBAutoBotMainWindow(QMainWindow):
         self.extract_delay_spin.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-weight: 800; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 4px;")
         d_box.addWidget(self.extract_delay_spin)
         cfg_row.addLayout(d_box, stretch=1)
-
-        # Login Timeout
-        t_box = QVBoxLayout()
-        t_lbl = QLabel("⏳ Timeout (Sec):")
-        t_lbl.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700;")
-        t_box.addWidget(t_lbl)
-        self.extract_timeout_spin = QSpinBox()
-        self.extract_timeout_spin.setRange(10, 120)
-        self.extract_timeout_spin.setValue(20)
-        self.extract_timeout_spin.setSingleStep(5)
-        self.extract_timeout_spin.setToolTip("Maximum wait time in seconds for Facebook login & authentication before timeout.")
-        self.extract_timeout_spin.setStyleSheet("background-color: #0f172a; color: #38bdf8; font-weight: 800; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; padding: 4px;")
-        t_box.addWidget(self.extract_timeout_spin)
-        cfg_row.addLayout(t_box, stretch=1)
 
         # Network Mode
         net_box = QVBoxLayout()
@@ -15158,25 +14035,6 @@ class FBAutoBotMainWindow(QMainWindow):
         cfg_row.addLayout(net_box, stretch=2)
 
         cfg_layout.addLayout(cfg_row)
-
-        # Row 2 in Settings Card: Facebook Page Auto-Switch Option
-        p_switch_card = QFrame()
-        p_switch_card.setStyleSheet("background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 6px; padding: 4px 8px;")
-        p_switch_box = QHBoxLayout(p_switch_card)
-        p_switch_box.setContentsMargins(6, 4, 6, 4)
-
-        self.chk_switch_to_page = QCheckBox("📄 Auto-Switch into Facebook Page Profile ('Use Page' / Page Active Cookie)")
-        self.chk_switch_to_page.setChecked(True)
-        self.chk_switch_to_page.setStyleSheet("color: #38bdf8; font-weight: 800; font-size: 11px;")
-        self.chk_switch_to_page.setToolTip("Switches session into Facebook Page before extracting cookies, so Reels Uploader directly uploads to your Page instead of personal profile.")
-        p_switch_box.addWidget(self.chk_switch_to_page)
-        p_switch_box.addStretch()
-
-        p_note = QLabel("💡 Extracts Page-active cookie ('Use Page') so Reels Uploader opens directly on your Page!")
-        p_note.setStyleSheet("color: #94a3b8; font-size: 10px; font-style: italic;")
-        p_switch_box.addWidget(p_note)
-
-        cfg_layout.addWidget(p_switch_card)
         layout.addWidget(cfg_card)
 
         # ----------------------------------------------------------------------
@@ -15271,13 +14129,9 @@ class FBAutoBotMainWindow(QMainWindow):
         self.extract_stat_total_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700; background: rgba(56, 189, 248, 0.1); padding: 2px 8px; border-radius: 4px;")
         prog_row.addWidget(self.extract_stat_total_lbl)
 
-        self.extract_stat_success_lbl = QLabel("🟢 Live: 0")
-        self.extract_stat_success_lbl.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 700; background: rgba(16, 185, 129, 0.15); padding: 2px 8px; border-radius: 4px;")
+        self.extract_stat_success_lbl = QLabel("✅ Extracted: 0")
+        self.extract_stat_success_lbl.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 700; background: rgba(16, 185, 129, 0.1); padding: 2px 8px; border-radius: 4px;")
         prog_row.addWidget(self.extract_stat_success_lbl)
-
-        self.extract_stat_checkpoint_lbl = QLabel("🔒 Checkpoint: 0")
-        self.extract_stat_checkpoint_lbl.setStyleSheet("color: #f59e0b; font-size: 11px; font-weight: 700; background: rgba(245, 158, 11, 0.15); padding: 2px 8px; border-radius: 4px;")
-        prog_row.addWidget(self.extract_stat_checkpoint_lbl)
 
         self.extract_stat_failed_lbl = QLabel("❌ Failed: 0")
         self.extract_stat_failed_lbl.setStyleSheet("color: #ef4444; font-size: 11px; font-weight: 700; background: rgba(239, 68, 68, 0.1); padding: 2px 8px; border-radius: 4px;")
@@ -15316,55 +14170,14 @@ class FBAutoBotMainWindow(QMainWindow):
         res_hdr.addWidget(r_title)
         res_hdr.addStretch()
 
-        self.btn_select_all_cookies = QPushButton("☑️ Select All")
-        self.btn_select_all_cookies.setStyleSheet("""
-            QPushButton {
-                background-color: #334155;
-                color: #f8fafc;
-                font-size: 11px;
-                font-weight: 700;
-                padding: 5px 12px;
-                border-radius: 6px;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-            }
-            QPushButton:hover {
-                background-color: #475569;
-                color: #38bdf8;
-                border: 1px solid #38bdf8;
-            }
-        """)
-        self.btn_select_all_cookies.setCursor(Qt.PointingHandCursor)
-        self.btn_select_all_cookies.clicked.connect(self.select_all_extracted_table_rows)
-        res_hdr.addWidget(self.btn_select_all_cookies)
-
-        self.btn_clear_cookie_selection = QPushButton("🧹 Clear")
-        self.btn_clear_cookie_selection.setStyleSheet("""
-            QPushButton {
-                background-color: #334155;
-                color: #94a3b8;
-                font-size: 11px;
-                font-weight: 700;
-                padding: 5px 12px;
-                border-radius: 6px;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-            }
-            QPushButton:hover {
-                background-color: #475569;
-                color: #f8fafc;
-            }
-        """)
-        self.btn_clear_cookie_selection.setCursor(Qt.PointingHandCursor)
-        self.btn_clear_cookie_selection.clicked.connect(self.clear_extracted_table_selection)
-        res_hdr.addWidget(self.btn_clear_cookie_selection)
-
-        self.btn_copy_selected_cookies = QPushButton("📋 Copy Selected")
-        self.btn_copy_selected_cookies.setStyleSheet("""
+        self.btn_quick_save_accs = QPushButton("⚡ Direct Save All to Accounts Manager")
+        self.btn_quick_save_accs.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4f46e5, stop:1 #6366f1);
                 color: #ffffff;
                 font-size: 11px;
                 font-weight: 800;
-                padding: 5px 14px;
+                padding: 6px 14px;
                 border-radius: 6px;
                 border: none;
             }
@@ -15372,30 +14185,26 @@ class FBAutoBotMainWindow(QMainWindow):
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6366f1, stop:1 #818cf8);
             }
         """)
-        self.btn_copy_selected_cookies.setCursor(Qt.PointingHandCursor)
-        self.btn_copy_selected_cookies.clicked.connect(self.copy_selected_extracted_cookies)
-        res_hdr.addWidget(self.btn_copy_selected_cookies)
-
+        self.btn_quick_save_accs.setCursor(Qt.PointingHandCursor)
+        self.btn_quick_save_accs.clicked.connect(self.save_extracted_to_accounts_manager)
+        res_hdr.addWidget(self.btn_quick_save_accs)
         res_layout.addLayout(res_hdr)
 
-        # Table Widget (7 Columns: Separate Live vs Checkpoint Cookie columns)
+        # Table Widget
         self.extract_results_table = QTableWidget()
-        self.extract_results_table.setColumnCount(7)
+        self.extract_results_table.setColumnCount(6)
         self.extract_results_table.setHorizontalHeaderLabels([
-            "#", "UID / Login ID", "Account Name", "Status", "🟢 Live Cookie (Active Session)", "🔒 Checkpoint Cookie (Separate)", "Quick Copy"
+            "#", "UID / Login ID", "Account Name", "Status", "Extracted Cookie (c_user; xs; datr...)", "Quick Copy"
         ])
         self.extract_results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.extract_results_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.extract_results_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.extract_results_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.extract_results_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
-        self.extract_results_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
-        self.extract_results_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
-        self.extract_results_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.extract_results_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.extract_results_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
         self.extract_results_table.verticalHeader().setVisible(False)
         self.extract_results_table.setAlternatingRowColors(True)
-        self.extract_results_table.setFixedHeight(230)
+        self.extract_results_table.setFixedHeight(220)
         self.extract_results_table.setStyleSheet("""
             QTableWidget {
                 background-color: #0f172a;
@@ -15404,8 +14213,6 @@ class FBAutoBotMainWindow(QMainWindow):
                 gridline-color: rgba(255, 255, 255, 0.05);
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 6px;
-                selection-background-color: #4f46e5;
-                selection-color: #ffffff;
             }
             QHeaderView::section {
                 background-color: #1e293b;
@@ -15419,113 +14226,37 @@ class FBAutoBotMainWindow(QMainWindow):
         """)
         res_layout.addWidget(self.extract_results_table)
 
-        # Bottom Export Actions Toolbar (Keeping Live & Checkpoint strictly separated)
+        # Bottom Export Actions Toolbar
         exp_bar = QHBoxLayout()
-        exp_bar.setSpacing(8)
+        exp_bar.setSpacing(10)
 
-        lbl_exp = QLabel("Actions & Export:")
+        lbl_exp = QLabel("Export Options:")
         lbl_exp.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700;")
         exp_bar.addWidget(lbl_exp)
 
-        self.btn_copy_live_cookies = QPushButton("🟢 Copy Live Cookies")
-        self.btn_copy_live_cookies.setToolTip("Copies ONLY Live account cookies line-by-line (strictly excludes checkpoint accounts).")
-        self.btn_copy_live_cookies.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10b981);
-                color: #ffffff;
-                font-size: 11px;
-                font-weight: 800;
-                padding: 7px 14px;
-                border-radius: 6px;
-                border: none;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #10b981, stop:1 #34d399);
-            }
-        """)
-        self.btn_copy_live_cookies.setCursor(Qt.PointingHandCursor)
-        self.btn_copy_live_cookies.clicked.connect(lambda: self.copy_all_extracted_cookies("live_only"))
-        exp_bar.addWidget(self.btn_copy_live_cookies)
+        self.btn_copy_all_uid_cookie = QPushButton("📋 Copy All (UID|Cookie)")
+        self.btn_copy_all_uid_cookie.setStyleSheet("background-color: #334155; color: #f8fafc; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 6px;")
+        self.btn_copy_all_uid_cookie.setCursor(Qt.PointingHandCursor)
+        self.btn_copy_all_uid_cookie.clicked.connect(lambda: self.copy_all_extracted_cookies("uid_cookie"))
+        exp_bar.addWidget(self.btn_copy_all_uid_cookie)
 
-        self.btn_copy_checkpoint_cookies = QPushButton("🔒 Copy Checkpoint Cookies")
-        self.btn_copy_checkpoint_cookies.setToolTip("Copies ONLY Checkpoint account cookies line-by-line (kept completely separate).")
-        self.btn_copy_checkpoint_cookies.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #d97706, stop:1 #f59e0b);
-                color: #ffffff;
-                font-size: 11px;
-                font-weight: 800;
-                padding: 7px 14px;
-                border-radius: 6px;
-                border: none;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #f59e0b, stop:1 #fbbf24);
-            }
-        """)
-        self.btn_copy_checkpoint_cookies.setCursor(Qt.PointingHandCursor)
-        self.btn_copy_checkpoint_cookies.clicked.connect(lambda: self.copy_all_extracted_cookies("checkpoint_only"))
-        exp_bar.addWidget(self.btn_copy_checkpoint_cookies)
+        self.btn_copy_all_only_cookie = QPushButton("📋 Copy Only Cookies")
+        self.btn_copy_all_only_cookie.setStyleSheet("background-color: #334155; color: #f8fafc; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 6px;")
+        self.btn_copy_all_only_cookie.setCursor(Qt.PointingHandCursor)
+        self.btn_copy_all_only_cookie.clicked.connect(lambda: self.copy_all_extracted_cookies("cookie_only"))
+        exp_bar.addWidget(self.btn_copy_all_only_cookie)
 
-        self.btn_export_live_txt = QPushButton("📄 Export Live (TXT)")
-        self.btn_export_live_txt.setToolTip("Exports only Live accounts (UID | Pass | Live | Cookie) to TXT.")
-        self.btn_export_live_txt.setStyleSheet("""
-            QPushButton {
-                background-color: #0369a1;
-                color: #ffffff;
-                font-size: 11px;
-                font-weight: 800;
-                padding: 7px 14px;
-                border-radius: 6px;
-                border: none;
-            }
-            QPushButton:hover {
-                background-color: #0284c7;
-            }
-        """)
-        self.btn_export_live_txt.setCursor(Qt.PointingHandCursor)
-        self.btn_export_live_txt.clicked.connect(lambda: self.export_extracted_cookies_to_file("live_only"))
-        exp_bar.addWidget(self.btn_export_live_txt)
+        self.btn_export_txt = QPushButton("💾 Export to TXT")
+        self.btn_export_txt.setStyleSheet("background-color: #0369a1; color: white; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 6px;")
+        self.btn_export_txt.setCursor(Qt.PointingHandCursor)
+        self.btn_export_txt.clicked.connect(lambda: self.export_extracted_cookies_to_file("txt"))
+        exp_bar.addWidget(self.btn_export_txt)
 
-        self.btn_export_checkpoint_txt = QPushButton("🔒 Export Checkpoint (TXT)")
-        self.btn_export_checkpoint_txt.setToolTip("Exports only Checkpoint accounts (UID | Pass | Checkpoint | Cookie) to separate TXT.")
-        self.btn_export_checkpoint_txt.setStyleSheet("""
-            QPushButton {
-                background-color: #92400e;
-                color: #ffffff;
-                font-size: 11px;
-                font-weight: 800;
-                padding: 7px 14px;
-                border-radius: 6px;
-                border: none;
-            }
-            QPushButton:hover {
-                background-color: #b45309;
-            }
-        """)
-        self.btn_export_checkpoint_txt.setCursor(Qt.PointingHandCursor)
-        self.btn_export_checkpoint_txt.clicked.connect(lambda: self.export_extracted_cookies_to_file("checkpoint_only"))
-        exp_bar.addWidget(self.btn_export_checkpoint_txt)
-
-        self.btn_save_extracted_to_mgr = QPushButton("⚡ Save Live to Accounts")
-        self.btn_save_extracted_to_mgr.setToolTip("Saves only Live accounts as Healthy into Accounts Manager (never joins Checkpoint accounts).")
-        self.btn_save_extracted_to_mgr.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4f46e5, stop:1 #6366f1);
-                color: #ffffff;
-                font-size: 11px;
-                font-weight: 800;
-                padding: 7px 14px;
-                border-radius: 6px;
-                border: none;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6366f1, stop:1 #818cf8);
-            }
-        """)
-        self.btn_save_extracted_to_mgr.setCursor(Qt.PointingHandCursor)
-        self.btn_save_extracted_to_mgr.clicked.connect(self.save_extracted_to_accounts_manager)
-        exp_bar.addWidget(self.btn_save_extracted_to_mgr)
+        self.btn_export_json = QPushButton("💾 Export to JSON")
+        self.btn_export_json.setStyleSheet("background-color: #0284c7; color: white; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 6px;")
+        self.btn_export_json.setCursor(Qt.PointingHandCursor)
+        self.btn_export_json.clicked.connect(lambda: self.export_extracted_cookies_to_file("json"))
+        exp_bar.addWidget(self.btn_export_json)
 
         exp_bar.addStretch()
         res_layout.addLayout(exp_bar)
@@ -15632,9 +14363,7 @@ class FBAutoBotMainWindow(QMainWindow):
         if hasattr(self, 'extract_stat_total_lbl'):
             self.extract_stat_total_lbl.setText("🎯 Total: 0")
         if hasattr(self, 'extract_stat_success_lbl'):
-            self.extract_stat_success_lbl.setText("🟢 Live: 0")
-        if hasattr(self, 'extract_stat_checkpoint_lbl'):
-            self.extract_stat_checkpoint_lbl.setText("🔒 Checkpoint: 0")
+            self.extract_stat_success_lbl.setText("✅ Extracted: 0")
         if hasattr(self, 'extract_stat_failed_lbl'):
             self.extract_stat_failed_lbl.setText("❌ Failed: 0")
         self.log_message("INFO", "Cleared all cookie extractor inputs and results table.")
@@ -15671,18 +14400,14 @@ class FBAutoBotMainWindow(QMainWindow):
         headless = (self.extract_mode_combo.currentIndex() == 0) if hasattr(self, 'extract_mode_combo') else True
         concurrency = self.extract_concurrent_spin.value() if hasattr(self, 'extract_concurrent_spin') else 2
         delay_seconds = self.extract_delay_spin.value() if hasattr(self, 'extract_delay_spin') else 3.0
-        timeout_seconds = self.extract_timeout_spin.value() if hasattr(self, 'extract_timeout_spin') else 90
         network_mode = "direct" if (hasattr(self, 'extract_network_combo') and self.extract_network_combo.currentIndex() == 0) else "proxy"
-        switch_to_page = self.chk_switch_to_page.isChecked() if hasattr(self, 'chk_switch_to_page') else True
 
         payload = {
             "accounts": accounts_to_process,
             "headless": headless,
             "concurrency": concurrency,
             "delay_seconds": delay_seconds,
-            "timeout_seconds": timeout_seconds,
-            "network_mode": network_mode,
-            "switch_to_page": switch_to_page
+            "network_mode": network_mode
         }
 
         self.btn_start_extract_cookie.setEnabled(False)
@@ -15693,14 +14418,9 @@ class FBAutoBotMainWindow(QMainWindow):
         self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #38bdf8;")
         self.extract_cookie_progress.setValue(0)
 
-        if hasattr(self, 'extract_stat_total_lbl'):
-            self.extract_stat_total_lbl.setText(f"🎯 Total: {len(accounts_to_process)}")
-        if hasattr(self, 'extract_stat_success_lbl'):
-            self.extract_stat_success_lbl.setText("🟢 Live: 0")
-        if hasattr(self, 'extract_stat_checkpoint_lbl'):
-            self.extract_stat_checkpoint_lbl.setText("🔒 Checkpoint: 0")
-        if hasattr(self, 'extract_stat_failed_lbl'):
-            self.extract_stat_failed_lbl.setText("❌ Failed: 0")
+        self.extract_stat_total_lbl.setText(f"🎯 Total: {len(accounts_to_process)}")
+        self.extract_stat_success_lbl.setText("✅ Extracted: 0")
+        self.extract_stat_failed_lbl.setText("❌ Failed: 0")
 
         self.extract_results_table.setRowCount(0)
         self.extracted_cookie_results = []
@@ -15729,12 +14449,10 @@ class FBAutoBotMainWindow(QMainWindow):
         row = table.rowCount()
         table.insertRow(row)
 
-        uid = str(result.get("uid", "")).strip()
-        name = str(result.get("name", "")).strip()
-        status = str(result.get("status", "Unknown")).strip()
-        cookie = str(result.get("cookie", "")).strip()
-        is_cp = bool(result.get("is_checkpoint", False) or "checkpoint" in status.lower())
-        is_live = bool((not is_cp) and (status in ["Success", "Live", "Live (Page Active)"] or "live" in status.lower() or "success" in status.lower()) and cookie)
+        uid = result.get("uid", "")
+        name = result.get("name", "")
+        status = result.get("status", "Unknown")
+        cookie = result.get("cookie", "")
 
         # Row index
         item_idx = QTableWidgetItem(str(row + 1))
@@ -15747,91 +14465,46 @@ class FBAutoBotMainWindow(QMainWindow):
         table.setItem(row, 1, item_uid)
 
         # Account Name
-        item_name = QTableWidgetItem(name or (f"FB Checkpoint ({uid})" if is_cp else f"FB User ({uid})"))
+        item_name = QTableWidgetItem(name or f"FB User ({uid})")
         table.setItem(row, 2, item_name)
 
         # Status Badge
-        item_status = QTableWidgetItem()
+        item_status = QTableWidgetItem(status)
         item_status.setTextAlignment(Qt.AlignCenter)
-        item_status.setFont(QFont("Segoe UI", 9, QFont.Bold))
-
-        if is_cp:
-            item_status.setText("🔒 Checkpoint")
-            item_status.setForeground(QColor("#f59e0b"))
-        elif is_live:
-            item_status.setText("🟢 Live" if "page" not in status.lower() else "🟢 Live (Page)")
+        if status == "Success":
             item_status.setForeground(QColor("#10b981"))
-        elif "password" in status.lower():
-            item_status.setText("❌ Wrong Password")
+        elif "Password" in status or "Disabled" in status:
             item_status.setForeground(QColor("#ef4444"))
-        elif "disabled" in status.lower():
-            item_status.setText("🚫 Disabled")
-            item_status.setForeground(QColor("#ef4444"))
-        elif "2fa" in status.lower():
-            item_status.setText("⚠️ 2FA Required")
-            item_status.setForeground(QColor("#f97316"))
+        elif "Checkpoint" in status or "2FA" in status:
+            item_status.setForeground(QColor("#f59e0b"))
         else:
-            item_status.setText(f"❌ {status}" if not status.startswith("❌") else status)
             item_status.setForeground(QColor("#94a3b8"))
         table.setItem(row, 3, item_status)
 
-        # Column 4: 🟢 Live Cookie (Active Session)
-        item_live_cookie = QTableWidgetItem()
-        if is_live:
-            item_live_cookie.setText(cookie)
-            item_live_cookie.setFont(QFont("Consolas", 8))
-            item_live_cookie.setForeground(QColor("#38bdf8"))
+        # Extracted Cookie
+        item_cookie = QTableWidgetItem(cookie if cookie else f"[{result.get('message', 'No cookie')}]")
+        item_cookie.setFont(QFont("Consolas", 8))
+        if cookie:
+            item_cookie.setForeground(QColor("#38bdf8"))
         else:
-            item_live_cookie.setText("—")
-            item_live_cookie.setTextAlignment(Qt.AlignCenter)
-            item_live_cookie.setForeground(QColor("#475569"))
-        table.setItem(row, 4, item_live_cookie)
+            item_cookie.setForeground(QColor("#64748b"))
+        table.setItem(row, 4, item_cookie)
 
-        # Column 5: 🔒 Checkpoint Cookie (Separate)
-        item_cp_cookie = QTableWidgetItem()
-        if is_cp:
-            item_cp_cookie.setText(cookie if cookie else "[Checkpoint Session]")
-            item_cp_cookie.setFont(QFont("Consolas", 8))
-            item_cp_cookie.setForeground(QColor("#f59e0b"))
-        else:
-            item_cp_cookie.setText("—")
-            item_cp_cookie.setTextAlignment(Qt.AlignCenter)
-            item_cp_cookie.setForeground(QColor("#475569"))
-        table.setItem(row, 5, item_cp_cookie)
-
-        # Column 6: Quick Copy Button
-        btn_copy = QPushButton()
+        # Quick Copy Button
+        btn_copy = QPushButton("📋 Copy")
+        btn_copy.setStyleSheet("background-color: #334155; color: white; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;")
         btn_copy.setCursor(Qt.PointingHandCursor)
-        if is_live:
-            btn_copy.setText("📋 Copy Live")
-            btn_copy.setStyleSheet("background-color: #059669; color: white; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px;")
-            btn_copy.setToolTip("Copy Live Session Cookie")
-            btn_copy.clicked.connect(lambda checked, c_val=cookie: self.copy_single_row_cookie(c_val, "Live"))
-        elif is_cp:
-            btn_copy.setText("🔒 Copy CP")
-            btn_copy.setStyleSheet("background-color: #d97706; color: white; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px;")
-            btn_copy.setToolTip("Copy Checkpoint Session Cookie (Separate)")
-            btn_copy.clicked.connect(lambda checked, c_val=cookie: self.copy_single_row_cookie(c_val, "Checkpoint"))
+        if cookie:
+            btn_copy.clicked.connect(lambda checked, c_val=cookie: self.copy_single_row_cookie(c_val))
         else:
-            btn_copy.setText("—")
-            btn_copy.setStyleSheet("background-color: #334155; color: #64748b; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px;")
             btn_copy.setEnabled(False)
-        table.setCellWidget(row, 6, btn_copy)
+        table.setCellWidget(row, 5, btn_copy)
 
         # Update stats
-        total_cnt = len(self.extracted_cookie_results)
-        live_cnt = sum(1 for r in self.extracted_cookie_results if (not r.get("is_checkpoint") and ("live" in str(r.get("status", "")).lower() or "success" in str(r.get("status", "")).lower())) and r.get("cookie"))
-        cp_cnt = sum(1 for r in self.extracted_cookie_results if r.get("is_checkpoint") or "checkpoint" in str(r.get("status", "")).lower())
-        failed_cnt = total_cnt - live_cnt - cp_cnt
-
-        if hasattr(self, 'extract_stat_total_lbl'):
-            self.extract_stat_total_lbl.setText(f"🎯 Total: {total_cnt}")
-        if hasattr(self, 'extract_stat_success_lbl'):
-            self.extract_stat_success_lbl.setText(f"🟢 Live: {live_cnt}")
-        if hasattr(self, 'extract_stat_checkpoint_lbl'):
-            self.extract_stat_checkpoint_lbl.setText(f"🔒 Checkpoint: {cp_cnt}")
-        if hasattr(self, 'extract_stat_failed_lbl'):
-            self.extract_stat_failed_lbl.setText(f"❌ Failed: {failed_cnt}")
+        success_cnt = sum(1 for r in self.extracted_cookie_results if r.get("status") == "Success" and r.get("cookie"))
+        failed_cnt = len(self.extracted_cookie_results) - success_cnt
+        self.extract_stat_success_lbl.setText(f"✅ Extracted: {success_cnt}")
+        self.extract_stat_failed_lbl.setText(f"❌ Failed: {failed_cnt}")
 
     def on_extract_cookie_automation_finished(self, success: bool, message: str, success_accounts: list):
         self.btn_start_extract_cookie.setEnabled(True)
@@ -15846,34 +14519,34 @@ class FBAutoBotMainWindow(QMainWindow):
         if hasattr(self, 'extract_cookie_progress'):
             self.extract_cookie_progress.setValue(100)
 
-        live_count = len(success_accounts)
-        cp_count = sum(1 for r in self.extracted_cookie_results if r.get("is_checkpoint") or "checkpoint" in str(r.get("status", "")).lower())
-        msg = (
-            f"🎉 Cookie Extraction Completed!\n\n"
-            f"🟢 Live Accounts: {live_count} (Cookies saved in Live Column)\n"
-            f"🔒 Checkpoint Accounts: {cp_count} (Cookies saved in Separate Checkpoint Column)\n\n"
-            f"💡 Live cookies and Checkpoint cookies are kept strictly separate!\n"
-            f"Click '🟢 Copy Live Cookies' or '⚡ Save Live to Accounts' for active accounts."
-        )
-        QMessageBox.information(self, "Cookie Extraction Complete", msg)
+        success_count = len(success_accounts)
+        if success_count > 0:
+            msg = (
+                f"🎉 Cookie Extraction Completed!\n\n"
+                f"Successfully extracted {success_count} fresh Facebook session cookies!\n\n"
+                f"💡 Tip: Click '⚡ Direct Save All to Accounts Manager' below to save them directly into your Accounts Manager without copy-pasting!"
+            )
+            QMessageBox.information(self, "Cookie Extraction Complete", msg)
+        else:
+            QMessageBox.warning(self, "Cookie Extraction Notice", f"Cookie extraction finished with notice:\n\n{message}")
 
     def save_extracted_to_accounts_manager(self):
-        """Directly inserts or updates only LIVE extracted accounts into the SessionManager DB (never joins Checkpoint IDs)."""
+        """Directly inserts or updates all successfully extracted accounts into the SessionManager DB."""
         if not self.session_manager:
             QMessageBox.warning(self, "Session Manager Error", "Accounts database session manager is unavailable.")
             return
 
-        live_items = [
+        success_items = [
             r for r in self.extracted_cookie_results
-            if not r.get("is_checkpoint") and ("live" in str(r.get("status", "")).lower() or "success" in str(r.get("status", "")).lower()) and r.get("cookie")
+            if r.get("status") == "Success" and r.get("cookie")
         ]
 
-        if not live_items:
-            QMessageBox.warning(self, "No Live Extracted Cookies", "No successfully extracted LIVE accounts found to save. Checkpoint accounts are excluded.")
+        if not success_items:
+            QMessageBox.warning(self, "No Extracted Cookies", "No successfully extracted accounts found to save. Run extraction first.")
             return
 
         added_or_updated = 0
-        for item in live_items:
+        for item in success_items:
             uid = item.get("uid", "")
             pwd = item.get("password", "")
             secret_2fa = item.get("two_factor_secret", "")
@@ -15914,141 +14587,1196 @@ class FBAutoBotMainWindow(QMainWindow):
             added_or_updated += 1
 
         self.reload_accounts_from_manager()
-        cp_count = sum(1 for r in self.extracted_cookie_results if r.get("is_checkpoint") or "checkpoint" in str(r.get("status", "")).lower())
-        self.log_message("SUCCESS", f"⚡ Saved {added_or_updated} LIVE account(s) to Accounts Manager! ({cp_count} Checkpoint accounts safely excluded).")
+        self.log_message("SUCCESS", f"⚡ Saved {added_or_updated} account(s) with fresh session cookies directly to Accounts Manager!")
         QMessageBox.information(
             self,
             "Direct Import Successful",
-            f"🎉 Success!\n\n{added_or_updated} LIVE Facebook account(s) have been saved with fresh session cookies into Accounts Manager!\n\n🔒 Note: {cp_count} Checkpoint account(s) were kept strictly separate and NOT added to active accounts."
+            f"🎉 Success!\n\n{added_or_updated} Facebook account(s) have been saved with their fresh cookies directly into Accounts Manager!\n\nAll accounts are now Healthy and ready for auto-login across all automation pages!"
         )
 
-    def select_all_extracted_table_rows(self):
-        """Selects all rows in the extracted cookies table."""
-        if hasattr(self, 'extract_results_table'):
-            self.extract_results_table.selectAll()
-            count = self.extract_results_table.rowCount()
-            self.log_message("INFO", f"☑️ Selected all {count} row(s) in Extracted Cookies table.")
-
-    def clear_extracted_table_selection(self):
-        """Clears all row selection in the extracted cookies table."""
-        if hasattr(self, 'extract_results_table'):
-            self.extract_results_table.clearSelection()
-            self.log_message("INFO", "🧹 Cleared row selection in Extracted Cookies table.")
-
-    def copy_selected_extracted_cookies(self):
-        """Copies only the session cookies from the currently selected rows line-by-line."""
-        if not hasattr(self, 'extract_results_table'):
-            return
-
-        selected_rows = set()
-        for item in self.extract_results_table.selectedItems():
-            selected_rows.add(item.row())
-
-        # If no specific rows are highlighted, fallback to copy all successful live cookies
-        if not selected_rows:
-            self.copy_all_extracted_cookies("live_only")
-            return
-
-        cookies_to_copy = []
-        for r in sorted(selected_rows):
-            if r < len(self.extracted_cookie_results):
-                res = self.extracted_cookie_results[r]
-                c = res.get("cookie", "").strip()
-                if c:
-                    cookies_to_copy.append(c)
-
-        if not cookies_to_copy:
-            QMessageBox.warning(self, "No Cookies in Selection", "The selected row(s) do not contain valid extracted cookies.")
-            return
-
-        combined_text = "\n".join(cookies_to_copy)
-        QApplication.clipboard().setText(combined_text)
-        self.log_message("SUCCESS", f"📋 Copied {len(cookies_to_copy)} selected cookie(s) line-by-line to clipboard!")
-        QMessageBox.information(
-            self,
-            "Copied to Clipboard",
-            f"Successfully copied {len(cookies_to_copy)} selected cookie(s) line-by-line to clipboard!\n\nYou can now paste them directly into any text file or tool."
-        )
-
-    def copy_single_row_cookie(self, cookie_text: str, cookie_type: str = "Live"):
+    def copy_single_row_cookie(self, cookie_text: str):
         if cookie_text:
             QApplication.clipboard().setText(cookie_text)
-            self.log_message("INFO", f"📋 Copied {cookie_type} cookie to clipboard: {cookie_text[:40]}...")
-            QMessageBox.information(self, "Copied", f"Facebook {cookie_type} cookie copied to clipboard!")
+            self.log_message("INFO", f"📋 Copied cookie to clipboard: {cookie_text[:40]}...")
+            QMessageBox.information(self, "Copied", "Fresh Facebook cookie copied to clipboard!")
 
-    def copy_all_extracted_cookies(self, format_type: str = "live_only"):
-        """Copies extracted cookies line-by-line to clipboard, strictly separating Live and Checkpoint."""
-        if format_type == "checkpoint_only":
-            items = [
-                r for r in self.extracted_cookie_results
-                if (r.get("is_checkpoint") or "checkpoint" in str(r.get("status", "")).lower()) and r.get("cookie")
-            ]
-            label = "Checkpoint"
-        else:
-            items = [
-                r for r in self.extracted_cookie_results
-                if (not r.get("is_checkpoint") and ("live" in str(r.get("status", "")).lower() or "success" in str(r.get("status", "")).lower())) and r.get("cookie")
-            ]
-            label = "Live"
-
-        if not items:
-            QMessageBox.warning(self, f"No {label} Cookies", f"No {label} account cookies available to copy.")
+    def copy_all_extracted_cookies(self, format_type: str = "uid_cookie"):
+        success_items = [
+            r for r in self.extracted_cookie_results
+            if r.get("status") == "Success" and r.get("cookie")
+        ]
+        if not success_items:
+            QMessageBox.warning(self, "No Cookies", "No extracted cookies available to copy.")
             return
 
-        lines = [item.get("cookie", "").strip() for item in items if item.get("cookie")]
+        lines = []
+        for item in success_items:
+            uid = item.get("uid", "")
+            c = item.get("cookie", "")
+            if format_type == "uid_cookie":
+                lines.append(f"{uid}|{c}")
+            else:
+                lines.append(c)
+
         combined_text = "\n".join(lines)
         QApplication.clipboard().setText(combined_text)
-        self.log_message("SUCCESS", f"📋 Copied {len(lines)} {label} cookies line-by-line to clipboard (strictly separated)!")
-        QMessageBox.information(
-            self,
-            f"Copied {label} Cookies",
-            f"Successfully copied {len(lines)} {label} cookie(s) line-by-line to clipboard!\n\nNote: {label} cookies are kept strictly separate from other accounts."
-        )
+        self.log_message("SUCCESS", f"📋 Copied {len(success_items)} cookies to clipboard ({format_type})!")
+        QMessageBox.information(self, "Copied to Clipboard", f"Successfully copied {len(success_items)} extracted cookie(s) to clipboard!")
 
-    def export_extracted_cookies_to_file(self, target_type: str = "live_only"):
-        """Exports accounts line-by-line to a TXT file, keeping Live and Checkpoint strictly separated."""
-        if not self.extracted_cookie_results:
-            QMessageBox.warning(self, "No Extracted Accounts", "No accounts or extracted cookies available to export.")
+    def export_extracted_cookies_to_file(self, file_type: str = "txt"):
+        success_items = [
+            r for r in self.extracted_cookie_results
+            if r.get("status") == "Success" and r.get("cookie")
+        ]
+        if not success_items:
+            QMessageBox.warning(self, "No Cookies", "No extracted cookies available to export.")
             return
 
-        if target_type == "checkpoint_only":
-            filtered = [
-                r for r in self.extracted_cookie_results
-                if r.get("is_checkpoint") or "checkpoint" in str(r.get("status", "")).lower()
-            ]
-            default_fn = "fb_checkpoint_accounts.txt"
-            type_label = "Checkpoint"
+        if file_type == "json":
+            path, _ = QFileDialog.getSaveFileName(self, "Export Cookies as JSON", "fb_extracted_cookies.json", "JSON Files (*.json)")
+            if path:
+                try:
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump(success_items, f, indent=2)
+                    self.log_message("SUCCESS", f"💾 Exported {len(success_items)} cookies to {path}")
+                    QMessageBox.information(self, "Export Complete", f"Exported {len(success_items)} accounts to JSON file successfully!")
+                except Exception as e:
+                    QMessageBox.critical(self, "Export Error", f"Could not write file: {e}")
         else:
-            filtered = [
-                r for r in self.extracted_cookie_results
-                if not r.get("is_checkpoint") and ("live" in str(r.get("status", "")).lower() or "success" in str(r.get("status", "")).lower())
-            ]
-            default_fn = "fb_live_accounts.txt"
-            type_label = "Live"
+            path, _ = QFileDialog.getSaveFileName(self, "Export Cookies as TXT", "fb_extracted_cookies.txt", "Text Files (*.txt)")
+            if path:
+                try:
+                    with open(path, "w", encoding="utf-8") as f:
+                        for item in success_items:
+                            f.write(f"{item.get('uid')}|{item.get('cookie')}\n")
+                    self.log_message("SUCCESS", f"💾 Exported {len(success_items)} cookies to {path}")
+                    QMessageBox.information(self, "Export Complete", f"Exported {len(success_items)} accounts to TXT file successfully!")
+                except Exception as e:
+                    QMessageBox.critical(self, "Export Error", f"Could not write file: {e}")
 
-        if not filtered:
-            QMessageBox.warning(self, f"No {type_label} Accounts", f"No {type_label} accounts found to export.")
+    # --------------------------------------------------------------------------
+    # Tab: Auto Like & Comment Engine (Phase 13)
+    # --------------------------------------------------------------------------
+    def create_like_comment_page(self):
+        page = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        # Header Title
+        title_box = QVBoxLayout()
+        title = QLabel("Auto FB Like & Comment Automation Engine")
+        title.setProperty("class", "pageTitle")
+        sub = QLabel("Automate Facebook Profile & Page Post Engagement (Like & Random Comments) with Multi-Account & Multi-Browser Support.")
+        sub.setProperty("class", "pageSubtitle")
+        title_box.addWidget(title)
+        title_box.addWidget(sub)
+        layout.addLayout(title_box)
+
+        # ----------------------------------------------------------------------
+        # Card 1: Target Accounts Column (From Accounts Manager)
+        # ----------------------------------------------------------------------
+        acc_card = QFrame()
+        acc_card.setProperty("class", "glassCard")
+        acc_card_layout = QVBoxLayout(acc_card)
+        acc_card_layout.setSpacing(10)
+
+        acc_hdr = QHBoxLayout()
+        hdr_lbl = QLabel("👥 Accounts Manager Target Accounts:")
+        hdr_lbl.setStyleSheet("font-size: 13px; font-weight: 700; color: #f8fafc;")
+        acc_hdr.addWidget(hdr_lbl)
+
+        self.lc_acc_summary_lbl = QLabel("🎯 0 Account(s) Selected")
+        self.lc_acc_summary_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        acc_hdr.addWidget(self.lc_acc_summary_lbl)
+        acc_hdr.addStretch()
+
+        self.btn_lc_refresh_acc = QPushButton("🔄 Refresh")
+        self.btn_lc_refresh_acc.setStyleSheet("background-color: #059669; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
+        self.btn_lc_refresh_acc.setCursor(Qt.PointingHandCursor)
+        self.btn_lc_refresh_acc.setToolTip("Reload accounts from Accounts Manager")
+        self.btn_lc_refresh_acc.clicked.connect(self.reload_accounts_from_manager)
+        acc_hdr.addWidget(self.btn_lc_refresh_acc)
+
+        self.btn_lc_select_all = QPushButton("⚡ Select All")
+        self.btn_lc_select_all.setStyleSheet("background-color: #3b82f6; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
+        self.btn_lc_select_all.setCursor(Qt.PointingHandCursor)
+        self.btn_lc_select_all.clicked.connect(self.select_all_like_comment_accounts)
+        acc_hdr.addWidget(self.btn_lc_select_all)
+
+        self.btn_lc_clear_acc = QPushButton("❌ Clear")
+        self.btn_lc_clear_acc.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
+        self.btn_lc_clear_acc.setCursor(Qt.PointingHandCursor)
+        self.btn_lc_clear_acc.clicked.connect(self.clear_all_like_comment_accounts)
+        acc_hdr.addWidget(self.btn_lc_clear_acc)
+        acc_card_layout.addLayout(acc_hdr)
+
+        # Accounts checklist scroll area
+        self.lc_acc_scroll = QScrollArea()
+        self.lc_acc_scroll.setFixedHeight(120)
+        self.lc_acc_scroll.setWidgetResizable(True)
+        self.lc_acc_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(15, 23, 42, 0.7); border-radius: 6px; }")
+
+        self.lc_acc_widget = QWidget()
+        self.lc_acc_layout = QVBoxLayout(self.lc_acc_widget)
+        self.lc_acc_layout.setContentsMargins(8, 6, 8, 6)
+        self.lc_acc_layout.setSpacing(4)
+        self.lc_acc_scroll.setWidget(self.lc_acc_widget)
+        acc_card_layout.addWidget(self.lc_acc_scroll)
+
+        # Bottom Configuration Row inside Accounts Card
+        cfg_row = QHBoxLayout()
+        cfg_row.setSpacing(14)
+
+        # Concurrent Browsers setting
+        c_lbl = QLabel("🖥️ Concurrent Browsers:")
+        c_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(c_lbl)
+        self.lc_concurrent_spin = QSpinBox()
+        self.lc_concurrent_spin.setRange(1, 10)
+        self.lc_concurrent_spin.setValue(2)
+        self.lc_concurrent_spin.setStyleSheet("font-weight: 800; color: #38bdf8; background: #0f172a; border: 1px solid #38bdf8; border-radius: 4px; padding: 2px 6px;")
+        self.lc_concurrent_spin.setToolTip("How many browser instances / accounts to run simultaneously. As each account finishes, it is automatically unchecked from the checklist!")
+        cfg_row.addWidget(self.lc_concurrent_spin)
+
+        # Speed Delay
+        d_lbl = QLabel("⏱️ Action Delay (Sec):")
+        d_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(d_lbl)
+        self.lc_delay_spin = QDoubleSpinBox()
+        self.lc_delay_spin.setRange(0.5, 5.0)
+        self.lc_delay_spin.setSingleStep(0.5)
+        self.lc_delay_spin.setValue(1.5)
+        self.lc_delay_spin.setStyleSheet("font-weight: 800; color: #e2e8f0; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 4px;")
+        cfg_row.addWidget(self.lc_delay_spin)
+
+        # Network Mode
+        net_lbl = QLabel("🌐 Network:")
+        net_lbl.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(net_lbl)
+        self.lc_network_combo = QComboBox()
+        self.lc_network_combo.addItems([
+            "⚡ Direct Connection (Recommended)",
+            "🛡️ Use Account Proxy (If Configured & Live)"
+        ])
+        self.lc_network_combo.setStyleSheet("""
+            QComboBox {
+                font-weight: 700;
+                color: #10b981;
+                background: #0f172a;
+                border: 1px solid #10b981;
+                border-radius: 4px;
+                padding: 2px 8px;
+                font-size: 11px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #0f172a;
+                color: #f8fafc;
+                selection-background-color: #10b981;
+                selection-color: #000000;
+            }
+        """)
+        cfg_row.addWidget(self.lc_network_combo)
+        cfg_row.addStretch()
+
+        acc_card_layout.addLayout(cfg_row)
+        layout.addWidget(acc_card)
+
+        # ----------------------------------------------------------------------
+        # Card 2: 3-Column Configuration Layout (Profile Links, Comments Pool, Posts Scope)
+        # ----------------------------------------------------------------------
+        setup_grid = QHBoxLayout()
+        setup_grid.setSpacing(14)
+
+        # Column 1: Profile / Page Links Input
+        col_urls_frame = QFrame()
+        col_urls_frame.setProperty("class", "glassCard")
+        col_urls_frame.setStyleSheet("background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 10px; padding: 12px;")
+        col_urls_v = QVBoxLayout(col_urls_frame)
+        col_urls_v.setSpacing(8)
+
+        u_hdr = QHBoxLayout()
+        u_lbl = QLabel("🔗 Target Profile / Page Links:")
+        u_lbl.setStyleSheet("font-size: 12px; font-weight: 700; color: #38bdf8;")
+        u_hdr.addWidget(u_lbl)
+        u_hdr.addStretch()
+
+        self.lc_urls_count_lbl = QLabel("📊 0 URLs")
+        self.lc_urls_count_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700; background: rgba(56, 189, 248, 0.1); padding: 2px 6px; border-radius: 4px;")
+        u_hdr.addWidget(self.lc_urls_count_lbl)
+        col_urls_v.addLayout(u_hdr)
+
+        u_btn_row = QHBoxLayout()
+        btn_import_urls = QPushButton("📁 Import .txt")
+        btn_import_urls.setStyleSheet("background-color: #2563eb; color: white; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px;")
+        btn_import_urls.setCursor(Qt.PointingHandCursor)
+        btn_import_urls.clicked.connect(self.import_like_comment_urls_from_txt)
+        u_btn_row.addWidget(btn_import_urls)
+
+        btn_sample_urls = QPushButton("⚡ Sample")
+        btn_sample_urls.setStyleSheet("background-color: #0284c7; color: white; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px;")
+        btn_sample_urls.setCursor(Qt.PointingHandCursor)
+        btn_sample_urls.clicked.connect(self.insert_sample_like_comment_urls)
+        u_btn_row.addWidget(btn_sample_urls)
+
+        btn_clear_urls = QPushButton("❌ Clear")
+        btn_clear_urls.setStyleSheet("background-color: #475569; color: white; font-size: 10px; padding: 3px 6px; border-radius: 4px;")
+        btn_clear_urls.setCursor(Qt.PointingHandCursor)
+        btn_clear_urls.clicked.connect(self.clear_like_comment_urls)
+        u_btn_row.addWidget(btn_clear_urls)
+        u_btn_row.addStretch()
+        col_urls_v.addLayout(u_btn_row)
+
+        self.lc_urls_input = QTextEdit()
+        self.lc_urls_input.setPlaceholderText(
+            "Paste Facebook profile or page URLs (one per line):\n"
+            "https://www.facebook.com/username1\n"
+            "https://www.facebook.com/profile.php?id=100012345678\n"
+            "https://www.facebook.com/page-name\n"
+            "..."
+        )
+        self.lc_urls_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 11px; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 6px;")
+        self.lc_urls_input.textChanged.connect(self.update_like_comment_urls_count)
+        col_urls_v.addWidget(self.lc_urls_input)
+
+        setup_grid.addWidget(col_urls_frame, stretch=1)
+
+        # Column 2: Random Comments Pool
+        col_comments_frame = QFrame()
+        col_comments_frame.setProperty("class", "glassCard")
+        col_comments_frame.setStyleSheet("background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 10px; padding: 12px;")
+        col_comments_v = QVBoxLayout(col_comments_frame)
+        col_comments_v.setSpacing(8)
+
+        c_hdr = QHBoxLayout()
+        c_title_lbl = QLabel("💬 Comments Pool (One per line):")
+        c_title_lbl.setStyleSheet("font-size: 12px; font-weight: 700; color: #c084fc;")
+        c_hdr.addWidget(c_title_lbl)
+        c_hdr.addStretch()
+
+        self.lc_comments_count_lbl = QLabel("💬 0 Lines")
+        self.lc_comments_count_lbl.setStyleSheet("color: #c084fc; font-size: 11px; font-weight: 700; background: rgba(168, 85, 247, 0.1); padding: 2px 6px; border-radius: 4px;")
+        c_hdr.addWidget(self.lc_comments_count_lbl)
+        col_comments_v.addLayout(c_hdr)
+
+        c_btn_row = QHBoxLayout()
+        btn_sample_comments = QPushButton("⚡ Sample Comments")
+        btn_sample_comments.setStyleSheet("background-color: #7c3aed; color: white; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px;")
+        btn_sample_comments.setCursor(Qt.PointingHandCursor)
+        btn_sample_comments.clicked.connect(self.insert_sample_comments)
+        c_btn_row.addWidget(btn_sample_comments)
+
+        btn_clear_comments = QPushButton("❌ Clear")
+        btn_clear_comments.setStyleSheet("background-color: #475569; color: white; font-size: 10px; padding: 3px 6px; border-radius: 4px;")
+        btn_clear_comments.setCursor(Qt.PointingHandCursor)
+        btn_clear_comments.clicked.connect(self.clear_comments)
+        c_btn_row.addWidget(btn_clear_comments)
+        c_btn_row.addStretch()
+        col_comments_v.addLayout(c_btn_row)
+
+        self.lc_comments_input = QTextEdit()
+        self.lc_comments_input.setPlaceholderText(
+            "Enter random comments (one per line):\n"
+            "Great post!\n"
+            "Awesome!\n"
+            "Nice one!\n"
+            "Looking good 👍\n"
+            "Very informative, thanks for sharing!\n"
+            "...\n"
+            "(Bot picks one randomly for each post to look natural)"
+        )
+        self.lc_comments_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 11px; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 6px;")
+        self.lc_comments_input.textChanged.connect(self.update_comments_count)
+        col_comments_v.addWidget(self.lc_comments_input)
+
+        setup_grid.addWidget(col_comments_frame, stretch=1)
+
+        # Column 3: Posts Scope & Action Options
+        col_opts_frame = QFrame()
+        col_opts_frame.setProperty("class", "glassCard")
+        col_opts_frame.setStyleSheet("background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; padding: 12px;")
+        col_opts_v = QVBoxLayout(col_opts_frame)
+        col_opts_v.setSpacing(10)
+
+        o_lbl = QLabel("⚙️ Posts Scope & Actions:")
+        o_lbl.setStyleSheet("font-size: 12px; font-weight: 700; color: #10b981;")
+        col_opts_v.addWidget(o_lbl)
+
+        # Posts Scope Dropdown (User specified: First 5 Posts or All Posts)
+        scope_lbl = QLabel("🎯 Target Posts per Link:")
+        scope_lbl.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700;")
+        col_opts_v.addWidget(scope_lbl)
+
+        self.lc_posts_scope_combo = QComboBox()
+        self.lc_posts_scope_combo.addItems([
+            "First 5 Posts",
+            "All Available Posts"
+        ])
+        self.lc_posts_scope_combo.setStyleSheet("""
+            QComboBox {
+                font-weight: 700;
+                color: #38bdf8;
+                background: #0f172a;
+                border: 1px solid #38bdf8;
+                border-radius: 6px;
+                padding: 6px 10px;
+                font-size: 12px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #0f172a;
+                color: #f8fafc;
+                selection-background-color: #38bdf8;
+                selection-color: #000000;
+            }
+        """)
+        col_opts_v.addWidget(self.lc_posts_scope_combo)
+
+        # Single Post Mode Checkbox (Direct Post Links)
+        self.chk_lc_single_post = QCheckBox("🎯 Single Post Mode (Direct Post Links)")
+        self.chk_lc_single_post.setChecked(False)
+        self.chk_lc_single_post.setStyleSheet("""
+            QCheckBox {
+                font-size: 11px;
+                font-weight: 800;
+                color: #38bdf8;
+                background: rgba(56, 189, 248, 0.1);
+                border: 1px solid rgba(56, 189, 248, 0.35);
+                border-radius: 6px;
+                padding: 6px 8px;
+            }
+            QCheckBox:hover {
+                background: rgba(56, 189, 248, 0.18);
+            }
+        """)
+        self.chk_lc_single_post.setToolTip(
+            "Enable this when your target links are single post links (e.g. permalink.php, /posts/..., /share/...). "
+            "The bot navigates directly to each post, likes it, writes a comment, and completes!"
+        )
+        self.chk_lc_single_post.toggled.connect(self.on_lc_single_post_toggled)
+        col_opts_v.addWidget(self.chk_lc_single_post)
+
+        # Checkbox actions
+        self.chk_lc_like = QCheckBox("👍 Auto Like Posts")
+        self.chk_lc_like.setChecked(True)
+        self.chk_lc_like.setStyleSheet("font-size: 12px; font-weight: 700; color: #10b981;")
+        col_opts_v.addWidget(self.chk_lc_like)
+
+        self.chk_lc_comment = QCheckBox("💬 Auto Comment on Posts")
+        self.chk_lc_comment.setChecked(True)
+        self.chk_lc_comment.setStyleSheet("font-size: 12px; font-weight: 700; color: #c084fc;")
+        col_opts_v.addWidget(self.chk_lc_comment)
+
+        # Explanatory card
+        guide_box = QFrame()
+        guide_box.setStyleSheet("background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 8px;")
+        gb_layout = QVBoxLayout(guide_box)
+        gb_layout.setSpacing(4)
+        gb_txt = QLabel(
+            "<b>⚡ Automated Workflow:</b><br>"
+            "1. Opens Chrome logged into Facebook ID.<br>"
+            "2. Spawns tabs for each profile link.<br>"
+            "3. Auto-scrolls feed to locate posts.<br>"
+            "4. Likes each post and inputs random comment.<br>"
+            "5. Closes tabs when done, closes Chrome,<br>"
+            "6. <b>Auto-unchecks completed account!</b>"
+        )
+        gb_txt.setStyleSheet("color: #94a3b8; font-size: 10px; line-height: 1.3;")
+        gb_layout.addWidget(gb_txt)
+        col_opts_v.addWidget(guide_box)
+        col_opts_v.addStretch()
+
+        setup_grid.addWidget(col_opts_frame, stretch=1)
+        layout.addLayout(setup_grid)
+
+        # ----------------------------------------------------------------------
+        # Card 3: Execution Controls, Progress & Badges
+        # ----------------------------------------------------------------------
+        exec_card = QFrame()
+        exec_card.setProperty("class", "glassCard")
+        exec_layout = QVBoxLayout(exec_card)
+        exec_layout.setSpacing(10)
+
+        # Progress bar
+        self.lc_progress_bar = QProgressBar()
+        self.lc_progress_bar.setValue(0)
+        self.lc_progress_bar.setTextVisible(True)
+        self.lc_progress_bar.setFixedHeight(18)
+        self.lc_progress_bar.setStyleSheet("""
+            QProgressBar {
+                background: #0f172a;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 9px;
+                text-align: center;
+                color: #ffffff;
+                font-size: 10px;
+                font-weight: 700;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #10b981, stop:1 #38bdf8);
+                border-radius: 9px;
+            }
+        """)
+        exec_layout.addWidget(self.lc_progress_bar)
+
+        # Status and Badges row
+        status_row = QHBoxLayout()
+        self.lc_status_lbl = QLabel("● READY FOR AUTOMATION")
+        self.lc_status_lbl.setStyleSheet("color: #10b981; font-weight: 800; font-size: 12px;")
+        status_row.addWidget(self.lc_status_lbl)
+        status_row.addStretch()
+
+        self.lc_likes_lbl = QLabel("👍 Total Likes: 0")
+        self.lc_likes_lbl.setStyleSheet("color: #10b981; font-weight: 700; font-size: 11px; background: rgba(16,185,129,0.1); padding: 3px 8px; border-radius: 6px;")
+        status_row.addWidget(self.lc_likes_lbl)
+
+        self.lc_comments_lbl = QLabel("💬 Total Comments: 0")
+        self.lc_comments_lbl.setStyleSheet("color: #c084fc; font-weight: 700; font-size: 11px; background: rgba(168,85,247,0.1); padding: 3px 8px; border-radius: 6px;")
+        status_row.addWidget(self.lc_comments_lbl)
+
+        exec_layout.addLayout(status_row)
+
+        # Button row
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(12)
+
+        self.btn_start_lc_bot = QPushButton("🚀 Start Auto Like & Comment")
+        self.btn_start_lc_bot.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #059669, stop:1 #10b981);
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 800;
+                padding: 10px 24px;
+                border-radius: 8px;
+                border: none;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #10b981, stop:1 #34d399);
+            }
+            QPushButton:disabled {
+                background: #334155;
+                color: #94a3b8;
+            }
+        """)
+        self.btn_start_lc_bot.setCursor(Qt.PointingHandCursor)
+        self.btn_start_lc_bot.clicked.connect(self.start_like_comment_automation)
+        btn_box.addWidget(self.btn_start_lc_bot, stretch=2)
+
+        self.btn_stop_lc_bot = QPushButton("🛑 Stop Automation")
+        self.btn_stop_lc_bot.setStyleSheet("""
+            QPushButton {
+                background-color: #ef4444;
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 800;
+                padding: 10px 20px;
+                border-radius: 8px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #dc2626;
+            }
+            QPushButton:disabled {
+                background-color: #334155;
+                color: #64748b;
+            }
+        """)
+        self.btn_stop_lc_bot.setEnabled(False)
+        self.btn_stop_lc_bot.setCursor(Qt.PointingHandCursor)
+        self.btn_stop_lc_bot.clicked.connect(self.stop_like_comment_automation)
+        btn_box.addWidget(self.btn_stop_lc_bot, stretch=1)
+
+        exec_layout.addLayout(btn_box)
+        layout.addWidget(exec_card)
+
+        layout.addStretch()
+        scroll.setWidget(container)
+        outer_layout = QVBoxLayout(page)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(scroll)
+
+        # Initial populate
+        self.populate_like_comment_accounts_checklist()
+
+        return page
+
+    # --------------------------------------------------------------------------
+    # Auto Like & Comment Account Selection & Automation Helpers
+    # --------------------------------------------------------------------------
+    def populate_like_comment_accounts_checklist(self):
+        """Populates the multi-account checkbox list for Auto Like & Comment automation."""
+        if not hasattr(self, 'lc_acc_layout'):
             return
 
-        path, _ = QFileDialog.getSaveFileName(self, f"Export {type_label} Accounts to TXT", default_fn, "Text Files (*.txt)")
-        if path:
+        while self.lc_acc_layout.count():
+            item = self.lc_acc_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self.lc_acc_checkboxes = []
+        active_accounts = self.get_active_accounts()
+
+        if not active_accounts:
+            lbl = QLabel("⚠️ No Active Facebook accounts available. (Add accounts in Accounts Manager tab)")
+            lbl.setStyleSheet("color: #94a3b8; font-style: italic; font-size: 11px;")
+            self.lc_acc_layout.addWidget(lbl)
+            self.update_like_comment_accounts_summary()
+            return
+
+        for idx, acc in enumerate(active_accounts, start=1):
+            row_widget = QWidget()
+            r_layout = QHBoxLayout(row_widget)
+            r_layout.setContentsMargins(2, 2, 2, 2)
+
+            name = acc.get("name", "Account")
+            status = acc.get("status", "Healthy")
+            proxy = acc.get("proxy", "Direct")
+            icon = "🟢" if status in ("Healthy", "Active", "Ready", "Logged in") else "🟡"
+
+            chk = QCheckBox(f"#{idx}  {icon} {name}  [{status}]  •  Proxy: {proxy}")
+            chk.setStyleSheet("font-size: 12px; color: #f8fafc; font-weight: 600;")
+            chk.setProperty("account_data", acc)
+            chk.setChecked(True)
+            chk.stateChanged.connect(self.update_like_comment_accounts_summary)
+            r_layout.addWidget(chk)
+            r_layout.addStretch()
+
+            self.lc_acc_layout.addWidget(row_widget)
+            self.lc_acc_checkboxes.append(chk)
+
+        self.lc_acc_layout.addStretch()
+        self.update_like_comment_accounts_summary()
+
+    def select_all_like_comment_accounts(self):
+        if hasattr(self, 'lc_acc_checkboxes'):
+            for chk in self.lc_acc_checkboxes:
+                chk.setChecked(True)
+            self.update_like_comment_accounts_summary()
+
+    def clear_all_like_comment_accounts(self):
+        if hasattr(self, 'lc_acc_checkboxes'):
+            for chk in self.lc_acc_checkboxes:
+                chk.setChecked(False)
+            self.update_like_comment_accounts_summary()
+
+    def update_like_comment_accounts_summary(self):
+        if not hasattr(self, 'lc_acc_summary_lbl'):
+            return
+        selected = self.get_selected_like_comment_accounts()
+        count = len(selected)
+        total = len(self.lc_acc_checkboxes) if hasattr(self, 'lc_acc_checkboxes') else 0
+        self.lc_acc_summary_lbl.setText(f"🎯 {count} of {total} Account(s) Selected")
+
+    def get_selected_like_comment_accounts(self) -> List[Dict[str, Any]]:
+        selected = []
+        if hasattr(self, 'lc_acc_checkboxes'):
+            for chk in self.lc_acc_checkboxes:
+                if chk.isChecked():
+                    data = chk.property("account_data")
+                    if data:
+                        selected.append(data)
+        return selected
+
+    def import_like_comment_urls_from_txt(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Import Target Profile/Page URLs (.txt)", "", "Text Files (*.txt);;All Files (*.*)")
+        if file_path and os.path.isfile(file_path):
             try:
-                with open(path, "w", encoding="utf-8") as f:
-                    for item in filtered:
-                        uid = str(item.get("uid", "")).strip()
-                        pwd = str(item.get("password", "")).strip()
-                        status = str(item.get("status", type_label)).strip()
-                        cookie = str(item.get("cookie", "")).strip()
-                        line = f"{uid} | {pwd} | {status} | {cookie}"
-                        f.write(line + "\n")
-                self.log_message("SUCCESS", f"📄 Exported {len(filtered)} {type_label} accounts to {path}")
-                QMessageBox.information(
-                    self,
-                    "Export Complete",
-                    f"Successfully exported {len(filtered)} {type_label} account(s) to TXT file!\n\nFormat in file:\nUID | Password | Status | Cookie\n\nSaved to: {path}"
-                )
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    urls = [line.strip() for line in f if line.strip()]
+                if hasattr(self, 'lc_urls_input'):
+                    existing = self.lc_urls_input.toPlainText().strip()
+                    if existing:
+                        self.lc_urls_input.setPlainText(existing + "\n" + "\n".join(urls))
+                    else:
+                        self.lc_urls_input.setPlainText("\n".join(urls))
+                    self.update_like_comment_urls_count()
+                    QMessageBox.information(self, "URLs Imported", f"Successfully imported {len(urls)} profile URL(s) from:\n{os.path.basename(file_path)}")
             except Exception as e:
-                QMessageBox.critical(self, "Export Error", f"Could not write file: {e}")
+                QMessageBox.warning(self, "Import Error", f"Could not read text file:\n{str(e)}")
+
+    def insert_sample_like_comment_urls(self):
+        samples = [
+            "https://www.facebook.com/zuck",
+            "https://www.facebook.com/facebook",
+            "https://www.facebook.com/Meta",
+            "https://www.facebook.com/profile.php?id=100085432198765",
+            "https://www.facebook.com/profile.php?id=100092345678901"
+        ]
+        if hasattr(self, 'lc_urls_input'):
+            self.lc_urls_input.setPlainText("\n".join(samples))
+            self.update_like_comment_urls_count()
+
+    def clear_like_comment_urls(self):
+        if hasattr(self, 'lc_urls_input'):
+            self.lc_urls_input.clear()
+            self.update_like_comment_urls_count()
+
+    def update_like_comment_urls_count(self):
+        if not hasattr(self, 'lc_urls_count_lbl') or not hasattr(self, 'lc_urls_input'):
+            return
+        raw = self.lc_urls_input.toPlainText().strip()
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        self.lc_urls_count_lbl.setText(f"📊 {len(lines)} URLs")
+
+    def insert_sample_comments(self):
+        samples = [
+            "Great post!",
+            "Awesome!",
+            "Nice one!",
+            "Looking good 👍",
+            "Very informative, thanks for sharing!",
+            "Superb share!",
+            "Love this content ❤️"
+        ]
+        if hasattr(self, 'lc_comments_input'):
+            self.lc_comments_input.setPlainText("\n".join(samples))
+            self.update_comments_count()
+
+    def clear_comments(self):
+        if hasattr(self, 'lc_comments_input'):
+            self.lc_comments_input.clear()
+            self.update_comments_count()
+
+    def update_comments_count(self):
+        if not hasattr(self, 'lc_comments_count_lbl') or not hasattr(self, 'lc_comments_input'):
+            return
+        raw = self.lc_comments_input.toPlainText().strip()
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        self.lc_comments_count_lbl.setText(f"💬 {len(lines)} Lines")
+
+    def on_like_comment_account_completed(self, account_id: str):
+        """
+        When an account finishes its like & comment tasks and closes its Chrome browser,
+        it automatically unchecks that account's checkbox in the list.
+        """
+        if hasattr(self, 'lc_acc_checkboxes'):
+            for chk in self.lc_acc_checkboxes:
+                acc_data = chk.property("account_data")
+                if acc_data and str(acc_data.get("id")) == str(account_id):
+                    chk.setChecked(False)
+                    break
+        self.update_like_comment_accounts_summary()
+
+    def on_like_comment_counter_update(self, account_id: str, likes: int, comments: int):
+        if hasattr(self, 'lc_likes_lbl'):
+            self.lc_likes_lbl.setText(f"👍 Total Likes: {likes}")
+        if hasattr(self, 'lc_comments_lbl'):
+            self.lc_comments_lbl.setText(f"💬 Total Comments: {comments}")
+
+    def on_lc_single_post_toggled(self, checked: bool):
+        if hasattr(self, 'lc_posts_scope_combo'):
+            self.lc_posts_scope_combo.setEnabled(not checked)
+        if hasattr(self, 'lc_urls_input'):
+            if checked:
+                self.lc_urls_input.setPlaceholderText(
+                    "Paste Single Post URLs (one per line):\n"
+                    "https://www.facebook.com/permalink.php?story_fbid=123...&id=...\n"
+                    "https://www.facebook.com/username/posts/1015...\n"
+                    "https://www.facebook.com/share/p/1F2DbPM7qZ/\n"
+                    "..."
+                )
+            else:
+                self.lc_urls_input.setPlaceholderText(
+                    "Paste Facebook profile or page URLs (one per line):\n"
+                    "https://www.facebook.com/username1\n"
+                    "https://www.facebook.com/profile.php?id=100012345678\n"
+                    "https://www.facebook.com/page-name\n"
+                    "..."
+                )
+
+    def start_like_comment_automation(self):
+        accounts = self.get_selected_like_comment_accounts()
+        if not accounts:
+            QMessageBox.warning(self, "No Accounts Selected", "Please select at least one Facebook account from the Target Facebook Accounts list.")
+            return
+
+        raw_urls = self.lc_urls_input.toPlainText().strip() if hasattr(self, 'lc_urls_input') else ""
+        profile_urls = [line.strip() for line in raw_urls.splitlines() if line.strip()]
+        if not profile_urls:
+            QMessageBox.warning(self, "Target URLs Required", "Please enter or import target profile/page links in the Target Profile / Page Links column.")
+            return
+
+        raw_comments = self.lc_comments_input.toPlainText().strip() if hasattr(self, 'lc_comments_input') else ""
+        comments_pool = [line.strip() for line in raw_comments.splitlines() if line.strip()]
+
+        auto_like = self.chk_lc_like.isChecked() if hasattr(self, 'chk_lc_like') else True
+        auto_comment = self.chk_lc_comment.isChecked() if hasattr(self, 'chk_lc_comment') else True
+        single_post_mode = self.chk_lc_single_post.isChecked() if hasattr(self, 'chk_lc_single_post') else False
+
+        if not auto_like and not auto_comment:
+            QMessageBox.warning(self, "Select Action", "Please check at least Auto Like or Auto Comment.")
+            return
+
+        if auto_comment and not comments_pool:
+            QMessageBox.warning(self, "Comments Required", "Auto Comment is enabled. Please enter at least one comment line in the Comments Pool, or uncheck Auto Comment.")
+            return
+
+        scope_text = self.lc_posts_scope_combo.currentText() if hasattr(self, 'lc_posts_scope_combo') else "First 5 Posts"
+        posts_scope = "first_5" if "First 5" in scope_text else "all"
+
+        concurrent_browsers = self.lc_concurrent_spin.value() if hasattr(self, 'lc_concurrent_spin') else 2
+        click_delay = self.lc_delay_spin.value() if hasattr(self, 'lc_delay_spin') else 1.5
+
+        network_mode = "direct"
+        if hasattr(self, 'lc_network_combo') and self.lc_network_combo.currentIndex() == 1:
+            network_mode = "proxy"
+
+        payload = {
+            "accounts": accounts,
+            "profile_urls": profile_urls,
+            "comments_pool": comments_pool,
+            "posts_scope": posts_scope,
+            "auto_like": auto_like,
+            "auto_comment": auto_comment,
+            "single_post_mode": single_post_mode,
+            "concurrent_browsers": concurrent_browsers,
+            "click_delay": click_delay,
+            "network_mode": network_mode
+        }
+
+        self.btn_start_lc_bot.setEnabled(False)
+        self.btn_stop_lc_bot.setEnabled(True)
+        self.lc_status_lbl.setText("● RUNNING AUTO LIKE & COMMENT...")
+        self.lc_status_lbl.setStyleSheet("color: #f59e0b; font-weight: 800; font-size: 12px;")
+        self.lc_progress_bar.setValue(0)
+
+        self.log_message("INFO", f"==================================================")
+        self.log_message("INFO", f"🚀 Launching Auto Like & Comment on {len(accounts)} Facebook ID(s)...")
+        self.log_message("INFO", f"🔗 Target URLs: {len(profile_urls)} | Comments Pool: {len(comments_pool)} | Scope: '{scope_text}'")
+        self.log_message("INFO", f"🖥️ Concurrent Browsers: {concurrent_browsers} (Accounts will uncheck automatically upon completion)")
+
+        self.worker = LikeCommentWorker(payload)
+        self.worker.log_signal.connect(self.log_message)
+        self.worker.progress_signal.connect(self.lc_progress_bar.setValue)
+        self.worker.counter_signal.connect(self.on_like_comment_counter_update)
+        self.worker.account_completed_signal.connect(self.on_like_comment_account_completed)
+        self.worker.finished_signal.connect(self.on_like_comment_finished)
+        self.worker.start()
+
+    def stop_like_comment_automation(self):
+        if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
+            self.log_message("WARNING", "🛑 Stop command sent to Auto Like & Comment worker...")
+            self.worker.stop()
+        self.btn_stop_lc_bot.setEnabled(False)
+
+    def on_like_comment_finished(self, success: bool, message: str):
+        self.btn_start_lc_bot.setEnabled(True)
+        self.btn_stop_lc_bot.setEnabled(False)
+        self.lc_status_lbl.setText("● READY FOR AUTOMATION")
+        self.lc_status_lbl.setStyleSheet("color: #10b981; font-weight: 800; font-size: 12px;")
+        self.engine_status_lbl.setText("● READY FOR TASKS")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
+
+        if success:
+            QMessageBox.information(self, "Like & Comment Complete", message)
+        else:
+            QMessageBox.warning(self, "Automation Notice", message)
+
+    # --------------------------------------------------------------------------
+    # Tab 4: AI Content Spinner & Title/Description Generator (Phase 5)
+    # --------------------------------------------------------------------------
+    def create_ai_page(self):
+        page = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        title = QLabel("AI Content Spinner & Listing Intelligence")
+        title.setProperty("class", "pageTitle")
+        sub = QLabel("Generate high-converting titles, spin descriptions with specifications, and bypass duplicate text filters.")
+        sub.setProperty("class", "pageSubtitle")
+        layout.addWidget(title)
+        layout.addWidget(sub)
+
+        # Config Card
+        card = QFrame()
+        card.setProperty("class", "glassCard")
+        c_layout = QVBoxLayout(card)
+        c_layout.setSpacing(12)
+
+        # Seed Keyword
+        c_layout.addWidget(QLabel("Product Name or Seed Keywords:"))
+        self.ai_seed_input = QLineEdit()
+        self.ai_seed_input.setPlaceholderText("e.g., Apple iPhone 15 Pro Max 256GB Titanium sealed in box")
+        self.ai_seed_input.setText("Apple iPhone 15 Pro Max 256GB Titanium")
+        c_layout.addWidget(self.ai_seed_input)
+
+        # Base Description / Specs
+        c_layout.addWidget(QLabel("Base Product Notes / Original Description:"))
+        self.ai_base_desc_input = QTextEdit()
+        self.ai_base_desc_input.setPlaceholderText("Paste raw description or specifications here (e.g. condition, warranty, accessories included)...")
+        self.ai_base_desc_input.setPlainText("Factory sealed in original box. Never opened. 1-year official Apple warranty. Includes braided USB-C cable. Available for immediate local pickup or tracked shipping.")
+        self.ai_base_desc_input.setFixedHeight(75)
+        c_layout.addWidget(self.ai_base_desc_input)
+
+        # Options Row: Tone, Count, API Key
+        row_opt = QHBoxLayout()
+        col_tone = QVBoxLayout()
+        col_tone.addWidget(QLabel("Tone of Voice:"))
+        self.ai_tone = QComboBox()
+        self.ai_tone.addItems(["Casual & Friendly", "Professional & Transparent", "Urgent Clearance / Deal"])
+        col_tone.addWidget(self.ai_tone)
+
+        col_count = QVBoxLayout()
+        col_count.addWidget(QLabel("Variants Count:"))
+        self.ai_variants = QSpinBox()
+        self.ai_variants.setRange(1, 5)
+        self.ai_variants.setValue(3)
+        col_count.addWidget(self.ai_variants)
+
+        col_key = QVBoxLayout()
+        col_key.addWidget(QLabel("Gemini API Key (Optional / Uses Offline Spintax if blank):"))
+        self.ai_api_key_input = QLineEdit()
+        self.ai_api_key_input.setPlaceholderText("AIzaSy... (Leave empty for Offline Spintax Engine)")
+        self.ai_api_key_input.setEchoMode(QLineEdit.Password)
+        default_key = os.environ.get("GEMINI_API_KEY", "")
+        if default_key:
+            self.ai_api_key_input.setText(default_key)
+        col_key.addWidget(self.ai_api_key_input)
+
+        row_opt.addLayout(col_tone, stretch=1)
+        row_opt.addLayout(col_count, stretch=1)
+        row_opt.addLayout(col_key, stretch=2)
+        c_layout.addLayout(row_opt)
+
+        # Action Buttons Row
+        btn_row = QHBoxLayout()
+        self.btn_gen_titles = QPushButton("✨ Generate Title Variants")
+        self.btn_gen_titles.setProperty("class", "secondaryBtn")
+        self.btn_gen_titles.setCursor(Qt.PointingHandCursor)
+        self.btn_gen_titles.clicked.connect(self.generate_ai_titles)
+
+        self.btn_gen_descs = QPushButton("📝 Rewrite Description")
+        self.btn_gen_descs.setProperty("class", "secondaryBtn")
+        self.btn_gen_descs.setCursor(Qt.PointingHandCursor)
+        self.btn_gen_descs.clicked.connect(self.generate_ai_descriptions)
+
+        self.btn_gen_full = QPushButton("🚀 Full Listing Generation")
+        self.btn_gen_full.setProperty("class", "primaryBtn")
+        self.btn_gen_full.setCursor(Qt.PointingHandCursor)
+        self.btn_gen_full.clicked.connect(self.generate_ai_full)
+
+        btn_row.addWidget(self.btn_gen_titles)
+        btn_row.addWidget(self.btn_gen_descs)
+        btn_row.addWidget(self.btn_gen_full)
+        c_layout.addLayout(btn_row)
+
+        layout.addWidget(card)
+
+        # Results Card
+        res_card = QFrame()
+        res_card.setProperty("class", "glassCard")
+        r_layout = QVBoxLayout(res_card)
+        r_layout.setSpacing(12)
+
+        # Titles and Descriptions side by side or stacked
+        res_split = QHBoxLayout()
+
+        # Titles Column
+        col_titles_res = QVBoxLayout()
+        t_top = QHBoxLayout()
+        t_top.addWidget(QLabel("Generated Title Variants:"))
+        t_top.addStretch()
+        use_title_btn = QPushButton("↙️ Use Selected Title")
+        use_title_btn.setProperty("class", "secondaryBtn")
+        use_title_btn.setFixedHeight(22)
+        use_title_btn.setStyleSheet("font-size: 10px; padding: 2px 6px;")
+        use_title_btn.clicked.connect(self.use_selected_title_in_automation)
+        t_top.addWidget(use_title_btn)
+        col_titles_res.addLayout(t_top)
+
+        self.titles_list_widget = QListWidget()
+        self.titles_list_widget.setFixedHeight(140)
+        self.titles_list_widget.setStyleSheet("background-color: #0d1322; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 4px;")
+        col_titles_res.addWidget(self.titles_list_widget)
+
+        # Descriptions Column
+        col_descs_res = QVBoxLayout()
+        d_top = QHBoxLayout()
+        d_top.addWidget(QLabel("Generated Spun Description:"))
+        d_top.addStretch()
+        use_desc_btn = QPushButton("↙️ Use in Automation")
+        use_desc_btn.setProperty("class", "secondaryBtn")
+        use_desc_btn.setFixedHeight(22)
+        use_desc_btn.setStyleSheet("font-size: 10px; padding: 2px 6px;")
+        use_desc_btn.clicked.connect(self.use_selected_desc_in_automation)
+        d_top.addWidget(use_desc_btn)
+        col_descs_res.addLayout(d_top)
+
+        self.desc_preview_widget = QTextEdit()
+        self.desc_preview_widget.setFixedHeight(140)
+        self.desc_preview_widget.setPlaceholderText("Generated description rewrites with bullet points and specs will appear here...")
+        self.desc_preview_widget.setStyleSheet("background-color: #0d1322; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 6px;")
+        col_descs_res.addWidget(self.desc_preview_widget)
+
+        res_split.addLayout(col_titles_res, stretch=1)
+        res_split.addLayout(col_descs_res, stretch=1)
+        r_layout.addLayout(res_split)
+
+        # Transfer Both Button
+        transfer_all_btn = QPushButton("🚀 Apply Title & Description to Automation Form & Switch Tab")
+        transfer_all_btn.setProperty("class", "successBtn")
+        transfer_all_btn.setCursor(Qt.PointingHandCursor)
+        transfer_all_btn.clicked.connect(self.transfer_ai_content)
+        r_layout.addWidget(transfer_all_btn)
+
+        layout.addWidget(res_card)
+
+        scroll.setWidget(container)
+        outer_layout = QVBoxLayout(page)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(scroll)
+        return page
+
+    # --- Phase 5 Automation Tab Synergy Actions ---
+
+    def quick_spin_title(self):
+        """Auto-spins the Title directly in the Automation tab using Gemini or offline spintax."""
+        curr_title = self.title_input.text().strip()
+        seed = curr_title or "Apple iPhone 15 Pro Max 256GB"
+        api_key = self.ai_api_key_input.text().strip() if hasattr(self, 'ai_api_key_input') else os.environ.get("GEMINI_API_KEY", "")
+
+        self.log_message("INFO", f"✨ Auto-Spin Title: Processing variant for '{seed}'...")
+        if hasattr(self, 'btn_spin_title'): self.btn_spin_title.setEnabled(False)
+
+        def on_done(titles):
+            if titles:
+                new_title = titles[0]
+                self.title_input.setText(new_title)
+                self.log_message("SUCCESS", f"✨ Title spun: '{new_title}'")
+            if hasattr(self, 'btn_spin_title'): self.btn_spin_title.setEnabled(True)
+
+        self.ai_worker = AISpinnerWorker(
+            task_type="titles",
+            seed=seed,
+            tone="Casual",
+            count=3,
+            api_key=api_key
+        )
+        self.ai_worker.log_signal.connect(self.log_message)
+        self.ai_worker.titles_ready.connect(on_done)
+        self.ai_worker.start()
+
+    def quick_spin_desc(self):
+        """Auto-spins the Description directly in the Automation tab into a structured, unique variant."""
+        curr_desc = self.desc_input.toPlainText().strip()
+        title = self.title_input.text().strip() or "Product"
+        api_key = self.ai_api_key_input.text().strip() if hasattr(self, 'ai_api_key_input') else os.environ.get("GEMINI_API_KEY", "")
+
+        self.log_message("INFO", f"✨ Auto-Spin Description: Generating unique structured rewrite for '{title}'...")
+        if hasattr(self, 'btn_spin_desc'): self.btn_spin_desc.setEnabled(False)
+
+        def on_done(descs):
+            if descs:
+                new_desc = descs[0]
+                self.desc_input.setPlainText(new_desc)
+                self.log_message("SUCCESS", f"✨ Description rewritten with bullet points & specs ({len(new_desc.splitlines())} lines).")
+            if hasattr(self, 'btn_spin_desc'): self.btn_spin_desc.setEnabled(True)
+
+        self.ai_worker = AISpinnerWorker(
+            task_type="descriptions",
+            seed=title,
+            base_desc=curr_desc or f"Authentic {title} in pristine condition. Includes all original items.",
+            tone="Professional",
+            count=2,
+            api_key=api_key
+        )
+        self.ai_worker.log_signal.connect(self.log_message)
+        self.ai_worker.descs_ready.connect(on_done)
+        self.ai_worker.start()
+
+    # --- Phase 5 AI Page Action Handlers ---
+
+    def generate_ai_titles(self):
+        seed = self.ai_seed_input.text().strip()
+        if not seed:
+            QMessageBox.warning(self, "Missing Input", "Please enter a product name or seed keywords.")
+            return
+
+        api_key = self.ai_api_key_input.text().strip()
+        tone = self.ai_tone.currentText().split()[0]
+        count = self.ai_variants.value()
+
+        self.btn_gen_titles.setEnabled(False)
+        self.titles_list_widget.clear()
+
+        self.ai_worker = AISpinnerWorker(
+            task_type="titles",
+            seed=seed,
+            tone=tone,
+            count=count,
+            api_key=api_key
+        )
+        self.ai_worker.log_signal.connect(self.log_message)
+        self.ai_worker.titles_ready.connect(self.on_ai_titles_ready)
+        self.ai_worker.finished_signal.connect(lambda ok, msg: self.btn_gen_titles.setEnabled(True))
+        self.ai_worker.start()
+
+    def generate_ai_descriptions(self):
+        seed = self.ai_seed_input.text().strip() or "Product"
+        base_desc = self.ai_base_desc_input.toPlainText().strip()
+        api_key = self.ai_api_key_input.text().strip()
+        tone = self.ai_tone.currentText().split()[0]
+        count = self.ai_variants.value()
+
+        self.btn_gen_descs.setEnabled(False)
+
+        self.ai_worker = AISpinnerWorker(
+            task_type="descriptions",
+            seed=seed,
+            base_desc=base_desc,
+            tone=tone,
+            count=count,
+            api_key=api_key
+        )
+        self.ai_worker.log_signal.connect(self.log_message)
+        self.ai_worker.descs_ready.connect(self.on_ai_descs_ready)
+        self.ai_worker.finished_signal.connect(lambda ok, msg: self.btn_gen_descs.setEnabled(True))
+        self.ai_worker.start()
+
+    def generate_ai_full(self):
+        seed = self.ai_seed_input.text().strip()
+        if not seed:
+            QMessageBox.warning(self, "Missing Input", "Please enter a product name or seed keywords.")
+            return
+
+        base_desc = self.ai_base_desc_input.toPlainText().strip()
+        api_key = self.ai_api_key_input.text().strip()
+        tone = self.ai_tone.currentText().split()[0]
+        count = self.ai_variants.value()
+
+        self.btn_gen_full.setEnabled(False)
+        self.titles_list_widget.clear()
+
+        self.ai_worker = AISpinnerWorker(
+            task_type="both",
+            seed=seed,
+            base_desc=base_desc,
+            tone=tone,
+            count=count,
+            api_key=api_key
+        )
+        self.ai_worker.log_signal.connect(self.log_message)
+        self.ai_worker.titles_ready.connect(self.on_ai_titles_ready)
+        self.ai_worker.descs_ready.connect(self.on_ai_descs_ready)
+        self.ai_worker.finished_signal.connect(lambda ok, msg: self.btn_gen_full.setEnabled(True))
+        self.ai_worker.start()
+
+    def on_ai_titles_ready(self, titles):
+        self.titles_list_widget.clear()
+        for idx, t in enumerate(titles, 1):
+            item = QListWidgetItem(f"{idx}. {t}")
+            self.titles_list_widget.addItem(item)
+        if titles:
+            self.titles_list_widget.setCurrentRow(0)
+
+    def on_ai_descs_ready(self, descs):
+        if descs:
+            self.desc_preview_widget.setPlainText(descs[0])
+
+    def use_selected_title_in_automation(self):
+        curr_item = self.titles_list_widget.currentItem()
+        if curr_item:
+            title_text = re.sub(r'^\d+\.\s*', '', curr_item.text())
+            self.title_input.setText(title_text)
+            self.log_message("SUCCESS", f"Transferred title variant to Automation tab: '{title_text}'")
+        else:
+            QMessageBox.information(self, "Selection", "Please select a title from the list.")
+
+    def use_selected_desc_in_automation(self):
+        desc_text = self.desc_preview_widget.toPlainText().strip()
+        if desc_text:
+            self.desc_input.setPlainText(desc_text)
+            self.log_message("SUCCESS", "Transferred rewritten description to Automation tab.")
+        else:
+            QMessageBox.information(self, "Description", "No generated description available to transfer.")
+
+    def transfer_ai_content(self):
+        # Title
+        curr_item = self.titles_list_widget.currentItem()
+        if curr_item:
+            title_text = re.sub(r'^\d+\.\s*', '', curr_item.text())
+            self.title_input.setText(title_text)
+        elif self.ai_seed_input.text().strip():
+            self.title_input.setText(self.ai_seed_input.text().strip())
+
+        # Description
+        desc_text = self.desc_preview_widget.toPlainText().strip()
+        if desc_text:
+            self.desc_input.setPlainText(desc_text)
+        elif self.ai_base_desc_input.toPlainText().strip():
+            self.desc_input.setPlainText(self.ai_base_desc_input.toPlainText().strip())
+
+        self.switch_tab(2)
+        self.log_message("SUCCESS", "Applied generated AI title & description to Automation tab!")
+
+    # --------------------------------------------------------------------------
+    # Tab 5: Settings & Stealth
+    # --------------------------------------------------------------------------
+    def create_settings_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        title = QLabel("System Settings & Stealth Parameters")
+        title.setProperty("class", "pageTitle")
+        sub = QLabel("Configure browser evasion flags, API credentials, and runtime parameters.")
+        sub.setProperty("class", "pageSubtitle")
+        layout.addWidget(title)
+        layout.addWidget(sub)
+
+        card = QFrame()
+        card.setProperty("class", "glassCard")
+        c_layout = QVBoxLayout(card)
+        c_layout.setSpacing(12)
+
+        c_layout.addWidget(QLabel("Gemini API Key (For Content Intelligence):"))
+        self.api_key_input = QLineEdit()
+        self.api_key_input.setPlaceholderText("AIzaSy...")
+        self.api_key_input.setEchoMode(QLineEdit.Password)
+        c_layout.addWidget(self.api_key_input)
+
+        c_layout.addWidget(QLabel("Browser Anti-Detection Flags:"))
+        chk1 = QCheckBox("Enable Playwright Stealth Module (navigator.webdriver mask)")
+        chk1.setChecked(True)
+        chk2 = QCheckBox("Randomize Canvas & WebGL Audio Context Noise")
+        chk2.setChecked(True)
+        chk3 = QCheckBox("Emulate Human Micro-Mouse Jitter & Variable Scroll Velocity")
+        chk3.setChecked(True)
+        chk4 = QCheckBox("Run in Headless Mode (Uncheck to view live automated browser window)")
+        chk4.setChecked(False)
+
+        c_layout.addWidget(chk1)
+        c_layout.addWidget(chk2)
+        c_layout.addWidget(chk3)
+        c_layout.addWidget(chk4)
+
+        # Support & Activation Row
+        btn_wa_support = QPushButton("💬 Contact Support / Order Key on WhatsApp (+14015721696)")
+        btn_wa_support.setCursor(Qt.PointingHandCursor)
+        btn_wa_support.setStyleSheet("background-color: #059669; color: #ffffff; font-weight: bold; border-radius: 8px; padding: 8px;")
+        btn_wa_support.clicked.connect(self.open_whatsapp_support)
+        c_layout.addWidget(btn_wa_support)
+
+        save_btn = QPushButton("Save Configuration")
+        save_btn.setProperty("class", "primaryBtn")
+        save_btn.clicked.connect(lambda: self.log_message("SUCCESS", "System settings and stealth parameters saved."))
+        c_layout.addWidget(save_btn)
+
+        layout.addWidget(card)
+        layout.addStretch()
+        return page
 
     def open_whatsapp_support(self):
         """Opens direct WhatsApp support chat with Admin with pre-formatted HWID."""
@@ -16064,7 +15792,6 @@ class FBAutoBotMainWindow(QMainWindow):
     def create_console_panel(self):
         panel = QFrame()
         panel.setProperty("class", "glassCard")
-        self.con_panel = panel
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(8)
@@ -16072,9 +15799,7 @@ class FBAutoBotMainWindow(QMainWindow):
         # Header bar
         header_bar = QHBoxLayout()
         con_title = QLabel("Live Console & Terminal Output")
-        self.con_title = con_title
-        is_light = (getattr(self, 'current_theme', 'dark') == 'light')
-        con_title.setStyleSheet("font-size: 13px; font-weight: 800; color: #0f172a;" if is_light else "font-size: 13px; font-weight: 700; color: #cbd5e1;")
+        con_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #cbd5e1;")
 
         clear_btn = QPushButton("Clear Console")
         clear_btn.setProperty("class", "secondaryBtn")
@@ -16089,8 +15814,6 @@ class FBAutoBotMainWindow(QMainWindow):
         self.console_box = QTextEdit()
         self.console_box.setObjectName("consoleBox")
         self.console_box.setReadOnly(True)
-        if is_light:
-            self.console_box.setStyleSheet("background-color: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 10px; color: #0f172a; font-family: 'Consolas', 'Menlo', monospace; font-size: 12px; padding: 8px;")
         layout.addWidget(self.console_box)
 
         # Bottom Progress Bar
@@ -16116,35 +15839,21 @@ class FBAutoBotMainWindow(QMainWindow):
         if hasattr(self, 'activity_logs'):
             self.activity_logs.append(entry)
 
-        is_light = (getattr(self, 'current_theme', 'dark') == 'light')
-
-        if is_light:
-            color_map = {
-                "INFO": "#0284c7",       # Sky blue
-                "SUCCESS": "#059669",    # Emerald green
-                "WARNING": "#d97706",    # Amber
-                "ERROR": "#dc2626",      # Crimson red
-                "CRITICAL": "#e11d48",   # Rose red
-                "FALLBACK": "#7c3aed"    # Violet
-            }
-        else:
-            color_map = {
-                "INFO": "#38bdf8",       # Sky blue
-                "SUCCESS": "#10b981",    # Emerald green
-                "WARNING": "#f59e0b",    # Amber
-                "ERROR": "#ef4444",      # Crimson red
-                "CRITICAL": "#ff0055",   # Vivid magenta/red
-                "FALLBACK": "#c084fc"    # Purple/violet
-            }
-
-        color = color_map.get(level.upper(), "#0f172a" if is_light else "#cbd5e1")
+        color_map = {
+            "INFO": "#38bdf8",       # Sky blue
+            "SUCCESS": "#10b981",    # Emerald green
+            "WARNING": "#f59e0b",    # Amber
+            "ERROR": "#ef4444",      # Crimson red
+            "CRITICAL": "#ff0055",   # Vivid magenta/red
+            "FALLBACK": "#c084fc"    # Purple/violet
+        }
+        color = color_map.get(level.upper(), "#cbd5e1")
         badge = f"[{level.upper()}]"
         if level.upper() == "FALLBACK":
             badge = "[FALLBACK 🔄]"
         elif level.upper() == "CRITICAL":
             badge = "[CRITICAL 🚨]"
-        msg_color = "#0f172a" if is_light else "#f8fafc"
-        formatted = f'<span style="color: #64748b;">[{timestamp}]</span> <b style="color: {color};">{badge}</b> <span style="color: {msg_color};">{message}</span>'
+        formatted = f'<span style="color: #64748b;">[{timestamp}]</span> <b style="color: {color};">{badge}</b> <span style="color: #f8fafc;">{message}</span>'
         if hasattr(self, 'console_box'):
             self.console_box.append(formatted)
             self.console_box.moveCursor(QTextCursor.End)
