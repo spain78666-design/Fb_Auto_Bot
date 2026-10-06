@@ -14,6 +14,7 @@ import socket
 import uuid
 import platform
 import urllib.request
+import webbrowser
 import asyncio
 import traceback
 from datetime import datetime
@@ -353,6 +354,28 @@ except ImportError:
     except ImportError:
         HAS_LIKE_COMMENT_BOT = False
 
+# Phase 14: Meta Business Suite Reels Composer Engine
+try:
+    from automation.meta_reels_bot import FacebookMetaReelsBot
+    HAS_META_REELS_BOT = True
+except ImportError:
+    try:
+        from desktop_app.automation.meta_reels_bot import FacebookMetaReelsBot
+        HAS_META_REELS_BOT = True
+    except ImportError:
+        HAS_META_REELS_BOT = False
+
+# Chrome Profile & Shortcut Scanner
+try:
+    from automation.chrome_profile_scanner import scan_folder_for_chrome_profiles
+    HAS_CHROME_SCANNER = True
+except ImportError:
+    try:
+        from desktop_app.automation.chrome_profile_scanner import scan_folder_for_chrome_profiles
+        HAS_CHROME_SCANNER = True
+    except ImportError:
+        HAS_CHROME_SCANNER = False
+
 # Licensing Subsystem & Anti-Tamper Protection
 try:
     from utils.licensing import (
@@ -525,12 +548,12 @@ QPushButton.navBtn {
     background-color: rgba(255, 255, 255, 0.04);
     color: #cbd5e1;
     text-align: left;
-    padding: 10px 14px;
-    border-radius: 11px;
-    font-size: 13px;
+    padding: 8px 12px;
+    border-radius: 9px;
+    font-size: 12.5px;
     font-weight: 500;
     border: 1px solid rgba(255, 255, 255, 0.05);
-    margin: 2px 2px;
+    margin: 1px 2px;
 }
 
 QPushButton.navBtn:hover {
@@ -1878,6 +1901,164 @@ class ReelsUploaderWorker(QThread):
             self.log_signal.emit("SUCCESS", msg)
             self.progress_signal.emit(100)
             self.finished_signal.emit(True, msg)
+
+
+# ------------------------------------------------------------------------------
+# Asynchronous Meta Reels Uploader Worker Thread (Meta Business Suite Reels Engine)
+# ------------------------------------------------------------------------------
+class MetaReelsWorker(QThread):
+    """
+    Asynchronous background worker that orchestrates Facebook Reels uploads via
+    Meta Business Suite (https://business.facebook.com/latest/reels_composer/)
+    with multi-tab parallelism, multi-account concurrency, and automatic Chrome browser cleanup.
+    """
+    log_signal = pyqtSignal(str, str)
+    progress_signal = pyqtSignal(int)
+    counter_signal = pyqtSignal(str, int)  # (account_id, uploaded_count)
+    account_completed_signal = pyqtSignal(str)  # (account_id) unchecks account in UI
+    finished_signal = pyqtSignal(bool, str)
+
+    def __init__(self, payload: Dict[str, Any]):
+        super().__init__()
+        self.payload = payload
+        self.active_bots: List[Any] = []
+        self.loop = None
+        self._is_running = True
+
+    def _log_bridge(self, level: str, message: str):
+        self.log_signal.emit(level, message)
+
+    def _progress_bridge(self, percent: int):
+        self.progress_signal.emit(percent)
+
+    def _counter_bridge(self, account_id: str, count: int):
+        self.counter_signal.emit(account_id, count)
+
+    def stop(self):
+        self._is_running = False
+        self.log_signal.emit("WARNING", "🛑 Stop command received for Meta Reels Automation...")
+        for bot in list(self.active_bots):
+            try:
+                bot.cancel()
+            except Exception:
+                pass
+        self.finished_signal.emit(False, "Meta Reels upload stopped by user.")
+
+    def run(self):
+        setup_windows_asyncio()
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        try:
+            self.loop.run_until_complete(self._execute_task())
+        except Exception as e:
+            if self._is_running:
+                self.log_signal.emit("ERROR", f"Meta Reels Worker error: {str(e)}")
+                self.finished_signal.emit(False, str(e))
+        finally:
+            try:
+                self.loop.close()
+            except Exception:
+                pass
+
+    async def _execute_task(self):
+        if not HAS_META_REELS_BOT:
+            self.log_signal.emit("ERROR", "Meta Reels Bot engine module not found.")
+            self.finished_signal.emit(False, "Meta Reels bot module missing.")
+            return
+
+        accounts = self.payload.get("accounts", [])
+        if not accounts:
+            self.log_signal.emit("ERROR", "No target Facebook accounts selected.")
+            self.finished_signal.emit(False, "No accounts selected.")
+            return
+
+        video_files = self.payload.get("video_files", [])
+        if not video_files:
+            self.log_signal.emit("ERROR", "No video files found in the media pool.")
+            self.finished_signal.emit(False, "No video files in pool.")
+            return
+
+        reels_per_acc = int(self.payload.get("reels_per_account", 5))
+        account_delay_seconds = float(self.payload.get("account_delay_seconds", 5.0))
+        caption_template = self.payload.get("caption_template", "")
+        selection_mode = self.payload.get("selection_mode", "Random Pool (No Dup)")
+        concurrent_browsers = max(1, int(self.payload.get("concurrent_browsers", 1)))
+        network_mode = self.payload.get("network_mode", "direct")
+
+        self.log_signal.emit(
+            "INFO",
+            f"🚀 Starting Meta Reels Upload on {len(accounts)} account(s) "
+            f"({len(video_files)} video files, {reels_per_acc} parallel tabs/account, Concurrency: {concurrent_browsers} browsers)..."
+        )
+
+        sem = asyncio.Semaphore(concurrent_browsers)
+        total_accs = len(accounts)
+        completed_accs = 0
+        total_uploaded = 0
+
+        async def _process_account(acc: Dict[str, Any], acc_idx: int):
+            nonlocal completed_accs, total_uploaded
+            async with sem:
+                if not self._is_running:
+                    return
+
+                if acc_idx > 0 and concurrent_browsers > 1:
+                    stagger_s = min(6.0, (acc_idx % concurrent_browsers) * 3.0)
+                    if stagger_s > 0:
+                        self.log_signal.emit("INFO", f"⏳ Staggering browser #{acc_idx + 1} startup by {stagger_s:.1f}s...")
+                        await asyncio.sleep(stagger_s)
+
+                acc_copy = dict(acc)
+                if not acc_copy.get("id"):
+                    acc_copy["id"] = f"acc_{acc_idx}_{int(time.time())}"
+                acc_copy["network_mode"] = network_mode
+                tag = f"[{acc.get('name', 'Account')}]"
+
+                bot = FacebookMetaReelsBot(
+                    account_data=acc_copy,
+                    video_files=video_files,
+                    reels_per_account=reels_per_acc,
+                    caption_template=caption_template,
+                    selection_mode=selection_mode,
+                    log_callback=self._log_bridge,
+                    progress_callback=self._progress_bridge,
+                    counter_callback=self._counter_bridge
+                )
+                self.active_bots.append(bot)
+
+                try:
+                    res = await bot.run()
+                    c = res.get("uploaded", 0)
+                    total_uploaded += c
+                except Exception as ex:
+                    self.log_signal.emit("ERROR", f"{tag} Error during upload: {str(ex)}")
+                finally:
+                    if bot in self.active_bots:
+                        self.active_bots.remove(bot)
+                    try:
+                        await bot.close()
+                    except Exception:
+                        pass
+
+                completed_accs += 1
+                percent = int((completed_accs / total_accs) * 100)
+                self.progress_signal.emit(percent)
+                acc_id = str(acc.get("id", ""))
+                if acc_id:
+                    self.account_completed_signal.emit(acc_id)
+
+                if account_delay_seconds > 0 and completed_accs < total_accs and self._is_running:
+                    await asyncio.sleep(min(account_delay_seconds, 15.0))
+
+        tasks = [_process_account(acc, idx) for idx, acc in enumerate(accounts)]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        if self._is_running:
+            msg = f"🎉 Meta Reels Upload finished! Successfully uploaded {total_uploaded} Reels across {len(accounts)} account(s)."
+            self.log_signal.emit("SUCCESS", msg)
+            self.progress_signal.emit(100)
+            self.finished_signal.emit(True, msg)
+
 
 
 # ------------------------------------------------------------------------------
@@ -3503,6 +3684,10 @@ class FBAutoBotMainWindow(QMainWindow):
         self.friend_request_worker = None
         self.reels_worker = None
         self.reels_media_pool = []
+        self.meta_reels_worker = None
+        self.meta_reels_media_pool = []
+        self.meta_reels_acc_checkboxes = []
+        self.meta_reels_acc_counter_labels = {}
         self.profile_pic_worker = None
         self.profile_photos_pool = []
         self.cover_photos_pool = []
@@ -3623,6 +3808,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.page_profile_picture = self.create_profile_picture_page()
         self.page_extract_cookie = self.create_extract_cookie_page()
         self.page_like_comment = self.create_like_comment_page()
+        self.page_meta_reels = self.create_meta_reels_page()
         self.page_ai = self.create_ai_page()
         self.page_settings = self.create_settings_page()
         self.page_profile = self.create_profile_page()
@@ -3638,8 +3824,8 @@ class FBAutoBotMainWindow(QMainWindow):
         self.pages_stack.addWidget(self.page_profile_picture)  # Index 8 (Add Profile Picture)
         self.pages_stack.addWidget(self.page_extract_cookie)   # Index 9 (Extract ID Cookie)
         self.pages_stack.addWidget(self.page_like_comment)     # Index 10 (Auto Like & Comment)
-        self.pages_stack.addWidget(self.page_ai)               # Index 11 (AI Content Spinner)
-        self.pages_stack.addWidget(self.page_settings)         # Index 12 (Settings & Stealth)
+        self.pages_stack.addWidget(self.page_meta_reels)       # Index 11 (Create Reel / Meta)
+        self.pages_stack.addWidget(self.page_ai)               # Index 12 (AI Content Spinner)
         self.pages_stack.addWidget(self.page_profile)          # Index 13 (User Profile & Activity Logs)
 
         content_layout.addWidget(self.pages_stack, stretch=7)
@@ -3713,7 +3899,7 @@ class FBAutoBotMainWindow(QMainWindow):
             font-weight: 700;
             padding: 4px 10px;
         """)
-        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(11)
+        self.header_countdown_pill.mousePressEvent = lambda e: self.switch_tab(13)
         right_layout.addWidget(self.header_countdown_pill)
 
         # User Profile Chip
@@ -3737,7 +3923,7 @@ class FBAutoBotMainWindow(QMainWindow):
                 border: 1px solid rgba(255, 255, 255, 0.25);
             }
         """)
-        self.header_user_chip.clicked.connect(lambda: self.switch_tab(11))
+        self.header_user_chip.clicked.connect(lambda: self.switch_tab(13))
         right_layout.addWidget(self.header_user_chip)
 
         # Quick Key Button
@@ -3795,8 +3981,8 @@ class FBAutoBotMainWindow(QMainWindow):
         frame.setObjectName("sidebarFrame")
         frame.setFixedWidth(252)
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(12, 20, 12, 20)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 12, 10, 12)
+        layout.setSpacing(3)
 
         # Brand Logo Header
         brand_box = QHBoxLayout()
@@ -3805,25 +3991,25 @@ class FBAutoBotMainWindow(QMainWindow):
             logo_lbl = QLabel()
             pixmap = QPixmap(logo_file)
             if not pixmap.isNull():
-                logo_lbl.setPixmap(pixmap.scaled(38, 38, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                logo_lbl.setPixmap(pixmap.scaled(36, 36, Qt.KeepAspectRatio, Qt.SmoothTransformation))
                 brand_box.addWidget(logo_lbl)
             else:
                 logo_icon = QLabel("⚡")
-                logo_icon.setStyleSheet("font-size: 24px; color: #3b82f6;")
+                logo_icon.setStyleSheet("font-size: 22px; color: #3b82f6;")
                 brand_box.addWidget(logo_icon)
         else:
             logo_icon = QLabel("⚡")
-            logo_icon.setStyleSheet("font-size: 24px; color: #3b82f6;")
+            logo_icon.setStyleSheet("font-size: 22px; color: #3b82f6;")
             brand_box.addWidget(logo_icon)
 
         brand_title = QLabel("FB Auto Bot")
-        brand_title.setStyleSheet("font-size: 18px; font-weight: 800; color: #ffffff;")
+        brand_title.setStyleSheet("font-size: 17px; font-weight: 800; color: #ffffff;")
         brand_box.addWidget(brand_title)
         brand_box.addStretch()
         layout.addLayout(brand_box)
 
         version_lbl = QLabel("ENTERPRISE EDITION v2.4")
-        version_lbl.setStyleSheet("font-size: 10px; font-weight: 700; color: #6366f1; letter-spacing: 1px; margin-bottom: 16px;")
+        version_lbl.setStyleSheet("font-size: 10px; font-weight: 700; color: #6366f1; letter-spacing: 0.8px; margin-bottom: 6px;")
         layout.addWidget(version_lbl)
 
         # Navigation Buttons (14 Tabs)
@@ -3840,8 +4026,8 @@ class FBAutoBotMainWindow(QMainWindow):
             ("🖼️ Add Profile Picture", 8),
             ("🍪 Extract ID Cookie", 9),
             ("👍 Auto Like & Comment", 10),
-            ("🧠 AI Content Spinner", 11),
-            ("⚙️ Settings & Stealth", 12),
+            ("🎬 Create Reel / Meta", 11),
+            ("🧠 AI Content Spinner", 12),
             ("👤 User Profile & Logs", 13),
         ]
 
@@ -3855,21 +4041,51 @@ class FBAutoBotMainWindow(QMainWindow):
 
         layout.addStretch()
 
-        # Engine Quick Status Badge
-        status_box = QFrame()
-        status_box.setStyleSheet("background-color: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px;")
-        status_layout = QVBoxLayout(status_box)
-        status_layout.setContentsMargins(8, 8, 8, 8)
-        status_layout.setSpacing(4)
-        
-        eng_title = QLabel("STEALTH ENGINE")
-        eng_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #94a3b8;")
+        # Developed by ABM Code Space Badge
+        dev_card = QFrame()
+        dev_card.setObjectName("developerCard")
+        dev_card.setCursor(Qt.PointingHandCursor)
+        dev_card.setStyleSheet("""
+            QFrame#developerCard {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(15, 23, 42, 0.85), stop:1 rgba(30, 41, 59, 0.85));
+                border: 1px solid rgba(99, 102, 241, 0.35);
+                border-radius: 9px;
+                padding: 6px;
+                margin-top: 4px;
+            }
+            QFrame#developerCard:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(30, 41, 59, 0.95), stop:1 rgba(49, 46, 129, 0.70));
+                border: 1px solid #818cf8;
+            }
+        """)
+        dev_layout = QVBoxLayout(dev_card)
+        dev_layout.setContentsMargins(6, 6, 6, 6)
+        dev_layout.setSpacing(2)
+        dev_layout.setAlignment(Qt.AlignCenter)
+
+        dev_sub = QLabel("DEVELOPED BY")
+        dev_sub.setAlignment(Qt.AlignCenter)
+        dev_sub.setStyleSheet("font-size: 9.5px; font-weight: 800; color: #38bdf8; letter-spacing: 1.2px;")
+
+        dev_title = QLabel("ABM Code Space")
+        dev_title.setAlignment(Qt.AlignCenter)
+        dev_title.setStyleSheet("font-size: 13px; font-weight: 900; color: #c084fc; letter-spacing: 0.5px;")
+
+        dev_layout.addWidget(dev_sub)
+        dev_layout.addWidget(dev_title)
+
+        # Portfolio Link - Clicking opens developer portfolio in browser
+        self.developer_portfolio_url = "https://abmcodespace.vercel.app/"
+        def _open_portfolio(event=None):
+            try:
+                webbrowser.open(self.developer_portfolio_url)
+            except Exception:
+                pass
+        dev_card.mousePressEvent = _open_portfolio
+        layout.addWidget(dev_card)
+
+        # Retain status label reference for background worker signals without crowding the sidebar
         self.engine_status_lbl = QLabel("● READY FOR TASKS")
-        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
-        
-        status_layout.addWidget(eng_title)
-        status_layout.addWidget(self.engine_status_lbl)
-        layout.addWidget(status_box)
 
         return frame
 
@@ -3894,8 +4110,8 @@ class FBAutoBotMainWindow(QMainWindow):
             "Add Profile Picture & Cover Photo",
             "Extract ID Cookie & Session Tokens",
             "Auto Like & Comment Engine",
+            "Create Reel / Meta (Reels Composer)",
             "AI Content Spinner & Intelligence",
-            "Settings & Stealth Parameters",
             "User Profile & Activity Logs"
         ]
         if 0 <= index < len(tab_names) and hasattr(self, 'header_page_title'):
@@ -7606,6 +7822,8 @@ class FBAutoBotMainWindow(QMainWindow):
         self.update_account_dropdown()
         if hasattr(self, 'populate_reels_accounts_checklist'):
             self.populate_reels_accounts_checklist()
+        if hasattr(self, 'populate_meta_reels_accounts_checklist'):
+            self.populate_meta_reels_accounts_checklist()
         if hasattr(self, 'populate_req_accounts_checklist'):
             self.populate_req_accounts_checklist()
         if hasattr(self, 'populate_page_creation_accounts_checklist'):
@@ -7689,6 +7907,10 @@ class FBAutoBotMainWindow(QMainWindow):
         self.populate_group_accounts_checklist()
         self.populate_page_creation_accounts_checklist()
         self.populate_req_accounts_checklist()
+        if hasattr(self, 'populate_reels_accounts_checklist'):
+            self.populate_reels_accounts_checklist()
+        if hasattr(self, 'populate_meta_reels_accounts_checklist'):
+            self.populate_meta_reels_accounts_checklist()
         self.refresh_project_accounts_checklist()
         self.update_dashboard_account_filter()
         self.refresh_dashboard_metrics()
@@ -15374,6 +15596,832 @@ class FBAutoBotMainWindow(QMainWindow):
 
         if success:
             QMessageBox.information(self, "Like & Comment Complete", message)
+        else:
+            QMessageBox.warning(self, "Automation Notice", message)
+
+    # --------------------------------------------------------------------------
+    # Tab 11: Create Reel / Meta (Meta Business Suite Reels Composer)
+    # URL: https://business.facebook.com/latest/reels_composer/
+    # --------------------------------------------------------------------------
+    def create_meta_reels_page(self):
+        page = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        # Header Title
+        title_box = QVBoxLayout()
+        title = QLabel("🎬 Create Reel / Meta (Reels Composer)")
+        title.setProperty("class", "pageTitle")
+        sub = QLabel("Automate high-speed multi-tab Facebook Reels creation via Meta Business Suite (https://business.facebook.com/latest/reels_composer/) with parallel tabs, auto video attachments, Spintax descriptions, and 3-step wizard publishing.")
+        sub.setProperty("class", "pageSubtitle")
+        title_box.addWidget(title)
+        title_box.addWidget(sub)
+        layout.addLayout(title_box)
+
+        # ----------------------------------------------------------------------
+        # Card 1: Target Facebook Accounts & Concurrency Configuration
+        # ----------------------------------------------------------------------
+        acc_card = QFrame()
+        acc_card.setProperty("class", "glassCard")
+        acc_card.setStyleSheet("background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; padding: 12px;")
+        acc_card_layout = QVBoxLayout(acc_card)
+        acc_card_layout.setSpacing(8)
+
+        acc_hdr = QHBoxLayout()
+        acc_hdr.addWidget(QLabel("👥 1. Target Facebook Accounts for Meta Reels:"))
+        self.meta_reels_acc_summary_lbl = QLabel("🎯 0 Account(s) Selected")
+        self.meta_reels_acc_summary_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        acc_hdr.addWidget(self.meta_reels_acc_summary_lbl)
+        acc_hdr.addStretch()
+
+        self.btn_meta_reels_refresh_acc = QPushButton("🔄 Refresh")
+        self.btn_meta_reels_refresh_acc.setStyleSheet("background-color: #059669; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
+        self.btn_meta_reels_refresh_acc.setCursor(Qt.PointingHandCursor)
+        self.btn_meta_reels_refresh_acc.clicked.connect(self.populate_meta_reels_accounts_checklist)
+        acc_hdr.addWidget(self.btn_meta_reels_refresh_acc)
+
+        self.btn_meta_reels_select_all = QPushButton("⚡ Select All")
+        self.btn_meta_reels_select_all.setStyleSheet("background-color: #3b82f6; color: white; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;")
+        self.btn_meta_reels_select_all.setCursor(Qt.PointingHandCursor)
+        self.btn_meta_reels_select_all.clicked.connect(self.select_all_meta_reels_accounts)
+        acc_hdr.addWidget(self.btn_meta_reels_select_all)
+
+        self.btn_meta_reels_clear_acc = QPushButton("❌ Clear")
+        self.btn_meta_reels_clear_acc.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 4px 10px; border-radius: 6px;")
+        self.btn_meta_reels_clear_acc.setCursor(Qt.PointingHandCursor)
+        self.btn_meta_reels_clear_acc.clicked.connect(self.clear_all_meta_reels_accounts)
+        acc_hdr.addWidget(self.btn_meta_reels_clear_acc)
+        acc_card_layout.addLayout(acc_hdr)
+
+        # Account Source Mode Selection (Account Manager vs Local Chrome Folder)
+        mode_box = QHBoxLayout()
+        mode_box.setSpacing(16)
+        mode_lbl = QLabel("📁 Account Source:")
+        mode_lbl.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: 800;")
+        mode_box.addWidget(mode_lbl)
+
+        self.meta_reels_mode_saved_radio = QRadioButton("💼 Account Manager (Saved Accounts & Cookies)")
+        self.meta_reels_mode_saved_radio.setStyleSheet("color: #f1f5f9; font-size: 11px; font-weight: 700;")
+        self.meta_reels_mode_saved_radio.setChecked(True)
+        self.meta_reels_mode_saved_radio.toggled.connect(self.on_meta_reels_source_mode_changed)
+        mode_box.addWidget(self.meta_reels_mode_saved_radio)
+
+        self.meta_reels_mode_local_folder_radio = QRadioButton("🌐 Local Chrome Shortcuts / Profiles Folder (Pre-Logged In)")
+        self.meta_reels_mode_local_folder_radio.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        self.meta_reels_mode_local_folder_radio.toggled.connect(self.on_meta_reels_source_mode_changed)
+        mode_box.addWidget(self.meta_reels_mode_local_folder_radio)
+        mode_box.addStretch()
+        acc_card_layout.addLayout(mode_box)
+
+        # Panel for Local Chrome Shortcuts & Profiles Folder
+        self.meta_reels_local_panel = QFrame()
+        self.meta_reels_local_panel.setStyleSheet("background: rgba(30, 41, 59, 0.45); border: 1px dashed rgba(56, 189, 248, 0.35); border-radius: 8px; padding: 6px;")
+        local_p_layout = QVBoxLayout(self.meta_reels_local_panel)
+        local_p_layout.setContentsMargins(6, 6, 6, 6)
+        local_p_layout.setSpacing(6)
+
+        local_row = QHBoxLayout()
+        local_row.setSpacing(8)
+        local_lbl = QLabel("📂 Chrome Folder Path:")
+        local_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700; min-width: 135px;")
+        local_row.addWidget(local_lbl)
+
+        self.meta_reels_chrome_folder_input = QLineEdit()
+        self.meta_reels_chrome_folder_input.setPlaceholderText("Folder containing Chrome shortcuts (.lnk) or profiles (e.g. C:\\Users\\Admin\\Desktop\\Chromes)...")
+        self.meta_reels_chrome_folder_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 6px; padding: 6px 10px;")
+        local_row.addWidget(self.meta_reels_chrome_folder_input, stretch=1)
+
+        self.btn_meta_reels_browse_chrome_folder = QPushButton("📂 Browse Folder")
+        self.btn_meta_reels_browse_chrome_folder.setStyleSheet("background-color: #6366f1; color: white; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 6px;")
+        self.btn_meta_reels_browse_chrome_folder.setCursor(Qt.PointingHandCursor)
+        self.btn_meta_reels_browse_chrome_folder.clicked.connect(self.browse_meta_reels_chrome_folder)
+        local_row.addWidget(self.btn_meta_reels_browse_chrome_folder)
+
+        self.btn_meta_reels_fetch_chromes = QPushButton("🔍 Fetch Chromes / Profiles")
+        self.btn_meta_reels_fetch_chromes.setStyleSheet("background-color: #0284c7; color: white; font-size: 11px; font-weight: 700; padding: 6px 14px; border-radius: 6px;")
+        self.btn_meta_reels_fetch_chromes.setCursor(Qt.PointingHandCursor)
+        self.btn_meta_reels_fetch_chromes.clicked.connect(self.fetch_meta_reels_chrome_profiles)
+        local_row.addWidget(self.btn_meta_reels_fetch_chromes)
+
+        self.btn_meta_reels_default_user_data = QPushButton("⚡ Default Chrome Data")
+        self.btn_meta_reels_default_user_data.setStyleSheet("background-color: #059669; color: white; font-size: 11px; font-weight: 700; padding: 6px 10px; border-radius: 6px;")
+        self.btn_meta_reels_default_user_data.setCursor(Qt.PointingHandCursor)
+        self.btn_meta_reels_default_user_data.clicked.connect(self.set_default_chrome_user_data_path)
+        local_row.addWidget(self.btn_meta_reels_default_user_data)
+
+        local_p_layout.addLayout(local_row)
+
+        tip_lbl = QLabel("💡 Tip: Enter any folder containing your Chrome shortcuts (.lnk) or profiles. Click 'Fetch Chromes / Profiles' to automatically load each Chrome with pre-logged in Facebook!")
+        tip_lbl.setStyleSheet("color: #94a3b8; font-size: 10px; font-style: italic;")
+        local_p_layout.addWidget(tip_lbl)
+
+        self.meta_reels_local_panel.setVisible(False)
+        acc_card_layout.addWidget(self.meta_reels_local_panel)
+
+        # Accounts checklist scroll area
+        self.meta_reels_acc_scroll = QScrollArea()
+        self.meta_reels_acc_scroll.setFixedHeight(120)
+        self.meta_reels_acc_scroll.setWidgetResizable(True)
+        self.meta_reels_acc_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(15, 23, 42, 0.7); border-radius: 6px; }")
+
+        self.meta_reels_acc_widget = QWidget()
+        self.meta_reels_acc_layout = QVBoxLayout(self.meta_reels_acc_widget)
+        self.meta_reels_acc_layout.setContentsMargins(8, 6, 8, 6)
+        self.meta_reels_acc_layout.setSpacing(4)
+        self.meta_reels_acc_scroll.setWidget(self.meta_reels_acc_widget)
+        acc_card_layout.addWidget(self.meta_reels_acc_scroll)
+
+        # Bottom Concurrency & Network Row
+        cfg_row = QHBoxLayout()
+        cfg_row.setSpacing(12)
+
+        c_lbl = QLabel("🖥️ Concurrent Browsers:")
+        c_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(c_lbl)
+        self.meta_reels_concurrent_spin = QSpinBox()
+        self.meta_reels_concurrent_spin.setRange(1, 10)
+        self.meta_reels_concurrent_spin.setValue(1)
+        self.meta_reels_concurrent_spin.setToolTip("How many Chrome browser accounts to run simultaneously.")
+        self.meta_reels_concurrent_spin.setStyleSheet("font-weight: 800; color: #e2e8f0; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 6px;")
+        cfg_row.addWidget(self.meta_reels_concurrent_spin)
+
+        d_lbl = QLabel("⏱️ Account Delay (Sec):")
+        d_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(d_lbl)
+        self.meta_reels_delay_spin = QDoubleSpinBox()
+        self.meta_reels_delay_spin.setRange(1.0, 60.0)
+        self.meta_reels_delay_spin.setValue(5.0)
+        self.meta_reels_delay_spin.setStyleSheet("font-weight: 800; color: #e2e8f0; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 6px;")
+        cfg_row.addWidget(self.meta_reels_delay_spin)
+
+        net_lbl = QLabel("🌐 Network:")
+        net_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700;")
+        cfg_row.addWidget(net_lbl)
+        self.meta_reels_network_combo = QComboBox()
+        self.meta_reels_network_combo.addItems([
+            "⚡ Direct Connection (Recommended)",
+            "🛡️ Use Account Proxy (If Configured)"
+        ])
+        self.meta_reels_network_combo.setStyleSheet("font-weight: 700; color: #10b981; background: #0f172a; border: 1px solid #10b981; border-radius: 4px; padding: 2px 8px; font-size: 11px;")
+        cfg_row.addWidget(self.meta_reels_network_combo)
+        cfg_row.addStretch()
+
+        acc_card_layout.addLayout(cfg_row)
+        layout.addWidget(acc_card)
+
+        # ----------------------------------------------------------------------
+        # Card 2: Reel Videos Column & Composer Settings
+        # ----------------------------------------------------------------------
+        videos_card = QFrame()
+        videos_card.setProperty("class", "glassCard")
+        videos_card.setStyleSheet("background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 10px; padding: 14px;")
+        v_layout = QVBoxLayout(videos_card)
+        v_layout.setSpacing(10)
+
+        v_hdr = QHBoxLayout()
+        v_title = QLabel("📹 2. Reel Videos & Meta Composer Settings")
+        v_title.setStyleSheet("font-size: 13px; font-weight: 800; color: #c084fc;")
+        v_hdr.addWidget(v_title)
+        v_hdr.addStretch()
+
+        self.btn_add_meta_reels_files = QPushButton("➕ Add Video Files")
+        self.btn_add_meta_reels_files.setStyleSheet("background-color: #7c3aed; color: white; font-size: 11px; font-weight: 700; padding: 5px 12px; border-radius: 6px;")
+        self.btn_add_meta_reels_files.setCursor(Qt.PointingHandCursor)
+        self.btn_add_meta_reels_files.clicked.connect(self.add_meta_reels_files)
+        v_hdr.addWidget(self.btn_add_meta_reels_files)
+
+        self.btn_add_meta_reels_folder = QPushButton("📂 Browse Folder")
+        self.btn_add_meta_reels_folder.setStyleSheet("background-color: #6d28d9; color: white; font-size: 11px; font-weight: 700; padding: 5px 12px; border-radius: 6px;")
+        self.btn_add_meta_reels_folder.setCursor(Qt.PointingHandCursor)
+        self.btn_add_meta_reels_folder.clicked.connect(self.add_meta_reels_folder)
+        v_hdr.addWidget(self.btn_add_meta_reels_folder)
+
+        self.btn_clear_meta_reels_pool = QPushButton("🗑️ Clear Videos")
+        self.btn_clear_meta_reels_pool.setStyleSheet("background-color: #475569; color: white; font-size: 11px; padding: 5px 10px; border-radius: 6px;")
+        self.btn_clear_meta_reels_pool.setCursor(Qt.PointingHandCursor)
+        self.btn_clear_meta_reels_pool.clicked.connect(self.clear_meta_reels_pool)
+        v_hdr.addWidget(self.btn_clear_meta_reels_pool)
+        v_layout.addLayout(v_hdr)
+
+        # Folder Path input bar row (Specific directory containing reels)
+        folder_bar = QHBoxLayout()
+        folder_bar.setSpacing(8)
+        f_lbl = QLabel("📂 Reels Folder Path:")
+        f_lbl.setStyleSheet("color: #38bdf8; font-size: 11px; font-weight: 700; min-width: 130px;")
+        folder_bar.addWidget(f_lbl)
+
+        self.meta_reels_folder_input = QLineEdit()
+        self.meta_reels_folder_input.setPlaceholderText("Paste or browse folder path (e.g. C:\\Users\\Admin\\Videos\\Reels)...")
+        self.meta_reels_folder_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 6px; padding: 6px 10px;")
+        self.meta_reels_folder_input.textChanged.connect(self.on_meta_reels_folder_path_changed)
+        folder_bar.addWidget(self.meta_reels_folder_input, stretch=1)
+
+        btn_load_folder = QPushButton("⚡ Load Folder")
+        btn_load_folder.setStyleSheet("background-color: #0284c7; color: white; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 6px;")
+        btn_load_folder.setCursor(Qt.PointingHandCursor)
+        btn_load_folder.clicked.connect(lambda: self.on_meta_reels_folder_path_changed(self.meta_reels_folder_input.text()))
+        folder_bar.addWidget(btn_load_folder)
+
+        v_layout.addLayout(folder_bar)
+
+        # Videos pool scroll container
+        self.meta_reels_pool_scroll = QScrollArea()
+        self.meta_reels_pool_scroll.setFixedHeight(130)
+        self.meta_reels_pool_scroll.setWidgetResizable(True)
+        self.meta_reels_pool_scroll.setStyleSheet("QScrollArea { border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(15, 23, 42, 0.5); border-radius: 6px; }")
+
+        self.meta_reels_pool_widget = QWidget()
+        self.meta_reels_pool_layout = QVBoxLayout(self.meta_reels_pool_widget)
+        self.meta_reels_pool_layout.setContentsMargins(8, 6, 8, 6)
+        self.meta_reels_pool_layout.setSpacing(4)
+        self.meta_reels_pool_scroll.setWidget(self.meta_reels_pool_widget)
+        v_layout.addWidget(self.meta_reels_pool_scroll)
+
+        # Tabs per account & Video selection mode
+        ctrl_row = QHBoxLayout()
+        ctrl_row.setSpacing(14)
+
+        t_col = QVBoxLayout()
+        t_lbl = QLabel("📑 Parallel Tabs / Reels per Account:")
+        t_lbl.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700;")
+        t_col.addWidget(t_lbl)
+        self.meta_reels_per_acc_spin = QSpinBox()
+        self.meta_reels_per_acc_spin.setRange(1, 20)
+        self.meta_reels_per_acc_spin.setValue(5)
+        self.meta_reels_per_acc_spin.setToolTip("Number of tabs to open simultaneously in Chrome for each account.")
+        self.meta_reels_per_acc_spin.setStyleSheet("background-color: #0f172a; color: #38bdf8; font-weight: 800; font-size: 13px; border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 5px; padding: 4px;")
+        t_col.addWidget(self.meta_reels_per_acc_spin)
+        ctrl_row.addLayout(t_col)
+
+        m_col = QVBoxLayout()
+        m_lbl = QLabel("🎲 Video Selection Mode:")
+        m_lbl.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700;")
+        m_col.addWidget(m_lbl)
+        self.meta_reels_selection_combo = QComboBox()
+        self.meta_reels_selection_combo.addItems([
+            "Random Pool (No Dup)",
+            "Sequential (Top to Bottom)",
+            "Loop All Videos"
+        ])
+        self.meta_reels_selection_combo.setStyleSheet("background-color: #0f172a; color: #c084fc; font-weight: 700; font-size: 11px; border: 1px solid rgba(168, 85, 247, 0.4); border-radius: 5px; padding: 4px 8px;")
+        m_col.addWidget(self.meta_reels_selection_combo)
+        ctrl_row.addLayout(m_col)
+
+        v_layout.addLayout(ctrl_row)
+
+        # Description / Caption Box
+        cap_box = QVBoxLayout()
+        cap_box.setSpacing(4)
+        cap_hdr = QHBoxLayout()
+        cap_hdr.addWidget(QLabel("📝 Reel Description / Caption (Supports Spintax {A|B}):"))
+        cap_hdr.addStretch()
+
+        btn_sample_cap = QPushButton("⚡ Insert Sample Caption")
+        btn_sample_cap.setStyleSheet("background-color: #2563eb; color: white; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px;")
+        btn_sample_cap.setCursor(Qt.PointingHandCursor)
+        btn_sample_cap.clicked.connect(self.insert_sample_meta_reels_caption)
+        cap_hdr.addWidget(btn_sample_cap)
+
+        btn_test_spin = QPushButton("🎲 Test Spintax")
+        btn_test_spin.setStyleSheet("background-color: #059669; color: white; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px;")
+        btn_test_spin.setCursor(Qt.PointingHandCursor)
+        btn_test_spin.clicked.connect(self.test_meta_reels_spin_caption)
+        cap_hdr.addWidget(btn_test_spin)
+        cap_box.addLayout(cap_hdr)
+
+        self.meta_reels_caption_input = QTextEdit()
+        self.meta_reels_caption_input.setFixedHeight(70)
+        self.meta_reels_caption_input.setPlaceholderText("{🔥 Amazing Reel|Must Watch Video|Check this out}! Drop a follow ❤️ #reels #viral #trending #fyp")
+        self.meta_reels_caption_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 8px;")
+        cap_box.addWidget(self.meta_reels_caption_input)
+        v_layout.addLayout(cap_box)
+
+        layout.addWidget(videos_card)
+
+        # ----------------------------------------------------------------------
+        # Card 3: Execution Controls, Progress & Live Console
+        # ----------------------------------------------------------------------
+        exec_card = QFrame()
+        exec_card.setProperty("class", "glassCard")
+        exec_card.setStyleSheet("background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 14px;")
+        exec_layout = QVBoxLayout(exec_card)
+        exec_layout.setSpacing(10)
+
+        # Progress bar
+        self.meta_reels_progress_bar = QProgressBar()
+        self.meta_reels_progress_bar.setValue(0)
+        self.meta_reels_progress_bar.setTextVisible(True)
+        self.meta_reels_progress_bar.setFixedHeight(18)
+        self.meta_reels_progress_bar.setStyleSheet("""
+            QProgressBar {
+                background: #0f172a;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 9px;
+                text-align: center;
+                color: #ffffff;
+                font-size: 10px;
+                font-weight: 700;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7c3aed, stop:1 #38bdf8);
+                border-radius: 9px;
+            }
+        """)
+        exec_layout.addWidget(self.meta_reels_progress_bar)
+
+        # Status row
+        status_row = QHBoxLayout()
+        self.meta_reels_status_lbl = QLabel("● READY FOR META REELS")
+        self.meta_reels_status_lbl.setStyleSheet("color: #10b981; font-weight: 800; font-size: 12px;")
+        status_row.addWidget(self.meta_reels_status_lbl)
+
+        status_row.addStretch()
+
+        self.meta_reels_total_processed_lbl = QLabel("🎯 Reels Published: 0")
+        self.meta_reels_total_processed_lbl.setStyleSheet("color: #f8fafc; font-weight: 700; font-size: 12px; background: rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 6px;")
+        status_row.addWidget(self.meta_reels_total_processed_lbl)
+
+        exec_layout.addLayout(status_row)
+
+        # Button row
+        btn_box = QHBoxLayout()
+        btn_box.setSpacing(12)
+
+        self.btn_start_meta_reels = QPushButton("🚀 Start Meta Reels Upload")
+        self.btn_start_meta_reels.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7c3aed, stop:1 #2563eb);
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 800;
+                padding: 10px 24px;
+                border-radius: 8px;
+                border: none;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #9333ea, stop:1 #38bdf8);
+            }
+            QPushButton:disabled {
+                background: #334155;
+                color: #94a3b8;
+            }
+        """)
+        self.btn_start_meta_reels.setCursor(Qt.PointingHandCursor)
+        self.btn_start_meta_reels.clicked.connect(self.start_meta_reels_upload)
+        btn_box.addWidget(self.btn_start_meta_reels, stretch=2)
+
+        self.btn_stop_meta_reels = QPushButton("🛑 Stop Automation")
+        self.btn_stop_meta_reels.setStyleSheet("""
+            QPushButton {
+                background-color: #ef4444;
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 800;
+                padding: 10px 20px;
+                border-radius: 8px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #dc2626;
+            }
+            QPushButton:disabled {
+                background-color: #334155;
+                color: #64748b;
+            }
+        """)
+        self.btn_stop_meta_reels.setEnabled(False)
+        self.btn_stop_meta_reels.setCursor(Qt.PointingHandCursor)
+        self.btn_stop_meta_reels.clicked.connect(self.stop_meta_reels_upload)
+        btn_box.addWidget(self.btn_stop_meta_reels, stretch=1)
+
+        exec_layout.addLayout(btn_box)
+
+        # Dedicated Console for Meta Reels
+        self.meta_reels_console_text = QTextEdit()
+        self.meta_reels_console_text.setFixedHeight(120)
+        self.meta_reels_console_text.setReadOnly(True)
+        self.meta_reels_console_text.setStyleSheet("background-color: #090d16; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; color: #4ade80; font-family: monospace; font-size: 11px; padding: 8px;")
+        exec_layout.addWidget(self.meta_reels_console_text)
+
+        layout.addWidget(exec_card)
+
+        layout.addStretch()
+        scroll.setWidget(container)
+        outer_layout = QVBoxLayout(page)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.addWidget(scroll)
+
+        # Initial populate
+        self.populate_meta_reels_accounts_checklist()
+        self.update_meta_reels_pool_ui()
+        self.insert_sample_meta_reels_caption()
+
+        return page
+
+    # --------------------------------------------------------------------------
+    # Meta Reels Page Helpers & Event Handlers
+    # --------------------------------------------------------------------------
+    def on_meta_reels_source_mode_changed(self, checked=True):
+        """Switches between Account Manager accounts and Local Chrome Profiles Folder."""
+        if hasattr(self, 'meta_reels_mode_local_folder_radio') and self.meta_reels_mode_local_folder_radio.isChecked():
+            if hasattr(self, 'meta_reels_local_panel'):
+                self.meta_reels_local_panel.setVisible(True)
+            folder = self.meta_reels_chrome_folder_input.text().strip() if hasattr(self, 'meta_reels_chrome_folder_input') else ""
+            if folder and os.path.isdir(folder):
+                self.fetch_meta_reels_chrome_profiles()
+            else:
+                if hasattr(self, 'meta_reels_acc_layout'):
+                    while self.meta_reels_acc_layout.count():
+                        item = self.meta_reels_acc_layout.takeAt(0)
+                        if item.widget():
+                            item.widget().deleteLater()
+                    lbl = QLabel("📂 Enter folder path containing Chrome shortcuts or profiles above, then click 'Fetch Chromes / Profiles'.")
+                    lbl.setStyleSheet("color: #38bdf8; font-style: italic; font-size: 11px;")
+                    self.meta_reels_acc_layout.addWidget(lbl)
+                    self.meta_reels_acc_checkboxes = []
+                    self.update_meta_reels_account_selection_summary()
+        else:
+            if hasattr(self, 'meta_reels_local_panel'):
+                self.meta_reels_local_panel.setVisible(False)
+            self.populate_meta_reels_accounts_checklist()
+
+    def browse_meta_reels_chrome_folder(self):
+        """Opens directory picker to choose the folder containing Chrome shortcuts (.lnk) or profiles."""
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder Containing Chrome Shortcuts (.lnk) or Profiles")
+        if folder and os.path.isdir(folder):
+            if hasattr(self, 'meta_reels_chrome_folder_input'):
+                self.meta_reels_chrome_folder_input.setText(folder)
+            self.fetch_meta_reels_chrome_profiles()
+
+    def set_default_chrome_user_data_path(self):
+        """Sets default Google Chrome User Data path and fetches profiles."""
+        def_path = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data")
+        if hasattr(self, 'meta_reels_chrome_folder_input'):
+            self.meta_reels_chrome_folder_input.setText(def_path)
+        self.fetch_meta_reels_chrome_profiles()
+
+    def fetch_meta_reels_chrome_profiles(self):
+        """Scans the specified folder for Chrome shortcuts (*.lnk) and Chrome profile directories."""
+        if not hasattr(self, 'meta_reels_chrome_folder_input') or not hasattr(self, 'meta_reels_acc_layout'):
+            return
+
+        folder = self.meta_reels_chrome_folder_input.text().strip()
+        if not folder or not os.path.isdir(folder):
+            QMessageBox.warning(self, "Invalid Folder", "Please select a valid folder path containing Chrome shortcuts (.lnk) or profile directories.")
+            return
+
+        if HAS_CHROME_SCANNER:
+            profiles = scan_folder_for_chrome_profiles(folder)
+        else:
+            profiles = []
+
+        while self.meta_reels_acc_layout.count():
+            item = self.meta_reels_acc_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self.meta_reels_acc_checkboxes = []
+        self.meta_reels_acc_counter_labels = {}
+
+        if not profiles:
+            lbl = QLabel(f"⚠️ No Chrome shortcuts (.lnk) or profile folders found in:\n{folder}\n(Make sure the folder contains Chrome shortcuts or profile subfolders)")
+            lbl.setStyleSheet("color: #f59e0b; font-style: italic; font-size: 11px;")
+            self.meta_reels_acc_layout.addWidget(lbl)
+            self.update_meta_reels_account_selection_summary()
+            return
+
+        for idx, prof in enumerate(profiles, start=1):
+            row_widget = QWidget()
+            r_layout = QHBoxLayout(row_widget)
+            r_layout.setContentsMargins(2, 2, 2, 2)
+
+            name = prof.get("name", f"Chrome {idx}")
+            status = prof.get("status", "Ready (Pre-logged in)")
+            acc_id = str(prof.get("id", str(idx)))
+
+            chk = QCheckBox(f"#{idx}  🌐 {name}  [{status}]  •  Pre-logged in Chrome")
+            chk.setStyleSheet("font-size: 12px; color: #38bdf8; font-weight: 600;")
+            chk.setProperty("account_data", prof)
+            chk.setChecked(True)
+            chk.stateChanged.connect(self.update_meta_reels_account_selection_summary)
+            r_layout.addWidget(chk)
+
+            r_layout.addStretch()
+
+            cnt_lbl = QLabel("Uploaded: 0")
+            cnt_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.05); padding: 1px 6px; border-radius: 4px;")
+            r_layout.addWidget(cnt_lbl)
+
+            self.meta_reels_acc_layout.addWidget(row_widget)
+            self.meta_reels_acc_checkboxes.append(chk)
+            self.meta_reels_acc_counter_labels[acc_id] = cnt_lbl
+
+        self.meta_reels_acc_layout.addStretch()
+        self.update_meta_reels_account_selection_summary()
+        self.log_meta_reels_console("SUCCESS", f"🔍 Successfully fetched {len(profiles)} Chrome profile(s) from folder: {folder}")
+        QMessageBox.information(self, "Chromes Loaded", f"Found and loaded {len(profiles)} pre-logged in Chrome profile(s) from:\n{folder}")
+
+    def populate_meta_reels_accounts_checklist(self):
+        """Populates the multi-account checkbox list for Meta Reels automation."""
+        if not hasattr(self, 'meta_reels_acc_layout'):
+            return
+
+        while self.meta_reels_acc_layout.count():
+            item = self.meta_reels_acc_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self.meta_reels_acc_checkboxes = []
+        self.meta_reels_acc_counter_labels = {}
+        active_accounts = self.get_active_accounts()
+
+        if not active_accounts:
+            lbl = QLabel("⚠️ No Active Facebook accounts available. (Add or log in accounts in Accounts Manager)")
+            lbl.setStyleSheet("color: #94a3b8; font-style: italic; font-size: 11px;")
+            self.meta_reels_acc_layout.addWidget(lbl)
+            self.update_meta_reels_account_selection_summary()
+            return
+
+        for idx, acc in enumerate(active_accounts, start=1):
+            row_widget = QWidget()
+            r_layout = QHBoxLayout(row_widget)
+            r_layout.setContentsMargins(2, 2, 2, 2)
+
+            name = acc.get("name", "Account")
+            status = acc.get("status", "Healthy")
+            proxy = acc.get("proxy", "Direct")
+            acc_id = str(acc.get("id", str(idx)))
+            icon = "🟢" if status in ("Healthy", "Active", "Ready", "Logged in") else "🟡"
+
+            chk = QCheckBox(f"#{idx}  {icon} {name}  [{status}]  •  Proxy: {proxy}")
+            chk.setStyleSheet("font-size: 12px; color: #f8fafc; font-weight: 600;")
+            chk.setProperty("account_data", acc)
+            chk.setChecked(True)
+            chk.stateChanged.connect(self.update_meta_reels_account_selection_summary)
+            r_layout.addWidget(chk)
+
+            r_layout.addStretch()
+
+            cnt_lbl = QLabel("Uploaded: 0")
+            cnt_lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.05); padding: 1px 6px; border-radius: 4px;")
+            r_layout.addWidget(cnt_lbl)
+
+            self.meta_reels_acc_layout.addWidget(row_widget)
+            self.meta_reels_acc_checkboxes.append(chk)
+            self.meta_reels_acc_counter_labels[acc_id] = cnt_lbl
+
+        self.meta_reels_acc_layout.addStretch()
+        self.update_meta_reels_account_selection_summary()
+
+    def select_all_meta_reels_accounts(self):
+        if hasattr(self, 'meta_reels_acc_checkboxes'):
+            for chk in self.meta_reels_acc_checkboxes:
+                chk.setChecked(True)
+            self.update_meta_reels_account_selection_summary()
+
+    def clear_all_meta_reels_accounts(self):
+        if hasattr(self, 'meta_reels_acc_checkboxes'):
+            for chk in self.meta_reels_acc_checkboxes:
+                chk.setChecked(False)
+            self.update_meta_reels_account_selection_summary()
+
+    def update_meta_reels_account_selection_summary(self):
+        if not hasattr(self, 'meta_reels_acc_summary_lbl'):
+            return
+        selected = self.get_selected_meta_reels_accounts()
+        count = len(selected)
+        total = len(self.meta_reels_acc_checkboxes) if hasattr(self, 'meta_reels_acc_checkboxes') else 0
+        tabs = self.meta_reels_per_acc_spin.value() if hasattr(self, 'meta_reels_per_acc_spin') else 5
+        self.meta_reels_acc_summary_lbl.setText(f"🎯 {count} of {total} Selected  •  Will Upload ~{count * tabs} Reels")
+
+    def get_selected_meta_reels_accounts(self) -> List[Dict[str, Any]]:
+        selected = []
+        if hasattr(self, 'meta_reels_acc_checkboxes'):
+            for chk in self.meta_reels_acc_checkboxes:
+                if chk.isChecked():
+                    data = chk.property("account_data")
+                    if data:
+                        selected.append(data)
+        return selected
+
+    def add_meta_reels_files(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Reel Video Files (Choose 1, 5, 20+ Videos)",
+            "",
+            "Video Files (*.mp4 *.mov *.avi *.m4v *.webm *.mkv);;All Files (*.*)"
+        )
+        if paths:
+            for p in paths:
+                if p not in self.meta_reels_media_pool and os.path.isfile(p):
+                    self.meta_reels_media_pool.append(p)
+            self.update_meta_reels_pool_ui()
+
+    def on_meta_reels_folder_path_changed(self, folder_path=None):
+        if folder_path is None and hasattr(self, 'meta_reels_folder_input'):
+            folder_path = self.meta_reels_folder_input.text().strip()
+        folder_path = str(folder_path).strip() if folder_path else ""
+        if folder_path and os.path.isdir(folder_path):
+            valid_exts = {".mp4", ".mov", ".avi", ".m4v", ".webm", ".mkv"}
+            found = []
+            for root, _, files in os.walk(folder_path):
+                for f in sorted(files):
+                    if os.path.splitext(f.lower())[1] in valid_exts:
+                        full_p = os.path.join(root, f)
+                        if full_p not in found:
+                            found.append(full_p)
+            if found:
+                self.meta_reels_media_pool = found
+                self.update_meta_reels_pool_ui()
+                self.log_message("INFO", f"📁 Loaded {len(found)} reel video(s) from folder: {folder_path}", category="META_REELS")
+
+    def add_meta_reels_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder Containing Reel Videos")
+        if folder and os.path.isdir(folder):
+            if hasattr(self, 'meta_reels_folder_input'):
+                self.meta_reels_folder_input.setText(folder)
+            valid_exts = {".mp4", ".mov", ".avi", ".m4v", ".webm", ".mkv"}
+            found = []
+            for root, _, files in os.walk(folder):
+                for f in sorted(files):
+                    if os.path.splitext(f.lower())[1] in valid_exts:
+                        full_p = os.path.join(root, f)
+                        if full_p not in found:
+                            found.append(full_p)
+            if found:
+                self.meta_reels_media_pool = found
+                self.update_meta_reels_pool_ui()
+                self.log_message("INFO", f"📁 Imported {len(found)} reel video(s) from folder: {folder}", category="META_REELS")
+            else:
+                QMessageBox.information(self, "No Videos Found", "No valid video files (.mp4, .mov, etc.) found in the selected folder.")
+
+    def clear_meta_reels_pool(self):
+        self.meta_reels_media_pool = []
+        self.update_meta_reels_pool_ui()
+
+    def update_meta_reels_pool_ui(self):
+        if not hasattr(self, 'meta_reels_pool_layout'):
+            return
+
+        while self.meta_reels_pool_layout.count():
+            item = self.meta_reels_pool_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not self.meta_reels_media_pool:
+            empty_lbl = QLabel("📂 No video files loaded yet. Click 'Add Video Files' or 'Add Folder' to load .mp4 reels.")
+            empty_lbl.setStyleSheet("color: #94a3b8; font-style: italic; font-size: 11px; padding: 10px;")
+            self.meta_reels_pool_layout.addWidget(empty_lbl)
+            return
+
+        for p in self.meta_reels_media_pool:
+            row = QFrame()
+            row.setStyleSheet("background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 4px 8px;")
+            r_lay = QHBoxLayout(row)
+            r_lay.setContentsMargins(4, 2, 4, 2)
+
+            fname = os.path.basename(p)
+            try:
+                sz_mb = os.path.getsize(p) / (1024 * 1024)
+                sz_str = f"({sz_mb:.1f} MB)"
+            except Exception:
+                sz_str = ""
+
+            lbl = QLabel(f"📹 {fname}  <span style='color: #94a3b8;'>{sz_str}</span>")
+            lbl.setStyleSheet("font-size: 11px; color: #f1f5f9; font-weight: 600;")
+            r_lay.addWidget(lbl)
+            r_lay.addStretch()
+
+            ready_badge = QLabel("Ready")
+            ready_badge.setStyleSheet("color: #10b981; font-weight: 700; font-size: 10px; background: rgba(16, 185, 129, 0.12); padding: 1px 6px; border-radius: 4px;")
+            r_lay.addWidget(ready_badge)
+
+            self.meta_reels_pool_layout.addWidget(row)
+
+        self.meta_reels_pool_layout.addStretch()
+
+    def insert_sample_meta_reels_caption(self):
+        samples = [
+            "{🔥 Amazing Reel|Must Watch Video|Check this out}! Drop a follow ❤️ #reels #viral #trending #fyp",
+            "{Best moments ever|Unbelievable clip|Daily inspiration}! Like & Share for more 🚀 #reelsfb #reelsvideo #viralpost",
+            "{Watch till the end|You won't believe this|Mind blowing}! Follow our page for daily reels 🌟 #fyp #explore #reels2026"
+        ]
+        if hasattr(self, 'meta_reels_caption_input'):
+            self.meta_reels_caption_input.setText(random.choice(samples))
+
+    def test_meta_reels_spin_caption(self):
+        if not hasattr(self, 'meta_reels_caption_input'):
+            return
+        raw = self.meta_reels_caption_input.toPlainText().strip()
+        if not raw:
+            QMessageBox.information(self, "Empty Caption", "Please enter a caption template with Spintax like {A|B} first.")
+            return
+        spun = resolve_spintax(raw)
+        QMessageBox.information(self, "Spintax Preview Result", f"🎲 Spun Variant:\n\n{spun}")
+
+    def log_meta_reels_console(self, level: str, message: str):
+        if hasattr(self, 'meta_reels_console_text'):
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            color = "#38bdf8"
+            if level == "SUCCESS":
+                color = "#10b981"
+            elif level == "ERROR":
+                color = "#f43f5e"
+            elif level == "WARNING":
+                color = "#f59e0b"
+
+            html = f"<span style='color: #64748b;'>[{timestamp}]</span> <span style='color: {color}; font-weight: 600;'>{message}</span><br>"
+            self.meta_reels_console_text.append(html)
+        self.log_message(level, message, category="META_REELS")
+
+    def on_meta_reels_counter_updated(self, account_id: str, count: int):
+        if hasattr(self, 'meta_reels_acc_counter_labels') and account_id in self.meta_reels_acc_counter_labels:
+            lbl = self.meta_reels_acc_counter_labels[account_id]
+            lbl.setText(f"Uploaded: {count}")
+            lbl.setStyleSheet("color: #10b981; font-size: 11px; font-weight: 700; background: rgba(16, 185, 129, 0.15); padding: 1px 6px; border-radius: 4px;")
+
+    def on_meta_reels_account_completed(self, account_id: str):
+        """Unchecks completed account in UI checklist once its tabs finish."""
+        if hasattr(self, 'meta_reels_acc_checkboxes'):
+            for chk in self.meta_reels_acc_checkboxes:
+                data = chk.property("account_data")
+                if data and (str(data.get("id")) == str(account_id) or str(data.get("uid")) == str(account_id)):
+                    chk.setChecked(False)
+                    break
+        self.update_meta_reels_account_selection_summary()
+
+    def start_meta_reels_upload(self):
+        """Validates inputs and dispatches MetaReelsWorker to upload Reels across accounts and tabs."""
+        accounts = self.get_selected_meta_reels_accounts()
+        if not accounts:
+            QMessageBox.warning(self, "No Accounts Selected", "Please select at least one Facebook account profile above.")
+            return
+
+        if not self.meta_reels_media_pool:
+            QMessageBox.warning(self, "No Videos in Pool", "Please add at least one Reel video file (.mp4) using 'Add Video Files' or 'Add Folder'.")
+            return
+
+        reels_per_acc = self.meta_reels_per_acc_spin.value() if hasattr(self, 'meta_reels_per_acc_spin') else 5
+        account_delay_seconds = float(self.meta_reels_delay_spin.value()) if hasattr(self, 'meta_reels_delay_spin') else 5.0
+        caption = self.meta_reels_caption_input.toPlainText().strip() if hasattr(self, 'meta_reels_caption_input') else ""
+        selection_mode = self.meta_reels_selection_combo.currentText().strip() if hasattr(self, 'meta_reels_selection_combo') else "Random Pool (No Dup)"
+        concurrent_browsers = self.meta_reels_concurrent_spin.value() if hasattr(self, 'meta_reels_concurrent_spin') else 1
+
+        network_mode = "direct"
+        if hasattr(self, 'meta_reels_network_combo') and self.meta_reels_network_combo.currentIndex() == 1:
+            network_mode = "proxy"
+
+        payload = {
+            "accounts": accounts,
+            "video_files": list(self.meta_reels_media_pool),
+            "reels_per_account": reels_per_acc,
+            "account_delay_seconds": account_delay_seconds,
+            "caption_template": caption,
+            "selection_mode": selection_mode,
+            "concurrent_browsers": concurrent_browsers,
+            "network_mode": network_mode
+        }
+
+        self.btn_start_meta_reels.setEnabled(False)
+        self.btn_stop_meta_reels.setEnabled(True)
+        self.meta_reels_status_lbl.setText("● UPLOADING META REELS IN PROGRESS...")
+        self.meta_reels_status_lbl.setStyleSheet("color: #38bdf8; font-weight: 800; font-size: 11px;")
+        self.meta_reels_progress_bar.setValue(0)
+
+        self.log_meta_reels_console("INFO", f"==================================================")
+        self.log_meta_reels_console("INFO", f"🚀 Dispatching Meta Business Suite Reels Composer on {len(accounts)} account(s)...")
+        self.log_meta_reels_console("INFO", f"📹 Video Pool: {len(self.meta_reels_media_pool)} | Parallel Tabs/Acc: {reels_per_acc} | Concurrency: {concurrent_browsers} browsers")
+
+        self.meta_reels_worker = MetaReelsWorker(payload)
+        self.meta_reels_worker.log_signal.connect(self.log_meta_reels_console)
+        self.meta_reels_worker.progress_signal.connect(self.meta_reels_progress_bar.setValue)
+        self.meta_reels_worker.counter_signal.connect(self.on_meta_reels_counter_updated)
+        self.meta_reels_worker.account_completed_signal.connect(self.on_meta_reels_account_completed)
+        self.meta_reels_worker.finished_signal.connect(self.on_meta_reels_finished)
+        self.meta_reels_worker.start()
+
+    def stop_meta_reels_upload(self):
+        if hasattr(self, 'meta_reels_worker') and self.meta_reels_worker and self.meta_reels_worker.isRunning():
+            self.log_meta_reels_console("WARNING", "🛑 Stop command sent to Meta Reels worker...")
+            self.meta_reels_worker.stop()
+        self.btn_stop_meta_reels.setEnabled(False)
+
+    def on_meta_reels_finished(self, success: bool, message: str):
+        self.btn_start_meta_reels.setEnabled(True)
+        self.btn_stop_meta_reels.setEnabled(False)
+        self.meta_reels_status_lbl.setText("● READY FOR META REELS")
+        self.meta_reels_status_lbl.setStyleSheet("color: #10b981; font-weight: 800; font-size: 11px;")
+        self.engine_status_lbl.setText("● READY FOR TASKS")
+        self.engine_status_lbl.setStyleSheet("font-size: 11px; font-weight: 700; color: #10b981;")
+
+        if success:
+            QMessageBox.information(self, "Meta Reels Complete", message)
         else:
             QMessageBox.warning(self, "Automation Notice", message)
 

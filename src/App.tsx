@@ -33,7 +33,10 @@ import {
   ChevronUp,
   Trash2,
   Plus,
-  Download
+  Download,
+  Film,
+  FolderOpen,
+  Video
 } from 'lucide-react';
 import { browserBotCodeSnippet, appPyCodeSnippet, imageProcessorSnippet, sessionManagerSnippet, aiSpinnerSnippet, requirementsSnippet, landingPageSnippet, installerSetupSnippet, buildInstallerSnippet } from './data/codeSnippets';
 import AdminPanel from './components/AdminPanel';
@@ -60,7 +63,17 @@ export default function App() {
       window.removeEventListener('hashchange', handlePopState);
     };
   }, []);
-  const [simActivePage, setSimActivePage] = useState<'dashboard' | 'accounts' | 'automation' | 'ai' | 'settings'>('ai');
+  const [simActivePage, setSimActivePage] = useState<'dashboard' | 'accounts' | 'automation' | 'ai' | 'settings' | 'meta-reels'>('meta-reels');
+  const [metaVideoPath, setMetaVideoPath] = useState('D:/Reels_Collection');
+  const [metaShortcutsPath, setMetaShortcutsPath] = useState('C:/Users/Administrator/Desktop/FB_Chrome_Profiles');
+  const [metaDescTemplate, setMetaDescTemplate] = useState('{Daily Dose of Viral Clips|Amazing reels today}! 🔥 Drop a follow for more! #reels #viral #explore');
+  const [metaReelsPerAcc, setMetaReelsPerAcc] = useState(2);
+  const [metaSourceMode, setMetaSourceMode] = useState<'shortcuts' | 'account_manager'>('shortcuts');
+  const [metaProfilesFound, setMetaProfilesFound] = useState([
+    { name: 'Chrome - FB_Main_US.lnk', profile: 'Profile 1', status: 'Ready (Pre-logged in Chrome)' },
+    { name: 'Chrome - FB_Store_UK.lnk', profile: 'Profile 2', status: 'Ready (Pre-logged in Chrome)' },
+    { name: 'Chrome - FB_Personal_Backup.lnk', profile: 'Profile 3', status: 'Ready (Pre-logged in Chrome)' },
+  ]);
   const [selectedFile, setSelectedFile] = useState<'installer_setup.iss' | 'build_installer.py' | 'landing_page/index.html' | 'ai_spinner.py' | 'session_manager.py' | 'browser_bot.py' | 'image_processor.py' | 'app.py' | 'requirements.txt'>('installer_setup.iss');
   const [copiedCode, setCopiedCode] = useState(false);
 
@@ -353,8 +366,8 @@ export default function App() {
                         { id: 'dashboard', label: 'Dashboard', icon: Activity },
                         { id: 'accounts', label: 'Accounts Manager', icon: Users },
                         { id: 'automation', label: 'Automation Engine', icon: Bot },
+                        { id: 'meta-reels', label: 'Create Reel / Meta', icon: Film },
                         { id: 'ai', label: 'AI Content Spinner', icon: Sparkles },
-                        { id: 'settings', label: 'Settings & Stealth', icon: Settings },
                       ].map(item => {
                         const Icon = item.icon;
                         const isSelected = simActivePage === item.id;
@@ -377,16 +390,22 @@ export default function App() {
                     </nav>
                   </div>
 
-                  {/* Engine Status Card */}
-                  <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800/90 space-y-1">
-                    <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">Stealth Status</div>
-                    <div className="flex items-center space-x-2">
-                      <span className={`h-2 w-2 rounded-full ${isSimulating ? 'bg-amber-400 animate-ping' : 'bg-emerald-400'}`}></span>
-                      <span className={`text-xs font-bold ${isSimulating ? 'text-amber-300' : 'text-emerald-400'}`}>
-                        {isSimulating ? 'POSTING IN PROGRESS' : 'READY FOR TASKS'}
-                      </span>
+                  {/* Developed by ABM Code Space Badge */}
+                  <a
+                    href="https://abmcodespace.vercel.app/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    id="badge-abm-codespace"
+                    title="Click to visit ABM Code Space Portfolio"
+                    className="group block p-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800/90 border border-indigo-500/30 hover:border-indigo-400 transition-all text-center shadow-lg shadow-indigo-950/40"
+                  >
+                    <div className="text-[10px] font-extrabold tracking-widest text-sky-400 uppercase">
+                      DEVELOPED BY
                     </div>
-                  </div>
+                    <div className="text-xs font-black tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-indigo-300 to-purple-400 group-hover:from-cyan-300 group-hover:to-purple-300 mt-0.5">
+                      ABM Code Space
+                    </div>
+                  </a>
                 </aside>
 
                 {/* 2. Main Tab View Area */}
@@ -1077,33 +1096,190 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* TAB: SETTINGS */}
-                  {simActivePage === 'settings' && (
+                  {/* TAB: META REELS */}
+                  {simActivePage === 'meta-reels' && (
                     <div className="space-y-4">
-                      <div>
-                        <h2 className="text-lg font-bold text-white tracking-tight">Settings & Stealth Parameters</h2>
-                        <p className="text-xs text-slate-400">Configure browser evasion flags, API credentials, and runtime parameters.</p>
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                          <h2 className="text-lg font-bold text-white tracking-tight flex items-center space-x-2">
+                            <Film className="h-5 w-5 text-indigo-400" />
+                            <span>Meta Business Suite Reels Bulk Uploader</span>
+                          </h2>
+                          <p className="text-xs text-slate-400">Automate high-speed multi-tab Facebook Reels creation via Meta Business Suite Composer across multiple accounts or pre-logged in Chrome shortcuts.</p>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            ● FOOTER SHARE VERIFIED
+                          </span>
+                        </div>
                       </div>
 
-                      <div className="bg-slate-950/70 border border-slate-800/90 rounded-xl p-4 space-y-3 text-xs text-slate-300">
-                        <div className="space-y-2">
-                          <label className="flex items-center space-x-2">
-                            <input type="checkbox" defaultChecked className="rounded bg-slate-900 border-slate-700 text-indigo-600" />
-                            <span>Playwright Stealth Module (Mask navigator.webdriver & permissions)</span>
-                          </label>
-                          <label className="flex items-center space-x-2">
-                            <input type="checkbox" defaultChecked className="rounded bg-slate-900 border-slate-700 text-indigo-600" />
-                            <span>Randomize Canvas & WebGL Audio Context noise</span>
-                          </label>
-                          <label className="flex items-center space-x-2">
-                            <input type="checkbox" defaultChecked className="rounded bg-slate-900 border-slate-700 text-indigo-600" />
-                            <span>Emulate Human Micro-Mouse Jitter & Variable Scroll Velocity</span>
-                          </label>
-                          <label className="flex items-center space-x-2">
-                            <input type="checkbox" className="rounded bg-slate-900 border-slate-700 text-indigo-600" />
-                            <span>Headless Mode (Off = Show real browser window during automation)</span>
-                          </label>
+                      {/* Card 1: Account / Profile Source */}
+                      <div className="bg-slate-950/70 border border-slate-800/90 rounded-xl p-4 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                          <div className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center space-x-2">
+                            <Users className="h-4 w-4 text-indigo-400" />
+                            <span>Step 1: Account Source & Chrome Profiles</span>
+                          </div>
+                          <div className="flex items-center space-x-3 text-xs">
+                            <label className="flex items-center space-x-1.5 cursor-pointer text-slate-300">
+                              <input
+                                type="radio"
+                                name="metaSourceMode"
+                                checked={metaSourceMode === 'shortcuts'}
+                                onChange={() => setMetaSourceMode('shortcuts')}
+                                className="text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span className="font-semibold text-indigo-300">Local Chrome Shortcuts Folder</span>
+                            </label>
+                            <label className="flex items-center space-x-1.5 cursor-pointer text-slate-400">
+                              <input
+                                type="radio"
+                                name="metaSourceMode"
+                                checked={metaSourceMode === 'account_manager'}
+                                onChange={() => setMetaSourceMode('account_manager')}
+                                className="text-indigo-600 focus:ring-indigo-500"
+                              />
+                              <span>Account Manager Sessions</span>
+                            </label>
+                          </div>
                         </div>
+
+                        {metaSourceMode === 'shortcuts' && (
+                          <div className="space-y-2.5 bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+                            <label className="block text-xs font-semibold text-slate-300">
+                              Chrome Profiles / Shortcuts Directory Path (.lnk or User Data)
+                            </label>
+                            <div className="flex items-center space-x-2">
+                              <div className="relative flex-1">
+                                <FolderOpen className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+                                <input
+                                  type="text"
+                                  value={metaShortcutsPath}
+                                  onChange={e => setMetaShortcutsPath(e.target.value)}
+                                  className="w-full bg-slate-950 border border-slate-700/80 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-100 font-mono focus:outline-none focus:border-indigo-500"
+                                  placeholder="C:/Users/Administrator/Desktop/FB_Chrome_Profiles"
+                                />
+                              </div>
+                              <button
+                                onClick={() => {
+                                  const now = new Date().toLocaleTimeString('en-GB');
+                                  setSimLogs(prev => [
+                                    ...prev,
+                                    { time: now, level: 'SUCCESS', msg: `Scanned folder '${metaShortcutsPath}' -> Found 3 active pre-logged-in Chrome profiles.` }
+                                  ]);
+                                }}
+                                className="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white flex items-center space-x-1.5 transition-all shadow-md shadow-indigo-600/20"
+                              >
+                                <RotateCw className="h-3.5 w-3.5" />
+                                <span>Fetch Profiles</span>
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">
+                              {metaProfilesFound.map((p, idx) => (
+                                <div key={idx} className="bg-slate-950/80 border border-slate-800 p-2.5 rounded-lg flex items-center justify-between text-xs">
+                                  <div className="overflow-hidden">
+                                    <div className="font-semibold text-slate-200 truncate">{p.name}</div>
+                                    <div className="text-[10px] text-slate-400 font-mono">{p.profile}</div>
+                                  </div>
+                                  <span className="text-[10px] font-bold text-emerald-400 px-1.5 py-0.5 bg-emerald-500/10 rounded border border-emerald-500/20 whitespace-nowrap">
+                                    {p.status}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Card 2: Video Reels Folder & Details */}
+                      <div className="bg-slate-950/70 border border-slate-800/90 rounded-xl p-4 space-y-3">
+                        <div className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center space-x-2 border-b border-slate-800 pb-2">
+                          <Video className="h-4 w-4 text-cyan-400" />
+                          <span>Step 2: Video Folder & Caption Settings</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                              Reels Video Directory (MP4 / MOV)
+                            </label>
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="text"
+                                value={metaVideoPath}
+                                onChange={e => setMetaVideoPath(e.target.value)}
+                                className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-cyan-300 font-mono focus:outline-none focus:border-indigo-500"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1">
+                              <span>Found 14 Reels ready for upload</span>
+                              <span className="text-indigo-400 font-medium">Auto Next-Video Selection</span>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                              Reels to Upload Per Account
+                            </label>
+                            <div className="flex items-center space-x-3">
+                              <input
+                                type="number"
+                                min={1}
+                                max={50}
+                                value={metaReelsPerAcc}
+                                onChange={e => setMetaReelsPerAcc(Math.max(1, parseInt(e.target.value) || 1))}
+                                className="w-24 bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-white font-bold font-mono focus:outline-none focus:border-indigo-500"
+                              />
+                              <span className="text-xs text-slate-400">Total videos per profile session</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                            Reels Description Template (Spintax Supported: {'{Option 1|Option 2}'})
+                          </label>
+                          <textarea
+                            rows={3}
+                            value={metaDescTemplate}
+                            onChange={e => setMetaDescTemplate(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-700/80 rounded-lg p-3 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Card 3: Automation Actions */}
+                      <div className="bg-slate-950/70 border border-slate-800/90 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div className="text-xs text-slate-400">
+                          Flow: <span className="text-white font-medium">Add Video ➡️ Patient DOM Load ➡️ Spintax Description ➡️ Next ➡️ Next ➡️ Footer Share (Confirmed)</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const now = new Date().toLocaleTimeString('en-GB');
+                            setIsSimulating(true);
+                            setSimLogs(prev => [
+                              ...prev,
+                              { time: now, level: 'INFO', msg: `Starting Meta Reels Automation with ${metaProfilesFound.length} profiles...` },
+                              { time: now, level: 'INFO', msg: `Opening pre-logged in Chrome profile: ${metaProfilesFound[0].name}` },
+                              { time: now, level: 'SUCCESS', msg: `Navigated to https://business.facebook.com/latest/reels_composer/` },
+                              { time: now, level: 'INFO', msg: `DOM attached. Uploading reel file from '${metaVideoPath}/reel_01.mp4' (100% processed).` },
+                              { time: now, level: 'SUCCESS', msg: `Typed Spintax description into reel caption box.` },
+                              { time: now, level: 'INFO', msg: `Clicking Step 1 'Next' button... Navigation confirmed.` },
+                              { time: now, level: 'INFO', msg: `Clicking Step 2 'Next' button... Final share stage reached.` },
+                              { time: now, level: 'SUCCESS', msg: `Accurately targeted and clicked bottom footer 'Share' button!` },
+                              { time: now, level: 'SUCCESS', msg: `Confirmed 4.5s post-share delay. Video reel successfully uploaded and published!` }
+                            ]);
+                            setTimeout(() => {
+                              setIsSimulating(false);
+                            }, 2500);
+                          }}
+                          disabled={isSimulating}
+                          className="px-5 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-xs font-bold text-white flex items-center justify-center space-x-2 shadow-lg shadow-indigo-600/30 transition-all"
+                        >
+                          <Play className="h-4 w-4 fill-white" />
+                          <span>{isSimulating ? 'Uploading Reels...' : '🚀 Start Auto Reels Upload'}</span>
+                        </button>
                       </div>
                     </div>
                   )}
