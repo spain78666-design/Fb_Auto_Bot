@@ -14,7 +14,75 @@ import logging
 import random
 import re
 from urllib.parse import urlparse
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Tuple
+
+try:
+    from automation.browser_window_manager import (
+        resolve_tile_context,
+        build_window_chrome_args,
+        apply_cdp_window_bounds,
+        launch_bot_browser_context,
+        human_click_element,
+        human_move_and_click,
+        human_click_coords,
+        human_type_text,
+        human_smooth_scroll,
+        human_pause,
+        human_session_warmup,
+        human_idle_drift,
+    )
+except ImportError:
+    try:
+        from desktop_app.automation.browser_window_manager import (
+            resolve_tile_context,
+            build_window_chrome_args,
+            apply_cdp_window_bounds,
+            launch_bot_browser_context,
+            human_click_element,
+            human_move_and_click,
+            human_click_coords,
+            human_type_text,
+            human_smooth_scroll,
+            human_pause,
+            human_session_warmup,
+            human_idle_drift,
+        )
+    except ImportError:
+        def resolve_tile_context(account_data=None, window_slot=None, total_window_slots=None, tile_rect=None):
+            return 0, 1, (0, 0, 1920, 1080)
+        def build_window_chrome_args(tile_rect=None, total_slots=1, slot_index=0, profile_directory=None, apply_scale_factor=True):
+            return []
+        async def apply_cdp_window_bounds(context, page=None, tile_rect=None, total_slots=1, slot_index=0):
+            return False
+        launch_bot_browser_context = None
+        async def human_click_element(page, target, hover_pause=True, force_fallback=True):
+            try:
+                await target.click(timeout=4000)
+                return True
+            except Exception:
+                return False
+        async def human_move_and_click(page, locator, hover_pause=True, force_fallback=True):
+            return await human_click_element(page, locator, hover_pause=hover_pause, force_fallback=force_fallback)
+        async def human_click_coords(page, x, y, hover_pause=True):
+            try:
+                await page.mouse.click(x, y)
+                return True
+            except Exception:
+                return False
+        async def human_type_text(page, target, text, clear_first=True, allow_typos=False):
+            try:
+                await target.fill(text)
+                return True
+            except Exception:
+                return False
+        async def human_smooth_scroll(page, total_delta_y=550, steps=6):
+            await page.evaluate("(d) => window.scrollBy(0, d)", total_delta_y)
+        async def human_pause(low=0.55, high=1.45, mult=1.0):
+            await asyncio.sleep(random.uniform(low, high) * mult)
+        async def human_session_warmup(page, duration_range=(1.2, 2.3), log_cb=None):
+            await asyncio.sleep(1.0)
+        async def human_idle_drift(page):
+            await asyncio.sleep(0.25)
 
 logger = logging.getLogger("FBAutoBot.ReelsUploaderBot")
 
@@ -308,6 +376,14 @@ class FacebookReelsUploaderBot:
 
             try:
                 await page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=40000)
+                slot_idx, total_slots, tile_rect = resolve_tile_context(self.account_data)
+                await apply_cdp_window_bounds(
+                    self.context,
+                    page,
+                    tile_rect=tile_rect,
+                    total_slots=total_slots,
+                    slot_index=slot_idx,
+                )
                 await asyncio.sleep(2.5)
             except Exception as e:
                 self.log("DEBUG", f"Page load notice: {e}")
@@ -347,44 +423,53 @@ class FacebookReelsUploaderBot:
 
             if is_logged_in:
                 self.log("SUCCESS", f"✅ Session confirmed LIVE & authenticated for {self.account_name}.")
+                await human_session_warmup(page, duration_range=(1.1, 2.0))
                 return True
 
             self.log("WARNING", f"⚠️ Account {self.account_name} appears logged out. Attempting login verification (Attempt {attempt}/2)...")
 
             # Check for 'Continue as' button or saved login card
             try:
-                clicked_continue = await page.evaluate("""() => {
+                cont_coords = await page.evaluate("""() => {
                     const buttons = Array.from(document.querySelectorAll('div[role="button"], button, a, div[tabindex="0"]'));
                     for (const b of buttons) {
                         const txt = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').toLowerCase().trim();
                         if (txt.includes('continue as') || txt.includes('continuar como') || txt.includes('iniciar sesión como') || txt.includes('جاری رکھیں')) {
                             if (b.offsetParent !== null) {
-                                b.click();
-                                return true;
+                                b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                const r = b.getBoundingClientRect();
+                                if (r.width > 4 && r.height > 4) {
+                                    return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                                }
                             }
                         }
                     }
-                    // Check for profile account tile on login page
                     const tiles = Array.from(document.querySelectorAll('div[data-testid="login_account_tile"], [role="button"][aria-label*="Log in as" i]'));
                     if (tiles.length > 0 && tiles[0].offsetParent !== null) {
-                        tiles[0].click();
-                        return true;
+                        tiles[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        const r = tiles[0].getBoundingClientRect();
+                        if (r.width > 4 && r.height > 4) {
+                            return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                        }
                     }
-                    return false;
+                    return { found: false };
                 }""")
-                if clicked_continue:
+                if cont_coords and cont_coords.get("found"):
+                    await asyncio.sleep(random.uniform(0.18, 0.35))
+                    await human_click_coords(page, cont_coords["x"], cont_coords["y"])
                     self.log("INFO", "👉 Clicked 'Continue as' / saved login profile. Waiting for authorization...")
-                    await asyncio.sleep(4.0)
+                    await human_pause(3.4, 4.6)
                     is_cp, _ = await self._check_checkpoint_or_suspended(page)
                     if not is_cp:
                         curr = page.url.lower()
                         if "login" not in curr and "checkpoint" not in curr:
                             self.log("SUCCESS", f"✅ Successfully logged in via saved profile for {self.account_name}!")
+                            await human_session_warmup(page, duration_range=(1.1, 2.0))
                             return True
             except Exception:
                 pass
 
-            # Check for saved credentials in account_data to auto-fill
+            # Check for saved credentials in account_data to auto-fill with human cadence
             uid = str(self.account_data.get("uid") or self.account_data.get("email") or "")
             pwd = str(self.account_data.get("password") or "")
             if pwd and uid:
@@ -393,20 +478,22 @@ class FacebookReelsUploaderBot:
                     pass_input = page.locator('input[name="pass"], input[id="pass"]').first
                     if await email_input.count() > 0 and await pass_input.count() > 0:
                         self.log("INFO", f"🔑 Submitting saved credentials for {self.account_name}...")
-                        await email_input.fill(uid)
-                        await pass_input.fill(pwd)
-                        await asyncio.sleep(0.5)
+                        await human_type_text(page, email_input, uid, clear_first=True, allow_typos=False)
+                        await human_pause(0.3, 0.65)
+                        await human_type_text(page, pass_input, pwd, clear_first=True, allow_typos=False)
+                        await human_pause(0.45, 0.85)
                         login_btn = page.locator('button[name="login"], button[type="submit"]').first
                         if await login_btn.count() > 0:
-                            await login_btn.click()
+                            await human_move_and_click(page, login_btn)
                         else:
                             await page.keyboard.press("Enter")
-                        await asyncio.sleep(5.0)
+                        await human_pause(4.2, 5.8)
                         is_cp, _ = await self._check_checkpoint_or_suspended(page)
                         if not is_cp:
                             curr = page.url.lower()
                             if "login" not in curr and "checkpoint" not in curr:
                                 self.log("SUCCESS", f"✅ Successfully logged in via credentials for {self.account_name}!")
+                                await human_session_warmup(page, duration_range=(1.1, 2.0))
                                 return True
                 except Exception as ex:
                     self.log("DEBUG", f"Credential login attempt notice: {ex}")
@@ -432,20 +519,24 @@ class FacebookReelsUploaderBot:
         return False
 
     async def _init_browser(self):
-        """Initializes stealth Chrome instance with account cookies, anti-fingerprinting, and background throttling prevention."""
+        """Initializes stealth Chrome instance cleanly (single browser spawn, tiled window, profile/cookies)."""
         if not PLAYWRIGHT_AVAILABLE:
             raise RuntimeError("Playwright is not installed in the system environment.")
 
         self.playwright = await async_playwright().start()
+
+        slot_idx, total_slots, tile_rect = resolve_tile_context(self.account_data)
+        chrome_profile_directory = (self.account_data.get("chrome_profile_directory") or "").strip() or None
+        is_custom_profile = bool(self.account_data.get("is_custom_chrome_profile", False))
 
         launch_args = [
             "--disable-blink-features=AutomationControlled",
             "--disable-infobars",
             "--disable-notifications",
             "--no-first-run",
+            "--no-default-browser-check",
             "--disable-default-apps",
             "--disable-popup-blocking",
-            "--start-maximized",
             "--disable-background-timer-throttling",
             "--disable-backgrounding-occluded-windows",
             "--disable-renderer-backgrounding",
@@ -456,6 +547,14 @@ class FacebookReelsUploaderBot:
             "--lang=en-US",
             "--accept-lang=en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7,es;q=0.6"
         ]
+        launch_args.extend(
+            build_window_chrome_args(
+                tile_rect=tile_rect,
+                total_slots=total_slots,
+                slot_index=slot_idx,
+                profile_directory=chrome_profile_directory,
+            )
+        )
 
         proxy_cfg = None
         use_direct = (
@@ -492,30 +591,7 @@ class FacebookReelsUploaderBot:
                 proxy_cfg = None
                 launch_args.append("--no-proxy-server")
 
-        chrome_candidates = [
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-            os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe")
-        ]
-        chrome_exe = next((c for c in chrome_candidates if os.path.isfile(c)), None)
-
-        launch_kwargs: Dict[str, Any] = {
-            "headless": False,
-            "args": launch_args
-        }
-        if proxy_cfg:
-            launch_kwargs["proxy"] = proxy_cfg
-        if chrome_exe:
-            launch_kwargs["executable_path"] = chrome_exe
-
-        try:
-            self.browser = await self.playwright.chromium.launch(**launch_kwargs)
-        except Exception as e:
-            self.log("WARNING", f"Custom Chrome launch notice: {e}. Falling back to default Chromium...")
-            launch_kwargs.pop("executable_path", None)
-            self.browser = await self.playwright.chromium.launch(**launch_kwargs)
-
-        context_kwargs = {
+        context_kwargs: Dict[str, Any] = {
             "viewport": None,
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
             "locale": "en-US",
@@ -525,23 +601,32 @@ class FacebookReelsUploaderBot:
         }
 
         profile_dir = self.account_data.get("profile_dir", "")
-        if profile_dir and os.path.isdir(profile_dir):
-            try:
-                self.context = await self.playwright.chromium.launch_persistent_context(
-                    user_data_dir=profile_dir,
-                    headless=False,
-                    args=launch_args,
-                    proxy=proxy_cfg,
-                    **context_kwargs
-                )
-            except Exception:
-                self.context = await self.browser.new_context(**context_kwargs)
-        else:
-            self.context = await self.browser.new_context(**context_kwargs)
+        self.context, self.browser = await launch_bot_browser_context(
+            playwright=self.playwright,
+            account_data=self.account_data,
+            profile_dir=profile_dir,
+            launch_args=launch_args,
+            ignore_default_args=["--enable-automation", "--disable-extensions"],
+            proxy_cfg=proxy_cfg,
+            context_kwargs=context_kwargs,
+            log_cb=self.log,
+            allow_ephemeral_fallback=not is_custom_profile,
+        )
 
-        # Inject session cookies and force English interface cookie
-        raw_cookies = self.account_data.get("cookies", "")
+        # Enforce tiled grid bounds via CDP right after opening window
         if self.context:
+            p0 = self.context.pages[0] if self.context.pages else await self.context.new_page()
+            await apply_cdp_window_bounds(
+                self.context,
+                p0,
+                tile_rect=tile_rect,
+                total_slots=total_slots,
+                slot_index=slot_idx,
+            )
+
+        # Inject session cookies (preserve user's custom Chrome profile cookies untouched when cookies empty)
+        raw_cookies = self.account_data.get("cookies", "")
+        if self.context and (raw_cookies or not is_custom_profile):
             try:
                 formatted = []
                 if raw_cookies:
@@ -561,21 +646,24 @@ class FacebookReelsUploaderBot:
                                 formatted.extend(parse_cookie_payload(item))
 
                 # Inject locale cookie to request English UI on Facebook
-                locale_cookie_found = any(c.get("name") == "locale" for c in formatted)
-                if not locale_cookie_found:
-                    formatted.append({
-                        "name": "locale",
-                        "value": "en_US",
-                        "domain": ".facebook.com",
-                        "path": "/",
-                        "secure": True
-                    })
+                if not is_custom_profile:
+                    locale_cookie_found = any(c.get("name") == "locale" for c in formatted)
+                    if not locale_cookie_found:
+                        formatted.append({
+                            "name": "locale",
+                            "value": "en_US",
+                            "domain": ".facebook.com",
+                            "path": "/",
+                            "secure": True
+                        })
 
                 if formatted:
                     await self.context.add_cookies(formatted)
                     self.log("SUCCESS", f"🔑 Injected {len(formatted)} Facebook cookies. Session active.")
             except Exception as e:
                 self.log("DEBUG", f"Cookie injection notice: {e}")
+        elif is_custom_profile:
+            self.log("INFO", "📂 Using existing Chrome profile Facebook login session directly.")
 
     async def _dismiss_popups_and_modals(self, page: Page):
         """
@@ -671,8 +759,8 @@ class FacebookReelsUploaderBot:
             for sel in specific_close_selectors:
                 c_btn = page.locator(sel).first
                 if await c_btn.count() > 0 and await c_btn.is_visible():
-                    await c_btn.click(force=True)
-                    await asyncio.sleep(0.5)
+                    await human_move_and_click(page, c_btn, hover_pause=False)
+                    await human_pause(0.35, 0.7)
         except Exception:
             pass
 
@@ -742,9 +830,9 @@ class FacebookReelsUploaderBot:
                     try:
                         r_btn = page.locator(r_sel).first
                         if await r_btn.count() > 0 and await r_btn.is_visible():
-                            await r_btn.click()
+                            await human_move_and_click(page, r_btn)
                             self.log("INFO", "Clicked 'Reels' tab on Facebook profile/page.")
-                            await asyncio.sleep(2.0)
+                            await human_pause(1.6, 2.4)
                             break
                     except Exception:
                         pass
@@ -772,8 +860,8 @@ class FacebookReelsUploaderBot:
                         cr_btn = page.locator(cr_sel).first
                         if await cr_btn.count() > 0 and await cr_btn.is_visible():
                             self.log("INFO", "👉 Found and clicking 'Create reel' button...")
-                            await cr_btn.click()
-                            await asyncio.sleep(3.0)
+                            await human_move_and_click(page, cr_btn)
+                            await human_pause(2.2, 3.2)
                             modal_opened = True
                             break
                     except Exception:
@@ -782,25 +870,30 @@ class FacebookReelsUploaderBot:
                 if modal_opened:
                     return True
 
-                # DOM querySelector fallback
+                # DOM coordinate lookup + human curved mouse click
                 try:
-                    clicked_dom = await page.evaluate("""() => {
+                    dom_coords = await page.evaluate("""() => {
                         const buttons = Array.from(document.querySelectorAll('div[role="button"], button, a, span'));
                         for (const b of buttons) {
                             const txt = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase();
                             if (txt === 'create reel' || txt.includes('create reel') || txt === 'create a reel') {
                                 if (b.offsetParent !== null) {
-                                    b.click();
-                                    return true;
+                                    b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    const r = b.getBoundingClientRect();
+                                    if (r.width > 4 && r.height > 4) {
+                                        return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                                    }
                                 }
                             }
                         }
-                        return false;
+                        return { found: false };
                     }""")
-                    if clicked_dom:
-                        self.log("INFO", "👉 Clicked 'Create reel' via DOM.")
-                        await asyncio.sleep(3.0)
-                        return True
+                    if dom_coords and dom_coords.get("found"):
+                        await asyncio.sleep(random.uniform(0.18, 0.35))
+                        if await human_click_coords(page, dom_coords["x"], dom_coords["y"]):
+                            self.log("INFO", "👉 Clicked 'Create reel' smoothly.")
+                            await human_pause(2.2, 3.2)
+                            return True
                 except Exception:
                     pass
 
@@ -958,34 +1051,39 @@ class FacebookReelsUploaderBot:
                 try:
                     cr_btn = page.locator(cr_sel).first
                     if await cr_btn.count() > 0 and await cr_btn.is_visible():
-                        self.log("INFO", f"[Reel #{reel_index}] 👉 Clicking 'Create reel' button...")
-                        await cr_btn.click()
-                        await asyncio.sleep(2.5)
+                        self.log("INFO", f"[Reel #{reel_index}] 👉 Moving cursor & clicking 'Create reel' button...")
+                        await human_move_and_click(page, cr_btn)
+                        await asyncio.sleep(random.uniform(2.0, 2.8))
                         modal_opened = True
                         break
                 except Exception:
                     pass
 
             if not modal_opened:
-                # Fallback DOM query for Create Reel across languages
+                # Fallback DOM coordinate lookup + human mouse click
                 try:
-                    clicked_dom = await page.evaluate("""() => {
+                    cr_coords = await page.evaluate("""() => {
                         const buttons = Array.from(document.querySelectorAll('div[role="button"], button, a, span'));
                         const phrases = ['create reel', 'create a reel', 'criar reel', 'criar um reel', 'crear reel', 'crear un reel', 'ریل بنائیں'];
                         for (const b of buttons) {
                             const txt = (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase();
                             if (phrases.some(p => txt === p || txt.includes(p))) {
                                 if (b.offsetParent !== null) {
-                                    b.click();
-                                    return true;
+                                    b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    const r = b.getBoundingClientRect();
+                                    if (r.width > 4 && r.height > 4) {
+                                        return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                                    }
                                 }
                             }
                         }
-                        return false;
+                        return { found: false };
                     }""")
-                    if clicked_dom:
-                        self.log("INFO", f"[Reel #{reel_index}] 👉 Clicked 'Create reel' via DOM.")
-                        await asyncio.sleep(2.5)
+                    if cr_coords and cr_coords.get("found"):
+                        self.log("INFO", f"[Reel #{reel_index}] 👉 Clicking 'Create reel' smoothly...")
+                        await asyncio.sleep(0.25)
+                        await human_click_coords(page, cr_coords["x"], cr_coords["y"])
+                        await asyncio.sleep(random.uniform(2.0, 2.8))
                         modal_opened = True
                 except Exception:
                     pass
@@ -1057,7 +1155,7 @@ class FacebookReelsUploaderBot:
                         if await u_btn.count() > 0 and await u_btn.is_visible():
                             try:
                                 async with page.expect_file_chooser(timeout=4000) as fc_info:
-                                    await u_btn.click()
+                                    await human_move_and_click(page, u_btn, hover_pause=False)
                                 file_chooser = await fc_info.value
                                 await file_chooser.set_files(video_path)
                                 file_attached = True
@@ -1175,6 +1273,7 @@ class FacebookReelsUploaderBot:
 
         caption_entered = False
         published = False
+        post_ready_ticks = 0
 
         for loop_tick in range(60):
             if self._cancelled:
@@ -1182,24 +1281,19 @@ class FacebookReelsUploaderBot:
 
             await self._dismiss_popups_and_modals(page)
 
-            # 1. Check if Caption can be typed
-            if not caption_entered:
+            # 1. Check if Caption can be typed smoothly (skip if user left caption blank)
+            if not caption_entered and caption.strip():
                 for sel in caption_selectors:
                     try:
                         box = page.locator(sel).first
                         if await box.count() > 0 and await box.is_visible():
-                            await box.click()
-                            await asyncio.sleep(0.3)
-                            await page.keyboard.press("Control+A")
-                            await page.keyboard.press("Backspace")
-                            await asyncio.sleep(0.2)
-                            await page.keyboard.type(caption, delay=15)
+                            await human_type_text(page, box, caption, clear_first=True)
                             caption_entered = True
                             self.log("SUCCESS", f"[Reel #{reel_index}] ✅ Caption & hashtags entered: '{caption[:35]}...'")
 
                             # Dismiss hashtag suggestions popup
                             await page.keyboard.press("Escape")
-                            await asyncio.sleep(0.2)
+                            await asyncio.sleep(0.18)
                             await page.keyboard.press("Escape")
                             break
                     except Exception:
@@ -1211,6 +1305,7 @@ class FacebookReelsUploaderBot:
                             const boxes = Array.from(document.querySelectorAll('div[aria-label*="Describe" i], div[aria-label*="Descreva" i], div[aria-label*="Describe tu" i], div[contenteditable="true"], textarea, div[role="textbox"]'));
                             for (const b of boxes) {
                                 if (b.offsetParent !== null && b.getBoundingClientRect().height > 20) {
+                                    b.scrollIntoView({ block: 'center', inline: 'center' });
                                     b.focus();
                                     document.execCommand('selectAll', false, null);
                                     document.execCommand('insertText', false, txt);
@@ -1224,6 +1319,8 @@ class FacebookReelsUploaderBot:
                             await page.keyboard.press("Escape")
                     except Exception:
                         pass
+            elif not caption.strip():
+                caption_entered = True
 
             # 2. Check if primary 'Post' / 'Publish' / 'Publicar' button is active and ready
             has_post_ready = False
@@ -1261,19 +1358,24 @@ class FacebookReelsUploaderBot:
             except Exception:
                 pass
 
-            # 3. If Post is ready AND caption is entered -> CLICK POST!
-            if has_post_ready and caption_entered:
-                self.log("INFO", f"[Reel #{reel_index}] 🚀 Post button is active! Clicking Post on Reel #{reel_index} ({file_name})...")
+            if has_post_ready:
+                post_ready_ticks += 1
+            else:
+                post_ready_ticks = 0
+
+            # 3. If Post is ready AND (caption entered OR fallback after 4 ticks) -> CLICK POST SMOOTHLY!
+            if has_post_ready and (caption_entered or post_ready_ticks >= 4):
+                if not caption_entered:
+                    self.log("WARNING", f"[Reel #{reel_index}] ⚠️ Caption box not matched on this Facebook UI; proceeding to publish with active Post button.")
+                self.log("INFO", f"[Reel #{reel_index}] 🚀 Post button is active! Moving cursor to Post Reel #{reel_index} ({file_name})...")
                 try:
-                    published = await page.evaluate("""() => {
+                    post_coords = await page.evaluate("""() => {
                         const btns = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"], [role="button"]'));
                         const postKeywords = ['post', 'publish', 'publicar', 'compartilhar', 'postar', 'compartir', 'پوسٹ', 'پوسٹ کریں', 'شائع کریں'];
-                        
                         for (const b of btns) {
                             if (!b.offsetParent) continue;
                             const label = (b.getAttribute('aria-label') || '').trim().toLowerCase();
                             const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-                            
                             if (txt.includes('group') || label.includes('group') ||
                                 txt.includes('grupo') || label.includes('grupo') ||
                                 txt.includes('share to') || label.includes('share to') ||
@@ -1285,23 +1387,25 @@ class FacebookReelsUploaderBot:
                                 txt.includes('star') || txt.includes('earn')) {
                                 continue;
                             }
-                            
                             if (postKeywords.some(w => txt === w || label === w)) {
                                 const dis = b.getAttribute('aria-disabled');
                                 if (dis !== 'true' && !b.disabled) {
-                                    b.scrollIntoView({ block: 'center', inline: 'center' });
-                                    b.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-                                    b.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-                                    b.click();
-                                    return true;
+                                    b.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+                                    const r = b.getBoundingClientRect();
+                                    if (r.width > 4 && r.height > 4) {
+                                        return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                                    }
                                 }
                             }
                         }
-                        return false;
+                        return { found: false };
                     }""")
-                    if published:
-                        self.log("SUCCESS", f"[Reel #{reel_index}] 🎉 Clicked Post on Reel #{reel_index} ({file_name})!")
-                        break
+                    if post_coords and post_coords.get("found"):
+                        await asyncio.sleep(random.uniform(0.25, 0.5))
+                        if await human_click_coords(page, post_coords["x"], post_coords["y"]):
+                            published = True
+                            self.log("SUCCESS", f"[Reel #{reel_index}] 🎉 Clicked Post on Reel #{reel_index} ({file_name})!")
+                            break
                 except Exception:
                     pass
 
@@ -1312,11 +1416,9 @@ class FacebookReelsUploaderBot:
                             p_btn = page.locator(p_sel).last
                             if await p_btn.count() > 0 and await p_btn.is_visible():
                                 p_txt = (await p_btn.inner_text() or "").strip().lower()
-                                p_aria = (await p_btn.get_attribute("aria-label") or "").strip().lower()
                                 if "group" not in p_txt and "grupo" not in p_txt and "share to" not in p_txt:
                                     if await p_btn.get_attribute("aria-disabled") != "true":
-                                        await p_btn.scroll_into_view_if_needed()
-                                        await p_btn.click(force=True)
+                                        await human_move_and_click(page, p_btn)
                                         published = True
                                         self.log("SUCCESS", f"[Reel #{reel_index}] 🎉 Clicked Post via Locator on Reel #{reel_index}!")
                                         break
@@ -1325,85 +1427,106 @@ class FacebookReelsUploaderBot:
                     if published:
                         break
 
-            # 4. If Post is not ready yet, click 'Next' (Avançar / Siguiente)
-            if not has_post_ready or not caption_entered:
+            # 4. If Post is not ready yet, click 'Next' (Avançar / Siguiente) smoothly
+            if not has_post_ready:
+                next_clicked = False
                 for sel in next_selectors:
                     try:
                         n_btn = page.locator(sel).first
                         if await n_btn.count() > 0 and await n_btn.is_visible():
                             if await n_btn.get_attribute("aria-disabled") != "true":
-                                await n_btn.click()
+                                await human_move_and_click(page, n_btn)
+                                next_clicked = True
                                 self.log("INFO", f"[Reel #{reel_index}] 👉 Clicked 'Next' / 'Avançar' step.")
-                                await asyncio.sleep(2.0)
+                                await asyncio.sleep(random.uniform(1.6, 2.5))
                                 break
                     except Exception:
                         pass
 
-                # DOM query fallback for Next
-                try:
-                    clicked_next_dom = await page.evaluate("""() => {
-                        const btns = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"]'));
-                        const nextWords = ['next', 'avançar', 'avancar', 'seguinte', 'próximo', 'proximo', 'siguiente', 'avanzar', 'اگلا'];
-                        for (const b of btns) {
-                            if (!b.offsetParent) continue;
-                            const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-                            const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
-                            if (nextWords.some(w => txt === w || aria === w)) {
-                                const dis = b.getAttribute('aria-disabled');
-                                if (dis !== 'true' && !b.disabled) {
-                                    b.click();
-                                    return true;
+                # DOM coordinate lookup fallback for Next
+                if not next_clicked:
+                    try:
+                        next_coords = await page.evaluate("""() => {
+                            const btns = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"]'));
+                            const nextWords = ['next', 'avançar', 'avancar', 'seguinte', 'próximo', 'proximo', 'siguiente', 'avanzar', 'اگلا'];
+                            for (const b of btns) {
+                                if (!b.offsetParent) continue;
+                                const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+                                const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
+                                if (nextWords.some(w => txt === w || aria === w)) {
+                                    const dis = b.getAttribute('aria-disabled');
+                                    if (dis !== 'true' && !b.disabled) {
+                                        b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                        const r = b.getBoundingClientRect();
+                                        if (r.width > 4 && r.height > 4) {
+                                            return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                                        }
+                                    }
                                 }
                             }
-                        }
-                        return false;
-                    }""")
-                    if clicked_next_dom:
-                        self.log("INFO", f"[Reel #{reel_index}] 👉 Clicked 'Next' step via DOM helper.")
-                        await asyncio.sleep(2.0)
-                except Exception:
-                    pass
+                            return { found: false };
+                        }""")
+                        if next_coords and next_coords.get("found"):
+                            await asyncio.sleep(0.2)
+                            if await human_click_coords(page, next_coords["x"], next_coords["y"]):
+                                self.log("INFO", f"[Reel #{reel_index}] 👉 Clicked 'Next' step smoothly.")
+                                await asyncio.sleep(random.uniform(1.6, 2.4))
+                    except Exception:
+                        pass
 
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(random.uniform(1.1, 1.6))
 
         if published:
-            self.log("INFO", f"[Reel #{reel_index}] ⏳ Post submitted! Checking for Facebook server response and posting status...")
-            await asyncio.sleep(3.0)
+            self.log("INFO", f"[Reel #{reel_index}] ⏳ Post submitted! Confirming upload completion & server response...")
+            # Poll dynamically up to ~25s for Facebook rate limits, checkpoints, or creator completion
+            for wait_tick in range(25):
+                if self._cancelled:
+                    return False
+                await asyncio.sleep(1.0)
 
-            # Check immediately if Facebook showed a rate limit / action block dialog!
-            is_lim, lim_msg = await self._check_facebook_rate_limit(page)
-            if is_lim:
-                self.rate_limited = True
-                self.log("ERROR", f"⛔ [POST BLOCKED BY FACEBOOK LIMIT] Account {self.account_name} hit posting limit upon clicking Post: '{lim_msg}'. Skipping account!")
-                if self.status_cb:
-                    self.status_cb(self.account_id, "LIMIT", self.uploaded_count)
-                return False
+                is_lim, lim_msg = await self._check_facebook_rate_limit(page)
+                if is_lim:
+                    self.rate_limited = True
+                    self.log("ERROR", f"⛔ [POST BLOCKED BY FACEBOOK LIMIT] Account {self.account_name} hit posting limit upon clicking Post: '{lim_msg}'. Skipping account!")
+                    if self.status_cb:
+                        self.status_cb(self.account_id, "LIMIT", self.uploaded_count)
+                    return False
 
-            # Check if Facebook redirected to checkpoint
-            is_cp, cp_msg = await self._check_checkpoint_or_suspended(page)
-            if is_cp:
-                self.checkpoint_hit = True
-                self.log("ERROR", f"🔒 [CHECKPOINT DETECTED] Account {self.account_name} triggered checkpoint upon posting: '{cp_msg}'. Skipping account!")
-                if self.status_cb:
-                    self.status_cb(self.account_id, "CHECKPOINT", self.uploaded_count)
-                return False
+                is_cp, cp_msg = await self._check_checkpoint_or_suspended(page)
+                if is_cp:
+                    self.checkpoint_hit = True
+                    self.log("ERROR", f"🔒 [CHECKPOINT DETECTED] Account {self.account_name} triggered checkpoint upon posting: '{cp_msg}'. Skipping account!")
+                    if self.status_cb:
+                        self.status_cb(self.account_id, "CHECKPOINT", self.uploaded_count)
+                    return False
 
-            # Wait remaining seconds for upload processing
-            await asyncio.sleep(4.0)
-
-            # Secondary verification
-            is_lim, lim_msg = await self._check_facebook_rate_limit(page)
-            if is_lim:
-                self.rate_limited = True
-                self.log("ERROR", f"⛔ [POST BLOCKED BY FACEBOOK LIMIT] Facebook confirmed rate limit: '{lim_msg}'. Skipping account!")
-                if self.status_cb:
-                    self.status_cb(self.account_id, "LIMIT", self.uploaded_count)
-                return False
+                try:
+                    state = await page.evaluate("""() => {
+                        const u = (window.location.href || '').toLowerCase();
+                        const txt = (document.body ? (document.body.innerText || '') : '').toLowerCase();
+                        const doneToast = (
+                            txt.includes('your reel is ready') ||
+                            txt.includes('your video is being processed') ||
+                            txt.includes('reel shared') ||
+                            txt.includes('your reel was posted') ||
+                            txt.includes('sua reel foi publicada') ||
+                            txt.includes('seu reel foi compartilhado') ||
+                            txt.includes('tu reel se publicó')
+                        );
+                        const stillInCreate = u.includes('/reels/create');
+                        const hasProgress = document.querySelector('[role="progressbar"]') !== null;
+                        return { doneToast, stillInCreate, hasProgress };
+                    }""")
+                    if wait_tick >= 4 and (state.get("doneToast") or (not state.get("stillInCreate") and not state.get("hasProgress"))):
+                        await asyncio.sleep(1.5)
+                        break
+                except Exception:
+                    if wait_tick >= 6:
+                        break
 
             return True
         else:
             self.log("ERROR", f"[Reel #{reel_index}] ❌ Could not click Post button for {file_name}.")
-            # Check if Post button was blocked by an active limit
             is_lim, lim_msg = await self._check_facebook_rate_limit(page)
             if is_lim:
                 self.rate_limited = True
@@ -1513,6 +1636,8 @@ class FacebookReelsUploaderBot:
                     self.status_cb(self.account_id, "CHECKPOINT", 0)
                 return {"success": False, "status": "CHECKPOINT", "count": 0, "message": "Session expired"}
 
+            await human_session_warmup(main_page, duration_range=(1.1, 2.0))
+
             # Auto-detect profile/page URL
             base_reels_url = ""
             try:
@@ -1539,7 +1664,7 @@ class FacebookReelsUploaderBot:
             self.uploaded_count = 0
             total_reels = len(assigned_videos)
 
-            # Paced Sequential Reel Execution with cooldown delay
+            # Paced Sequential Reel Execution with cooldown delay & idle drift
             for idx, v_path in enumerate(assigned_videos):
                 if self._cancelled:
                     self.log("WARNING", "Upload cancelled by user.")
@@ -1547,6 +1672,8 @@ class FacebookReelsUploaderBot:
                 if self.rate_limited or self.checkpoint_hit:
                     self.log("WARNING", f"⛔ Halting reels upload on {self.account_name} due to limit/checkpoint. Skipping remaining {total_reels - idx} reel(s).")
                     break
+                if idx > 0:
+                    await human_idle_drift(main_page)
 
                 tab_idx = idx + 1
                 caption_text = resolve_spintax(self.caption_template)

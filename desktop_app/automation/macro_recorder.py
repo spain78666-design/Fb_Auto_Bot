@@ -18,6 +18,63 @@ except ImportError:
     BrowserContext = Any
     Page = Any
 
+try:
+    from automation.browser_window_manager import (
+        build_window_chrome_args,
+        human_click_element,
+        human_move_and_click,
+        human_click_coords,
+        human_type_text,
+        human_smooth_scroll,
+        human_pause,
+        human_session_warmup,
+        human_idle_drift,
+    )
+except ImportError:
+    try:
+        from desktop_app.automation.browser_window_manager import (
+            build_window_chrome_args,
+            human_click_element,
+            human_move_and_click,
+            human_click_coords,
+            human_type_text,
+            human_smooth_scroll,
+            human_pause,
+            human_session_warmup,
+            human_idle_drift,
+        )
+    except ImportError:
+        def build_window_chrome_args(tile_rect=None, total_slots=1, slot_index=0, profile_directory=None, apply_scale_factor=True):
+            return []
+        async def human_click_element(page, target, hover_pause=True, force_fallback=True):
+            try:
+                await target.click(timeout=4000)
+                return True
+            except Exception:
+                return False
+        async def human_move_and_click(page, locator, hover_pause=True, force_fallback=True):
+            return await human_click_element(page, locator, hover_pause=hover_pause, force_fallback=force_fallback)
+        async def human_click_coords(page, x, y, hover_pause=True):
+            try:
+                await page.mouse.click(x, y)
+                return True
+            except Exception:
+                return False
+        async def human_type_text(page, target, text, clear_first=True, allow_typos=False):
+            try:
+                await target.fill(text)
+                return True
+            except Exception:
+                return False
+        async def human_smooth_scroll(page, total_delta_y=550, steps=6):
+            await page.evaluate("(d) => window.scrollBy(0, d)", total_delta_y)
+        async def human_pause(low=0.55, high=1.45, mult=1.0):
+            await asyncio.sleep(random.uniform(low, high) * mult)
+        async def human_session_warmup(page, duration_range=(1.0, 1.8), log_cb=None):
+            await asyncio.sleep(1.0)
+        async def human_idle_drift(page):
+            await asyncio.sleep(0.25)
+
 def get_base_dir() -> str:
     """Returns absolute path to persistent app base directory across PyInstaller exe and dev modes."""
     if getattr(sys, 'frozen', False):
@@ -488,13 +545,13 @@ class MacroRecorderSession:
                 ext_path = os.path.join(get_base_dir(), "FewFeedV3.9.1") if os.path.isdir(os.path.join(get_base_dir(), "FewFeedV3.9.1")) else os.path.join(get_base_dir(), "FEWFEED")
             launch_args = [
                 "--disable-blink-features=AutomationControlled",
-                "--start-maximized",
                 "--disable-infobars",
                 "--disable-features=DisableLoadExtensionCommandLineSwitch,IsolateOrigins,site-per-process",
                 "--enable-features=ExtensionsToolbarMenu",
                 "--no-default-browser-check",
                 "--disable-notifications",
-                "--lang=en-US,en"
+                "--lang=en-US,en",
+                *build_window_chrome_args(total_slots=1, slot_index=0),
             ]
             if ext_path and os.path.exists(ext_path) and os.path.exists(os.path.join(ext_path, "manifest.json")):
                 clean_p = os.path.abspath(ext_path).replace('\\', '/')
@@ -850,13 +907,13 @@ class GroupMacroRecorderSession:
                 ext_path = os.path.join(get_base_dir(), "FewFeedV3.9.1") if os.path.isdir(os.path.join(get_base_dir(), "FewFeedV3.9.1")) else os.path.join(get_base_dir(), "FEWFEED")
             launch_args = [
                 "--disable-blink-features=AutomationControlled",
-                "--start-maximized",
                 "--disable-infobars",
                 "--disable-features=DisableLoadExtensionCommandLineSwitch,IsolateOrigins,site-per-process",
                 "--enable-features=ExtensionsToolbarMenu",
                 "--no-default-browser-check",
                 "--disable-notifications",
-                "--lang=en-US,en"
+                "--lang=en-US,en",
+                *build_window_chrome_args(total_slots=1, slot_index=0),
             ]
             if ext_path and os.path.exists(ext_path) and os.path.exists(os.path.join(ext_path, "manifest.json")):
                 clean_p = os.path.abspath(ext_path).replace('\\', '/')
@@ -1067,7 +1124,8 @@ class MacroMethodPlayer:
             if "/marketplace/create" not in curr_url:
                 self.log("INFO", "Navigating directly to Facebook Marketplace Create Form...")
                 await page.goto("https://www.facebook.com/marketplace/create/item", wait_until="domcontentloaded", timeout=30000)
-                await asyncio.sleep(2.5)
+                await human_pause(1.8, 2.8)
+            await human_session_warmup(page, duration_range=(0.9, 1.6))
         except Exception as e:
             if self._is_stopped or page.is_closed():
                 self.log("WARNING", "Execution stopped or browser closed.")
@@ -1129,11 +1187,11 @@ class MacroMethodPlayer:
                 except Exception:
                     continue
 
-            # 2. Scroll into view check if not found
+            # 2. Smooth scroll into view check if not found
             if not element:
                 try:
-                    await page.evaluate("window.scrollBy(0, 300)")
-                    await asyncio.sleep(0.3)
+                    await human_smooth_scroll(page, total_delta_y=random.randint(240, 360), steps=4)
+                    await human_pause(0.25, 0.5)
                     for cand in candidate_selectors[:3]:
                         el = await page.query_selector(cand)
                         if el and await el.is_visible():
@@ -1183,16 +1241,13 @@ class MacroMethodPlayer:
                 if element:
                     try:
                         self.log("INFO", f"Step #{idx} [TYPE]: Filling [{field_type.upper()}] with: '{value_to_type[:30]}...'")
-                        await element.scroll_into_view_if_needed()
-                        await asyncio.sleep(0.2)
-                        await element.click()
-                        await page.keyboard.press("Control+A")
-                        await page.keyboard.press("Backspace")
-                        for ch in value_to_type:
-                            if self._is_stopped or page.is_closed():
-                                return False
-                            await page.keyboard.type(ch)
-                            await asyncio.sleep(random.uniform(0.02, 0.08))
+                        await human_type_text(
+                            page,
+                            element,
+                            value_to_type,
+                            clear_first=True,
+                            allow_typos=(field_type in ("title", "description")),
+                        )
                         continue
                     except Exception as ex:
                         self.log("WARNING", f"Typing step #{idx} notice: {str(ex)[:50]}")
@@ -1218,12 +1273,10 @@ class MacroMethodPlayer:
                         if any(term in str(lbl).lower() for term in ["draft", "save", "محفوظ"]):
                             continue
                         self.log("INFO", f"Step #{idx} [CLICK]: Clicking [{lbl}]...")
-                        await element.scroll_into_view_if_needed()
-                        await asyncio.sleep(0.2)
-                        await element.click()
+                        await human_click_element(page, element, hover_pause=True)
                         if any(term in str(lbl).lower() for term in ["publish", "post", "شائع"]):
                             page._is_marketplace_published = True
-                        await asyncio.sleep(0.4)
+                        await human_pause(0.35, 0.7)
                     except Exception as ex:
                         self.log("WARNING", f"Click step #{idx} notice: {str(ex)[:50]}")
                 else:
@@ -1306,63 +1359,61 @@ class MacroMethodPlayer:
         return None
 
     async def _inject_field_safely(self, page: Page, field_type: str, value: str):
-        """Safely finds and types into a required field."""
+        """Safely finds and types into a required field with organic human typing rhythm."""
         if self._is_stopped or page.is_closed():
             return
         el = await self._find_semantic_field_input(page, field_type)
         if el:
             try:
                 self.log("INFO", f"Applying [{field_type.upper()}]: '{value[:30]}...'")
-                await el.scroll_into_view_if_needed()
-                await el.click()
-                await page.keyboard.press("Control+A")
-                await page.keyboard.press("Backspace")
-                await page.keyboard.type(value, delay=35)
-                await asyncio.sleep(0.3)
+                await human_type_text(
+                    page,
+                    el,
+                    value,
+                    clear_first=True,
+                    allow_typos=(field_type in ("title", "description")),
+                )
+                await human_pause(0.25, 0.55)
             except Exception as e:
                 self.log("WARNING", f"Could not apply {field_type}: {str(e)[:40]}")
 
     async def _inject_category_safely(self, page: Page, category: str):
-        """Selects category dropdown item safely."""
+        """Selects category dropdown item safely via curved human mouse clicks."""
         if self._is_stopped or page.is_closed():
             return
         try:
             cat_btn = await page.query_selector('label[aria-label*="Category"], div[aria-label*="Category"][role="combobox"], div[aria-label*="Category"][role="button"]')
             if cat_btn and await cat_btn.is_visible():
                 self.log("INFO", f"Setting Category to '{category}'...")
-                await cat_btn.click()
-                await asyncio.sleep(1.0)
+                await human_click_element(page, cat_btn)
+                await human_pause(0.8, 1.3)
                 item = await page.query_selector(f'div[role="option"]:has-text("{category}"), span:has-text("{category}")')
                 if item and await item.is_visible():
-                    await item.click()
-                    await asyncio.sleep(0.5)
+                    await human_click_element(page, item)
+                    await human_pause(0.4, 0.75)
         except Exception:
             pass
 
     async def _inject_location_safely(self, page: Page, location: str):
-        """Types and selects target geographic location."""
+        """Types and selects target geographic location with organic typing & selection."""
         if self._is_stopped or page.is_closed():
             return
         try:
             loc_input = await self._find_semantic_field_input(page, "location")
             if loc_input:
                 self.log("INFO", f"Setting Target Location to '{location}'...")
-                await loc_input.scroll_into_view_if_needed()
-                await loc_input.click()
-                await page.keyboard.press("Control+A")
-                await page.keyboard.press("Backspace")
                 search_query = re.sub(r'\(.*?\)', '', location).strip() or location
-                await page.keyboard.type(search_query, delay=40)
-                await asyncio.sleep(1.8)
+                await human_type_text(page, loc_input, search_query, clear_first=True, allow_typos=False)
+                await human_pause(1.5, 2.2)
                 # Pick the first location suggestion
                 first_option = await page.query_selector('div[role="listbox"] div[role="option"], ul[role="listbox"] li, div[role="option"]')
                 if first_option and await first_option.is_visible():
-                    await first_option.click()
+                    await human_click_element(page, first_option)
                 else:
                     await page.keyboard.press("ArrowDown")
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(random.uniform(0.18, 0.32))
                     await page.keyboard.press("Enter")
-                await asyncio.sleep(0.8)
+                await human_pause(0.65, 1.05)
         except Exception:
             pass
 
@@ -1378,7 +1429,7 @@ class MacroMethodPlayer:
                     try:
                         await finput.set_input_files(valid_imgs)
                         self.log("SUCCESS", f"Attached {len(valid_imgs)} product image(s) to listing.")
-                        await asyncio.sleep(2.0)
+                        await human_pause(1.6, 2.4)
                         break
                     except Exception:
                         continue
@@ -1386,19 +1437,20 @@ class MacroMethodPlayer:
             self.log("WARNING", f"Image upload notice: {str(e)[:40]}")
 
     async def _finalize_submission(self, page: Page):
-        """Attempts to press Next and Publish if active."""
+        """Attempts to press Next and Publish if active via natural mouse gestures."""
         if self._is_stopped or page.is_closed():
             return
         if getattr(page, "_is_marketplace_published", False):
             self.log("INFO", "Marketplace listing already published on this tab, skipping redundant finalization.")
             return
         try:
+            await human_idle_drift(page)
             # Check for Next button
             next_btn = await self._find_button_by_text(page, ["Next", "اگلا"])
             if next_btn:
                 self.log("INFO", "Progressing to final step (Next)...")
-                await next_btn.click()
-                await asyncio.sleep(3.0)
+                await human_click_element(page, next_btn)
+                await human_pause(2.4, 3.6)
 
             if getattr(page, "_is_marketplace_published", False):
                 return
@@ -1408,8 +1460,8 @@ class MacroMethodPlayer:
             if pub_btn:
                 page._is_marketplace_published = True
                 self.log("INFO", "Publishing listing...")
-                await pub_btn.click()
-                await asyncio.sleep(4.0)
+                await human_click_element(page, pub_btn)
+                await human_pause(3.2, 4.6)
         except Exception:
             pass
 

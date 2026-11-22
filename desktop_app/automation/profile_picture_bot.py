@@ -15,6 +15,58 @@ import random
 from urllib.parse import urlparse
 from typing import List, Dict, Any, Optional, Callable
 
+try:
+    from automation.browser_window_manager import (
+        resolve_tile_context,
+        build_window_chrome_args,
+        apply_cdp_window_bounds,
+        launch_bot_browser_context,
+        human_move_and_click,
+        human_click_coords,
+        human_pause,
+        human_session_warmup,
+        human_idle_drift,
+    )
+except ImportError:
+    try:
+        from desktop_app.automation.browser_window_manager import (
+            resolve_tile_context,
+            build_window_chrome_args,
+            apply_cdp_window_bounds,
+            launch_bot_browser_context,
+            human_move_and_click,
+            human_click_coords,
+            human_pause,
+            human_session_warmup,
+            human_idle_drift,
+        )
+    except ImportError:
+        def resolve_tile_context(account_data=None, window_slot=None, total_window_slots=None, tile_rect=None):
+            return 0, 1, (0, 0, 1920, 1080)
+        def build_window_chrome_args(tile_rect=None, total_slots=1, slot_index=0, profile_directory=None, apply_scale_factor=True):
+            return []
+        async def apply_cdp_window_bounds(context, page=None, tile_rect=None, total_slots=1, slot_index=0):
+            return False
+        launch_bot_browser_context = None
+        async def human_move_and_click(page, locator, hover_pause=True, force_fallback=True):
+            try:
+                await locator.click(timeout=4000)
+                return True
+            except Exception:
+                return False
+        async def human_click_coords(page, x, y, hover_pause=True):
+            try:
+                await page.mouse.click(x, y)
+                return True
+            except Exception:
+                return False
+        async def human_pause(low=0.55, high=1.45, mult=1.0):
+            await asyncio.sleep(random.uniform(low, high) * mult)
+        async def human_session_warmup(page, duration_range=(1.2, 2.3), log_cb=None):
+            await asyncio.sleep(1.0)
+        async def human_idle_drift(page):
+            await asyncio.sleep(0.25)
+
 logger = logging.getLogger("FBAutoBot.ProfilePictureBot")
 
 try:
@@ -137,20 +189,24 @@ class FacebookProfilePictureBot:
         self.log("WARNING", "🛑 Stop command received. Terminating Profile Picture Bot...")
 
     async def _init_browser(self):
-        """Initializes stealth Chrome instance with account cookies, anti-fingerprinting, and background throttling prevention."""
+        """Initializes stealth Chrome instance with tiled window, profile/cookies, and background throttling prevention."""
         if not PLAYWRIGHT_AVAILABLE:
             raise RuntimeError("Playwright is not installed in the system environment.")
 
         self.playwright = await async_playwright().start()
+
+        slot_idx, total_slots, tile_rect = resolve_tile_context(self.account_data)
+        chrome_profile_directory = (self.account_data.get("chrome_profile_directory") or "").strip() or None
+        is_custom_profile = bool(self.account_data.get("is_custom_chrome_profile", False))
 
         launch_args = [
             "--disable-blink-features=AutomationControlled",
             "--disable-infobars",
             "--disable-notifications",
             "--no-first-run",
+            "--no-default-browser-check",
             "--disable-default-apps",
             "--disable-popup-blocking",
-            "--start-maximized",
             "--disable-background-timer-throttling",
             "--disable-backgrounding-occluded-windows",
             "--disable-renderer-backgrounding",
@@ -159,6 +215,14 @@ class FacebookProfilePictureBot:
             "--lang=en-US",
             "--accept-lang=en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7,es;q=0.6"
         ]
+        launch_args.extend(
+            build_window_chrome_args(
+                tile_rect=tile_rect,
+                total_slots=total_slots,
+                slot_index=slot_idx,
+                profile_directory=chrome_profile_directory,
+            )
+        )
 
         proxy_cfg = None
         use_direct = (
@@ -195,30 +259,7 @@ class FacebookProfilePictureBot:
                 proxy_cfg = None
                 launch_args.append("--no-proxy-server")
 
-        chrome_candidates = [
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-            os.path.expanduser(r"~\AppData\Local\Google\Chrome\Application\chrome.exe")
-        ]
-        chrome_exe = next((c for c in chrome_candidates if os.path.isfile(c)), None)
-
-        launch_kwargs: Dict[str, Any] = {
-            "headless": False,
-            "args": launch_args
-        }
-        if proxy_cfg:
-            launch_kwargs["proxy"] = proxy_cfg
-        if chrome_exe:
-            launch_kwargs["executable_path"] = chrome_exe
-
-        try:
-            self.browser = await self.playwright.chromium.launch(**launch_kwargs)
-        except Exception as e:
-            self.log("WARNING", f"Custom Chrome launch notice: {e}. Falling back to default Chromium...")
-            launch_kwargs.pop("executable_path", None)
-            self.browser = await self.playwright.chromium.launch(**launch_kwargs)
-
-        context_kwargs = {
+        context_kwargs: Dict[str, Any] = {
             "viewport": None,
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
             "locale": "en-US",
@@ -228,23 +269,31 @@ class FacebookProfilePictureBot:
         }
 
         profile_dir = self.account_data.get("profile_dir", "")
-        if profile_dir and os.path.isdir(profile_dir):
-            try:
-                self.context = await self.playwright.chromium.launch_persistent_context(
-                    user_data_dir=profile_dir,
-                    headless=False,
-                    args=launch_args,
-                    proxy=proxy_cfg,
-                    **context_kwargs
-                )
-            except Exception:
-                self.context = await self.browser.new_context(**context_kwargs)
-        else:
-            self.context = await self.browser.new_context(**context_kwargs)
+        self.context, self.browser = await launch_bot_browser_context(
+            playwright=self.playwright,
+            account_data=self.account_data,
+            profile_dir=profile_dir,
+            launch_args=launch_args,
+            ignore_default_args=["--enable-automation", "--disable-extensions"],
+            proxy_cfg=proxy_cfg,
+            context_kwargs=context_kwargs,
+            log_cb=self.log,
+            allow_ephemeral_fallback=not is_custom_profile,
+        )
 
-        # Inject session cookies and force English interface cookie
-        raw_cookies = self.account_data.get("cookies", "")
         if self.context:
+            p0 = self.context.pages[0] if self.context.pages else await self.context.new_page()
+            await apply_cdp_window_bounds(
+                self.context,
+                p0,
+                tile_rect=tile_rect,
+                total_slots=total_slots,
+                slot_index=slot_idx,
+            )
+
+        # Inject session cookies (preserve existing custom Chrome profile session when cookies empty)
+        raw_cookies = self.account_data.get("cookies", "")
+        if self.context and (raw_cookies or not is_custom_profile):
             try:
                 formatted = []
                 if raw_cookies:
@@ -263,21 +312,24 @@ class FacebookProfilePictureBot:
                             elif isinstance(item, str):
                                 formatted.extend(parse_cookie_payload(item))
 
-                locale_cookie_found = any(c.get("name") == "locale" for c in formatted)
-                if not locale_cookie_found:
-                    formatted.append({
-                        "name": "locale",
-                        "value": "en_US",
-                        "domain": ".facebook.com",
-                        "path": "/",
-                        "secure": True
-                    })
+                if not is_custom_profile:
+                    locale_cookie_found = any(c.get("name") == "locale" for c in formatted)
+                    if not locale_cookie_found:
+                        formatted.append({
+                            "name": "locale",
+                            "value": "en_US",
+                            "domain": ".facebook.com",
+                            "path": "/",
+                            "secure": True
+                        })
 
                 if formatted:
                     await self.context.add_cookies(formatted)
                     self.log("SUCCESS", f"🔑 Injected {len(formatted)} Facebook cookies. Session active.")
             except Exception as e:
                 self.log("DEBUG", f"Cookie injection notice: {e}")
+        elif is_custom_profile:
+            self.log("INFO", "📂 Using existing Chrome profile Facebook login session directly.")
 
     async def _dismiss_popups_and_modals(self, page: Page):
         """Detects and automatically dismisses blocking dialogs and popups across languages."""
@@ -346,8 +398,8 @@ class FacebookProfilePictureBot:
             for sel in specific_close_selectors:
                 c_btn = page.locator(sel).first
                 if await c_btn.count() > 0 and await c_btn.is_visible():
-                    await c_btn.click(force=True)
-                    await asyncio.sleep(0.5)
+                    await human_move_and_click(page, c_btn, hover_pause=False)
+                    await human_pause(0.35, 0.7)
         except Exception:
             pass
 
@@ -410,18 +462,18 @@ class FacebookProfilePictureBot:
             try:
                 btn = page.locator(a_sel).first
                 if await btn.count() > 0 and await btn.is_visible():
-                    await btn.click()
-                    clicked_avatar = True
-                    self.log("INFO", "👉 Clicked avatar camera icon.")
-                    await asyncio.sleep(2.5)
-                    break
+                    if await human_move_and_click(page, btn):
+                        clicked_avatar = True
+                        self.log("INFO", "👉 Clicked avatar camera icon smoothly.")
+                        await asyncio.sleep(random.uniform(1.8, 2.6))
+                        break
             except Exception:
                 pass
 
         if not clicked_avatar:
-            # Universal DOM query fallback for avatar camera button
+            # Universal DOM coordinate fallback + human click for avatar camera button
             try:
-                clicked_avatar = await page.evaluate("""() => {
+                avatar_coords = await page.evaluate("""() => {
                     const btns = Array.from(document.querySelectorAll('div[role="button"], button, svg'));
                     const keywords = [
                         'update profile picture', 'edit profile picture', 'add profile picture',
@@ -436,25 +488,33 @@ class FacebookProfilePictureBot:
                         if (keywords.some(k => aria.includes(k) || title.includes(k))) {
                             const clickable = b.closest('div[role="button"], button') || b;
                             if (clickable && clickable.offsetParent !== null) {
-                                clickable.click();
-                                return true;
+                                clickable.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                const r = clickable.getBoundingClientRect();
+                                if (r.width > 4 && r.height > 4) {
+                                    return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                                }
                             }
                         }
                     }
-                    // Structural fallback: look for the avatar container (SVG overlay on profile picture)
                     const avatarImgs = Array.from(document.querySelectorAll('image, img[alt*="profile" i], img[alt*="profil" i], img[alt*="perfil" i]'));
                     for (const img of avatarImgs) {
                         const container = img.closest('div[role="button"]') || img.parentElement?.querySelector('div[role="button"]');
                         if (container && container.offsetParent !== null) {
-                            container.click();
-                            return true;
+                            container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            const r = container.getBoundingClientRect();
+                            if (r.width > 4 && r.height > 4) {
+                                return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                            }
                         }
                     }
-                    return false;
+                    return { found: false };
                 }""")
-                if clicked_avatar:
-                    self.log("INFO", "👉 Clicked avatar camera icon via universal DOM helper.")
-                    await asyncio.sleep(2.5)
+                if avatar_coords and avatar_coords.get("found"):
+                    await asyncio.sleep(0.25)
+                    clicked_avatar = await human_click_coords(page, avatar_coords["x"], avatar_coords["y"])
+                    if clicked_avatar:
+                        self.log("INFO", "👉 Clicked avatar camera icon cleanly.")
+                        await asyncio.sleep(random.uniform(1.8, 2.6))
             except Exception:
                 pass
 
@@ -498,7 +558,7 @@ class FacebookProfilePictureBot:
                 u_btn = page.locator(u_sel).first
                 if await u_btn.count() > 0 and await u_btn.is_visible():
                     async with page.expect_file_chooser(timeout=5000) as fc_info:
-                        await u_btn.click()
+                        await human_move_and_click(page, u_btn, hover_pause=False)
                     fc = await fc_info.value
                     await fc.set_files(photo_path)
                     file_attached = True
@@ -567,19 +627,19 @@ class FacebookProfilePictureBot:
                     if await s_btn.count() > 0 and await s_btn.is_visible():
                         dis = await s_btn.get_attribute("aria-disabled")
                         if dis != "true":
-                            await s_btn.click()
-                            saved = True
-                            self.log("SUCCESS", f"💾 Clicked 'Save' on Profile Picture ({file_name})!")
-                            break
+                            if await human_move_and_click(page, s_btn):
+                                saved = True
+                                self.log("SUCCESS", f"💾 Clicked 'Save' on Profile Picture ({file_name})!")
+                                break
                 except Exception:
                     pass
 
             if saved:
                 break
 
-            # Universal DOM query fallback for Save button
+            # Universal DOM coordinate fallback + human click for Save button
             try:
-                saved = await page.evaluate("""() => {
+                save_coords = await page.evaluate("""() => {
                     const btns = Array.from(document.querySelectorAll('div[role="dialog"] div[role="button"], div[role="dialog"] button'));
                     const saveWords = [
                         'save', 'done', 'apply',
@@ -596,33 +656,56 @@ class FacebookProfilePictureBot:
                         if (saveWords.some(w => txt === w || aria === w || txt.startsWith(w) || aria.startsWith(w))) {
                             const dis = b.getAttribute('aria-disabled');
                             if (dis !== 'true' && !b.disabled) {
-                                b.click();
-                                return true;
+                                b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                const r = b.getBoundingClientRect();
+                                if (r.width > 4 && r.height > 4) {
+                                    return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                                }
                             }
                         }
                     }
-                    // Structural fallback: Click the primary / last action button in the crop dialog footer
                     const footerBtns = Array.from(document.querySelectorAll('div[role="dialog"] div[role="button"]:not([aria-label*="close" i]):not([aria-label*="annuler" i]):not([aria-label*="cancelar" i]):not([aria-label*="cancel" i]), div[role="dialog"] button:not([aria-label*="close" i]):not([aria-label*="annuler" i]):not([aria-label*="cancelar" i]):not([aria-label*="cancel" i])'));
                     if (footerBtns.length > 0) {
                         const lastBtn = footerBtns[footerBtns.length - 1];
                         if (lastBtn.offsetParent !== null && !lastBtn.disabled && lastBtn.getAttribute('aria-disabled') !== 'true') {
-                            lastBtn.click();
-                            return true;
+                            const r = lastBtn.getBoundingClientRect();
+                            if (r.width > 4 && r.height > 4) {
+                                return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                            }
                         }
                     }
-                    return false;
+                    return { found: false };
                 }""")
-                if saved:
-                    self.log("SUCCESS", f"💾 Clicked 'Save' on Profile Picture via universal DOM helper ({file_name})!")
-                    break
+                if save_coords and save_coords.get("found"):
+                    await asyncio.sleep(0.2)
+                    if await human_click_coords(page, save_coords["x"], save_coords["y"]):
+                        saved = True
+                        self.log("SUCCESS", f"💾 Clicked 'Save' on Profile Picture ({file_name})!")
+                        break
             except Exception:
                 pass
 
             await asyncio.sleep(1.0)
 
         if saved:
-            self.log("INFO", "⏳ Waiting 6 seconds for Facebook to process and finalize Profile Picture...")
-            await asyncio.sleep(6.0)
+            self.log("INFO", "⏳ Waiting for Facebook crop modal to close & finalize Profile Picture...")
+            for _ in range(16):
+                if self._cancelled:
+                    break
+                await asyncio.sleep(1.0)
+                try:
+                    still_open = await page.evaluate("""() => {
+                        const dlgs = Array.from(document.querySelectorAll('div[role="dialog"]'));
+                        return dlgs.some(d => {
+                            const t = (d.innerText || '').toLowerCase();
+                            return t.includes('profile picture') || t.includes('photo de profil') || t.includes('foto do perfil') || t.includes('save') || d.querySelector('[role="progressbar"]');
+                        });
+                    }""")
+                    if not still_open:
+                        break
+                except Exception:
+                    pass
+            await asyncio.sleep(2.0)
             return True
         else:
             self.log("WARNING", "⚠️ Could not locate Save button for Profile Picture.")
@@ -688,18 +771,18 @@ class FacebookProfilePictureBot:
             try:
                 btn = page.locator(c_sel).first
                 if await btn.count() > 0 and await btn.is_visible():
-                    await btn.click()
-                    clicked_cover_btn = True
-                    self.log("INFO", "👉 Clicked Cover Photo edit button.")
-                    await asyncio.sleep(2.0)
-                    break
+                    if await human_move_and_click(page, btn):
+                        clicked_cover_btn = True
+                        self.log("INFO", "👉 Clicked Cover Photo edit button smoothly.")
+                        await asyncio.sleep(random.uniform(1.6, 2.3))
+                        break
             except Exception:
                 pass
 
         if not clicked_cover_btn:
-            # Universal DOM query fallback for cover photo edit button
+            # Universal DOM coordinate fallback + human click for cover photo edit button
             try:
-                clicked_cover_btn = await page.evaluate("""() => {
+                cover_coords = await page.evaluate("""() => {
                     const btns = Array.from(document.querySelectorAll('div[role="button"], button'));
                     const keywords = [
                         'edit cover', 'add cover',
@@ -713,16 +796,22 @@ class FacebookProfilePictureBot:
                         const aria = (b.getAttribute('aria-label') || '').toLowerCase();
                         if (keywords.some(k => txt.includes(k) || aria.includes(k))) {
                             if (b.offsetParent !== null) {
-                                b.click();
-                                return true;
+                                b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                const r = b.getBoundingClientRect();
+                                if (r.width > 4 && r.height > 4) {
+                                    return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                                }
                             }
                         }
                     }
-                    return false;
+                    return { found: false };
                 }""")
-                if clicked_cover_btn:
-                    self.log("INFO", "👉 Clicked Cover Photo edit button via universal DOM helper.")
-                    await asyncio.sleep(2.0)
+                if cover_coords and cover_coords.get("found"):
+                    await asyncio.sleep(0.25)
+                    clicked_cover_btn = await human_click_coords(page, cover_coords["x"], cover_coords["y"])
+                    if clicked_cover_btn:
+                        self.log("INFO", "👉 Clicked Cover Photo edit button cleanly.")
+                        await asyncio.sleep(random.uniform(1.6, 2.3))
             except Exception:
                 pass
 
@@ -765,7 +854,7 @@ class FacebookProfilePictureBot:
                 if await u_item.count() > 0 and await u_item.is_visible():
                     try:
                         async with page.expect_file_chooser(timeout=5000) as fc_info:
-                            await u_item.click()
+                            await human_move_and_click(page, u_item, hover_pause=False)
                         fc = await fc_info.value
                         await fc.set_files(photo_path)
                         file_attached = True
@@ -842,19 +931,19 @@ class FacebookProfilePictureBot:
                     if await sc_btn.count() > 0 and await sc_btn.is_visible():
                         dis = await sc_btn.get_attribute("aria-disabled")
                         if dis != "true":
-                            await sc_btn.click()
-                            saved_cover = True
-                            self.log("SUCCESS", f"💾 Clicked 'Save Changes' on Cover Photo ({file_name})!")
-                            break
+                            if await human_move_and_click(page, sc_btn):
+                                saved_cover = True
+                                self.log("SUCCESS", f"💾 Clicked 'Save Changes' on Cover Photo ({file_name})!")
+                                break
                 except Exception:
                     pass
 
             if saved_cover:
                 break
 
-            # Universal DOM query fallback for Save changes
+            # Universal DOM coordinate fallback + human click for Save changes
             try:
-                saved_cover = await page.evaluate("""() => {
+                sc_coords = await page.evaluate("""() => {
                     const btns = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"]'));
                     const keywords = [
                         'save changes', 'save',
@@ -870,24 +959,47 @@ class FacebookProfilePictureBot:
                         if (keywords.some(k => txt.includes(k) || aria.includes(k))) {
                             const dis = b.getAttribute('aria-disabled');
                             if (dis !== 'true' && !b.disabled) {
-                                b.click();
-                                return true;
+                                b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                const r = b.getBoundingClientRect();
+                                if (r.width > 4 && r.height > 4) {
+                                    return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                                }
                             }
                         }
                     }
-                    return false;
+                    return { found: false };
                 }""")
-                if saved_cover:
-                    self.log("SUCCESS", f"💾 Clicked 'Save Changes' on Cover Photo via universal DOM helper ({file_name})!")
-                    break
+                if sc_coords and sc_coords.get("found"):
+                    await asyncio.sleep(0.2)
+                    if await human_click_coords(page, sc_coords["x"], sc_coords["y"]):
+                        saved_cover = True
+                        self.log("SUCCESS", f"💾 Clicked 'Save Changes' on Cover Photo ({file_name})!")
+                        break
             except Exception:
                 pass
 
             await asyncio.sleep(1.0)
 
         if saved_cover:
-            self.log("INFO", "⏳ Waiting 6 seconds for Facebook to process and finalize Cover Photo...")
-            await asyncio.sleep(6.0)
+            self.log("INFO", "⏳ Waiting for Facebook to process and save Cover Photo...")
+            for _ in range(16):
+                if self._cancelled:
+                    break
+                await asyncio.sleep(1.0)
+                try:
+                    still_saving = await page.evaluate("""() => {
+                        const btns = Array.from(document.querySelectorAll('div[role="button"], button'));
+                        return btns.some(b => {
+                            if (!b.offsetParent) return false;
+                            const t = (b.innerText || '').trim().toLowerCase();
+                            return t === 'save changes' || t === 'enregistrer les modifications' || t === 'salvar alterações' || t === 'guardar cambios';
+                        });
+                    }""")
+                    if not still_saving:
+                        break
+                except Exception:
+                    pass
+            await asyncio.sleep(2.0)
             return True
         else:
             self.log("WARNING", "⚠️ Could not locate Save Changes button for Cover Photo.")
@@ -946,6 +1058,14 @@ class FacebookProfilePictureBot:
             self.log("INFO", f"🌐 Navigating to Facebook Profile: {profile_url} ...")
             try:
                 await page.goto(profile_url, wait_until="domcontentloaded", timeout=45000)
+                slot_idx, total_slots, tile_rect = resolve_tile_context(self.account_data)
+                await apply_cdp_window_bounds(
+                    self.context,
+                    page,
+                    tile_rect=tile_rect,
+                    total_slots=total_slots,
+                    slot_index=slot_idx,
+                )
                 await asyncio.sleep(3.0)
             except Exception as ex:
                 self.log("WARNING", f"Initial profile navigation notice: {ex}")
@@ -956,6 +1076,7 @@ class FacebookProfilePictureBot:
                 return {"success": False, "message": "Session expired"}
 
             await self._dismiss_popups_and_modals(page)
+            await human_session_warmup(page, duration_range=(1.1, 2.0))
 
             # Step 1: Upload Profile Picture
             if self.profile_photo_path:
@@ -964,16 +1085,17 @@ class FacebookProfilePictureBot:
                     self.log("SUCCESS", "🎉 Profile Picture updated and saved successfully!")
                 else:
                     self.log("WARNING", "⚠️ Profile Picture update was incomplete.")
-                await asyncio.sleep(self.action_delay)
+                await human_pause(max(0.6, self.action_delay * 0.75), max(1.1, self.action_delay * 1.25))
 
             # Step 2: Upload Cover Photo
             if self.cover_photo_path and not self._cancelled:
+                await human_idle_drift(page)
                 cover_ok = await self._update_cover_photo(page, self.cover_photo_path)
                 if cover_ok:
                     self.log("SUCCESS", "🎉 Cover Photo updated and saved changes successfully!")
                 else:
                     self.log("WARNING", "⚠️ Cover Photo update was incomplete.")
-                await asyncio.sleep(self.action_delay)
+                await human_pause(max(0.6, self.action_delay * 0.75), max(1.1, self.action_delay * 1.25))
 
             overall_success = (profile_ok if self.profile_photo_path else True) and (cover_ok if self.cover_photo_path else True)
 

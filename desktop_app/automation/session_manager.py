@@ -29,6 +29,55 @@ import base64
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple, Callable
 
+try:
+    from automation.browser_window_manager import (
+        build_window_chrome_args,
+        human_click_element,
+        human_click_coords,
+        human_type_text,
+        human_smooth_scroll,
+        human_pause,
+        human_session_warmup,
+    )
+except ImportError:
+    try:
+        from desktop_app.automation.browser_window_manager import (
+            build_window_chrome_args,
+            human_click_element,
+            human_click_coords,
+            human_type_text,
+            human_smooth_scroll,
+            human_pause,
+            human_session_warmup,
+        )
+    except ImportError:
+        def build_window_chrome_args(tile_rect=None, total_slots=1, slot_index=0, profile_directory=None, apply_scale_factor=True):
+            return []
+        async def human_click_element(page, target, hover_pause=True, force_fallback=True):
+            try:
+                await target.click(timeout=4000)
+                return True
+            except Exception:
+                return False
+        async def human_click_coords(page, x, y, hover_pause=True):
+            try:
+                await page.mouse.click(x, y)
+                return True
+            except Exception:
+                return False
+        async def human_type_text(page, target, text, clear_first=True, allow_typos=False):
+            try:
+                await target.fill(text)
+                return True
+            except Exception:
+                return False
+        async def human_smooth_scroll(page, total_delta_y=550, steps=6):
+            await page.evaluate("(d) => window.scrollBy(0, d)", total_delta_y)
+        async def human_pause(low=0.55, high=1.45, mult=1.0):
+            await asyncio.sleep(random.uniform(low, high) * mult)
+        async def human_session_warmup(page, duration_range=(0.8, 1.5), log_cb=None):
+            await asyncio.sleep(0.9)
+
 # Playwright async
 try:
     from playwright.async_api import async_playwright, BrowserContext, Page, Playwright
@@ -74,36 +123,33 @@ def get_base_dir() -> str:
     return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
-def get_fewfeed_extension_path() -> Optional[str]:
-    """Resolves the absolute path to FEWFEED extension folder via ExtensionManager."""
+def get_metus_extension_path(allow_legacy_fewfeed: bool = False) -> Optional[str]:
+    """Resolves the absolute path to METUS (or custom) extension folder via ExtensionManager."""
     try:
-        from automation.extension_manager import get_fewfeed_extension_path as _get_path
-        return _get_path()
+        from automation.extension_manager import get_metus_extension_path as _get_path
+        return _get_path(allow_legacy_fewfeed=allow_legacy_fewfeed)
     except Exception:
         pass
 
+    base = get_base_dir()
     candidates = [
-        os.path.join(get_base_dir(), "FewFeedV3.9.1"),
-        os.path.join(get_base_dir(), "FEWFEED"),
-        os.path.join(get_base_dir(), "_internal", "FewFeedV3.9.1"),
-        os.path.join(get_base_dir(), "_internal", "FEWFEED"),
-        os.path.join(getattr(sys, '_MEIPASS', ''), "FewFeedV3.9.1"),
-        os.path.join(getattr(sys, '_MEIPASS', ''), "FEWFEED"),
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FewFeedV3.9.1")),
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FEWFEED")),
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "FewFeedV3.9.1")),
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "FEWFEED")),
-        "/desktop_app/FewFeedV3.9.1",
-        "/desktop_app/FEWFEED",
-        os.path.abspath("FewFeedV3.9.1"),
-        os.path.abspath("FEWFEED"),
-        os.path.abspath("desktop_app/FewFeedV3.9.1"),
-        os.path.abspath("desktop_app/FEWFEED")
+        os.path.join(base, "METUS"),
+        os.path.join(base, "Metus"),
+        os.path.join(base, "_internal", "METUS"),
+        os.path.join(getattr(sys, '_MEIPASS', ''), "METUS"),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "METUS")),
+        os.path.abspath("METUS"),
+        os.path.abspath("desktop_app/METUS"),
     ]
     for c in candidates:
         if c and os.path.isdir(c) and os.path.exists(os.path.join(c, "manifest.json")):
             return os.path.abspath(c)
     return None
+
+
+def get_fewfeed_extension_path(allow_legacy_fewfeed: bool = False) -> Optional[str]:
+    """Backward-compatible alias that resolves the METUS / custom extension path cleanly."""
+    return get_metus_extension_path(allow_legacy_fewfeed=allow_legacy_fewfeed)
 
 
 
@@ -319,20 +365,32 @@ class SessionManager:
             pass
         return path
 
-    def get_master_fewfeed_profile_dir(self) -> str:
-        """Returns the path to the Master QFit / FewFeed profile directory."""
-        master_path = os.path.join(self.profiles_dir, "master_fewfeed_profile")
-        os.makedirs(master_path, exist_ok=True)
-        return master_path
+    def get_master_metus_profile_dir(self) -> str:
+        """Returns the path to the Master METUS Chrome profile directory."""
+        metus_path = os.path.join(self.profiles_dir, "master_metus_profile")
+        legacy_path = os.path.join(self.profiles_dir, "master_fewfeed_profile")
+        os.makedirs(metus_path, exist_ok=True)
+        # If legacy master profile already has extension data and master_metus_profile is empty, prefer it as source
+        metus_def = os.path.join(metus_path, "Default")
+        legacy_def = os.path.join(legacy_path, "Default")
+        if not os.path.isdir(os.path.join(metus_def, "Extensions")) and os.path.isdir(os.path.join(legacy_def, "Extensions")):
+            try:
+                from automation.group_bot import copy_fewfeed_session_data
+                copy_fewfeed_session_data(legacy_path, metus_path)
+            except Exception:
+                pass
+        return metus_path
 
-    def sync_master_fewfeed_session(self, target_profile_dir: str) -> bool:
+    get_master_fewfeed_profile_dir = get_master_metus_profile_dir
+
+    def sync_master_metus_session(self, target_profile_dir: str) -> bool:
         """
-        Syncs extension storage, IndexedDB, Local Storage, Cookies, Network, and extension state
-        from master_fewfeed_profile into target_profile_dir.
-        This allows all Chrome profiles to share the same QFit / FewFeed login session!
+        Syncs METUS extension files, Extension Settings, IndexedDB, Local Storage, Cookies,
+        and Preferences from master_metus_profile into target_profile_dir so all account
+        Chrome profiles share the same METUS extension setup and session.
         """
         from automation.group_bot import copy_fewfeed_session_data
-        master_dir = self.get_master_fewfeed_profile_dir()
+        master_dir = self.get_master_metus_profile_dir()
         if not os.path.exists(master_dir) or os.path.abspath(master_dir) == os.path.abspath(target_profile_dir):
             return False
 
@@ -340,11 +398,13 @@ class SessionManager:
             copy_fewfeed_session_data(master_dir, target_profile_dir)
             return True
         except Exception as e:
-            logger.warning(f"Notice during FewFeed session sync: {str(e)}")
+            logger.warning(f"Notice during METUS session sync: {str(e)}")
             return False
 
-    def sync_master_fewfeed_to_all_profiles(self) -> int:
-        """Syncs master QFit / FewFeed session to all existing account profile directories."""
+    sync_master_fewfeed_session = sync_master_metus_session
+
+    def sync_master_metus_to_all_profiles(self) -> int:
+        """Syncs Master METUS extension & session to all existing account profile directories."""
         accounts = self.list_accounts()
         count = 0
         for acc in accounts:
@@ -352,11 +412,13 @@ class SessionManager:
             if acc_id:
                 p_dir = os.path.join(self.profiles_dir, "".join(c for c in acc_id if c.isalnum() or c in ("_", "-")))
                 if os.path.exists(p_dir):
-                    if self.sync_master_fewfeed_session(p_dir):
+                    if self.sync_master_metus_session(p_dir):
                         count += 1
         return count
 
-    async def launch_master_fewfeed_login(
+    sync_master_fewfeed_to_all_profiles = sync_master_metus_to_all_profiles
+
+    async def launch_master_metus_setup(
         self,
         log_callback: Optional[Callable[[str, str], None]] = None,
         timeout_seconds: int = 600,
@@ -365,14 +427,14 @@ class SessionManager:
         account_data: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
-        Launches an interactive Chrome browser with the selected (or Master) profile.
-        Prioritizes user's real desktop Google Chrome process with FewFeed extension loaded.
-        Injects the account's cookies into Chrome so Facebook opens ALREADY LOGGED IN in Tab 1,
-        and FewFeed opens in Tab 2 ready for login or operation.
-        Automatically syncs the resulting session to all existing profiles upon exit!
+        Launches an interactive Chrome browser with the selected (or Master METUS) profile.
+        Injects the selected account's Facebook cookies so Tab 1 opens ALREADY LOGGED IN,
+        and opens Tab 2 directly to chrome://extensions/ (Developer Mode ON) so the user can
+        install/load and verify the METUS Chrome extension cleanly.
+        Automatically saves and syncs METUS extension & storage to all profiles when closed!
         """
         log = log_callback or (lambda lvl, msg: logger.info(f"[{lvl}] {msg}"))
-        target_dir = profile_dir or (self.get_profile_dir(account_data.get("id") or account_data.get("name")) if account_data else self.get_master_fewfeed_profile_dir())
+        target_dir = profile_dir or (self.get_profile_dir(account_data.get("id") or account_data.get("name")) if account_data else self.get_master_metus_profile_dir())
         os.makedirs(target_dir, exist_ok=True)
 
         for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
@@ -386,41 +448,37 @@ class SessionManager:
                 except Exception:
                     pass
 
-        resolved_ext = ext_path or get_fewfeed_extension_path()
+        resolved_ext = ext_path or get_metus_extension_path(allow_legacy_fewfeed=False)
         try:
-            from automation.extension_manager import prepare_profile_for_extension, launch_native_chrome_profile, get_system_chrome_executable
+            from automation.extension_manager import prepare_profile_for_extension, get_system_chrome_executable, get_clean_path_for_chrome
             prepare_profile_for_extension(target_dir, resolved_ext)
         except Exception:
-            launch_native_chrome_profile = None
             get_system_chrome_executable = lambda: None
+            get_clean_path_for_chrome = lambda p: os.path.abspath(p).replace('\\', '/')
 
         if resolved_ext and os.path.isdir(resolved_ext) and os.path.exists(os.path.join(resolved_ext, "manifest.json")):
-            log("SUCCESS", f"🧩 FewFeed Extension Loaded: {resolved_ext}")
+            log("SUCCESS", f"🧩 METUS Extension detected: {resolved_ext}")
         else:
-            log("WARNING", f"⚠️ FewFeed extension folder not detected at {resolved_ext}! You can select the extension folder in Setup.")
+            log("INFO", "🧩 No pre-selected unpacked METUS folder yet — Chrome will open chrome://extensions/ so you can add/enable METUS directly.")
 
         profile_label = os.path.basename(target_dir)
         acc_label = (account_data.get("name") or account_data.get("id")) if account_data else profile_label
-        log("INFO", f"🌐 Launching Chrome setup browser for [{acc_label}] (Profile: {profile_label})...")
+        log("INFO", f"🌐 Launching Chrome METUS Setup for [{acc_label}] (Profile: {profile_label})...")
 
-        # Launch Clean Persistent Context using real system Chrome executable
         chrome_exe = get_system_chrome_executable()
 
         launch_flags = [
             "--disable-blink-features=AutomationControlled",
-            "--start-maximized",
             "--no-default-browser-check",
             "--no-first-run",
             "--lang=en-US,en",
             "--enable-extensions",
-            "--enable-unsafe-extension-debugging"
+            "--enable-unsafe-extension-debugging",
+            *build_window_chrome_args(total_slots=1, slot_index=0),
         ]
-        if resolved_ext and os.path.isdir(resolved_ext):
-            clean_p = os.path.abspath(resolved_ext).replace('\\', '/')
-            launch_flags.extend([
-                f"--load-extension={clean_p}",
-                "--enable-extensions"
-            ])
+        if resolved_ext and os.path.isdir(resolved_ext) and os.path.isfile(os.path.join(resolved_ext, "manifest.json")):
+            clean_p = get_clean_path_for_chrome(resolved_ext)
+            launch_flags.append(f"--load-extension={clean_p}")
 
         async with async_playwright() as p:
             context = None
@@ -448,28 +506,28 @@ class SessionManager:
                     elif ch_name:
                         kws["channel"] = ch_name
                     context = await p.chromium.launch_persistent_context(**kws)
-                    log("SUCCESS", f"🚀 Browser launched cleanly ({exe_path or ch_name or 'Chromium'})")
+                    log("SUCCESS", f"🚀 Chrome launched cleanly ({exe_path or ch_name or 'Chromium'})")
                     break
                 except Exception as ex:
                     logger.debug(f"Launch attempt {ch_name} failed: {ex}")
                     continue
 
             if not context:
-                log("ERROR", "Could not launch Chrome/Edge browser for FewFeed setup.")
+                log("ERROR", "Could not launch Chrome/Edge browser for METUS setup.")
                 return False
 
-            # Explicitly ensure FewFeed extension is activated via CDP if available
-            if resolved_ext and os.path.isdir(resolved_ext):
+            # Attach unpacked METUS extension via CDP if folder was provided
+            if resolved_ext and os.path.isdir(resolved_ext) and os.path.isfile(os.path.join(resolved_ext, "manifest.json")):
                 try:
                     fwd_ext = os.path.abspath(resolved_ext).replace('\\', '/')
                     p0 = context.pages[0] if context.pages else await context.new_page()
                     cdp = await context.new_cdp_session(p0)
                     await cdp.send("Extensions.loadUnpacked", {"path": fwd_ext})
-                    log("SUCCESS", "⚡ FewFeed V3 extension explicitly attached and activated in Chrome!")
+                    log("SUCCESS", "⚡ METUS extension attached and activated in Chrome!")
                 except Exception as cdp_err:
                     logger.debug(f"CDP extension activation notice: {cdp_err}")
 
-            # Inject cookies if account_data provided
+            # Inject Facebook cookies if account_data provided
             account_cookies = (account_data or {}).get("cookies")
             if account_cookies:
                 try:
@@ -485,7 +543,7 @@ class SessionManager:
                                 c_copy["domain"] = ".facebook.com"
                             clean_cookies.append(c_copy)
                         await context.add_cookies(clean_cookies)
-                        log("SUCCESS", f"🍪 Injected {len(clean_cookies)} Facebook cookies into Chrome! ID will open already logged in.")
+                        log("SUCCESS", f"🍪 Injected {len(clean_cookies)} Facebook cookies into Chrome! ID will open logged in.")
                 except Exception as ce:
                     log("WARNING", f"Cookie injection notice: {str(ce)[:80]}")
 
@@ -497,47 +555,15 @@ class SessionManager:
             except Exception:
                 pass
 
-            # Tab 2: FewFeed App
-            try:
-                ff_page = await context.new_page()
-                await ff_page.goto("https://fewfeed.app", wait_until="domcontentloaded", timeout=45000)
-                log("SUCCESS", "🧩 FewFeed opened in Tab 2.")
-
-                # Pre-fill FewFeed credentials if available
-                cf_email = (account_data or {}).get("cuefeed_email") or (account_data or {}).get("fewfeed_email")
-                cf_pass = (account_data or {}).get("cuefeed_pass") or (account_data or {}).get("fewfeed_pass")
-                if cf_email and cf_pass:
-                    await asyncio.sleep(2.0)
-                    try:
-                        if "signin" in ff_page.url.lower() or "login" in ff_page.url.lower():
-                            inputs = await ff_page.query_selector_all("input")
-                            email_inp = None
-                            pass_inp = None
-                            for inp in inputs:
-                                itype = (await inp.get_attribute("type") or "").lower()
-                                iname = (await inp.get_attribute("name") or "").lower()
-                                ipl = (await inp.get_attribute("placeholder") or "").lower()
-                                if itype == "password" or "pass" in iname or "pass" in ipl:
-                                    pass_inp = inp
-                                elif itype == "email" or "email" in iname or "email" in ipl or "user" in iname:
-                                    email_inp = inp
-                            if email_inp and pass_inp:
-                                await email_inp.fill(cf_email)
-                                await pass_inp.fill(cf_pass)
-                                log("INFO", f"🔑 Pre-filled FewFeed login inputs with [{cf_email}].")
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
-            # Tab 3: Extensions list
+            # Tab 2: Extensions manager (chrome://extensions/) so user can install/load METUS directly
             try:
                 ext_page = await context.new_page()
-                await ext_page.goto("chrome://extensions", wait_until="domcontentloaded", timeout=15000)
+                await ext_page.goto("chrome://extensions/", wait_until="domcontentloaded", timeout=15000)
+                log("SUCCESS", "🧩 Chrome Extensions Manager opened in Tab 2 (Ready for METUS setup).")
             except Exception:
                 pass
 
-            log("INFO", "🟢 Setup browser is ready! Tab 1 has Facebook (logged in) and Tab 2 has FewFeed. Log into FewFeed, then simply close this Chrome window to save and sync.")
+            log("INFO", "🟢 METUS Setup browser ready! Install/log into your METUS extension in Chrome, then simply close Chrome to save & sync across all profiles.")
 
             while True:
                 await asyncio.sleep(1.5)
@@ -552,24 +578,32 @@ class SessionManager:
             except Exception:
                 pass
 
-        master_dir = self.get_master_fewfeed_profile_dir()
-        if os.path.abspath(target_dir) != os.path.abspath(master_dir):
-            from automation.group_bot import copy_fewfeed_session_data
-            copy_fewfeed_session_data(target_dir, master_dir)
+        master_dir = self.get_master_metus_profile_dir()
+        legacy_master_dir = os.path.join(self.profiles_dir, "master_fewfeed_profile")
+        from automation.group_bot import copy_fewfeed_session_data
 
-        # Detect and permanently save any extension folder path user loaded in setup window
+        if os.path.abspath(target_dir) != os.path.abspath(master_dir):
+            copy_fewfeed_session_data(target_dir, master_dir)
+        copy_fewfeed_session_data(master_dir, legacy_master_dir)
+
+        # Detect and permanently save any unpacked/installed METUS extension folder user added in setup window
         try:
             from automation.extension_manager import extract_extension_path_from_profile, set_custom_extension_path
-            detected_ext = extract_extension_path_from_profile(target_dir) or extract_extension_path_from_profile(master_dir)
+            detected_ext = (
+                extract_extension_path_from_profile(target_dir, prefer_metus=True)
+                or extract_extension_path_from_profile(master_dir, prefer_metus=True)
+            )
             if detected_ext:
-                set_custom_extension_path(detected_ext)
-                log("SUCCESS", f"🧩 Permanently saved FewFeed extension directory: {detected_ext}")
+                set_custom_extension_path(detected_ext, user_selected=True)
+                log("SUCCESS", f"🧩 Permanently saved METUS extension folder: {detected_ext}")
         except Exception:
             pass
 
-        synced_cnt = self.sync_master_fewfeed_to_all_profiles()
-        log("SUCCESS", f"⚡ Auto-synced FewFeed extension & login to {synced_cnt} active profile folders!")
+        synced_cnt = self.sync_master_metus_to_all_profiles()
+        log("SUCCESS", f"⚡ Auto-synced METUS extension & session to {synced_cnt} active profile folder(s)!")
         return True
+
+    launch_master_fewfeed_login = launch_master_metus_setup
 
     def list_accounts(self) -> List[Dict[str, Any]]:
         """Returns all accounts saved in the database."""
@@ -769,18 +803,10 @@ class SessionManager:
         log("INFO", f"Audit Engine: Verifying session health for '{acc_name}'...")
 
         if not PLAYWRIGHT_AVAILABLE:
-            log("WARNING", "Playwright is not installed. Running simulated session audit.")
-            await asyncio.sleep(1.2)
-            # Inspect cookie string for minimal basic markers
-            c_str = str(account.get("cookies", ""))
-            if "c_user=" in c_str and "xs=" in c_str:
-                self.update_account_status(account["id"], "Healthy", "Simulated validation passed")
-                log("SUCCESS", f"Session for '{acc_name}' is HEALTHY (c_user found).")
-                return "Healthy", "Session valid and active (c_user found)."
-            else:
-                self.update_account_status(account["id"], "Needs Login", "Missing required c_user cookie")
-                log("WARNING", f"Session for '{acc_name}' requires re-authentication (c_user missing).")
-                return "Needs Login", "Missing c_user or xs authentication cookie."
+            err_msg = "Playwright/Chromium browser runtime is not installed; live session check could not run."
+            log("ERROR", err_msg)
+            self.update_account_status(account["id"], "Needs Check", err_msg)
+            return "Needs Check", err_msg
 
         profile_dir = self.get_profile_dir(account["id"])
 
@@ -868,13 +894,14 @@ class SessionManager:
                     detail = "Active c_user session verified"
                     log("SUCCESS", f"Account '{acc_name}' is HEALTHY and fully authenticated.")
 
-                    # Perform profile page visit & back navigation to register active session on FB
+                    # Perform organic feed warm-up + profile visit & back navigation to register active session on FB
                     try:
+                        await human_session_warmup(page, duration_range=(0.8, 1.5))
                         log("INFO", f"Opening profile page for '{acc_name}' to register active session...")
                         await page.goto("https://www.facebook.com/me", timeout=10000, wait_until="domcontentloaded")
-                        await asyncio.sleep(1.0)
+                        await human_pause(0.8, 1.4)
                         await page.go_back()
-                        await asyncio.sleep(0.5)
+                        await human_pause(0.45, 0.85)
                     except Exception as p_err:
                         log("INFO", f"Profile active touch note: {str(p_err)[:50]}")
 
@@ -956,16 +983,8 @@ class SessionManager:
         log("INFO", "Please log into your Facebook account in the opened window. Cookies will be captured automatically!")
 
         if not PLAYWRIGHT_AVAILABLE:
-            log("WARNING", "Playwright is not available; running simulated manual login.")
-            await asyncio.sleep(2.0)
-            mock_cookies = f"c_user={random.randint(100080000000000, 100099999999999)}; xs=33%3A{uuid.uuid4().hex[:10]}:2:172994012; datr={uuid.uuid4().hex[:12]};"
-            account["cookies"] = mock_cookies
-            account["status"] = "Healthy"
-            self.add_or_update_account(account)
-            if on_cookies_captured:
-                on_cookies_captured(mock_cookies)
-            log("SUCCESS", f"Captured fresh session cookies for '{acc_name}'! Account status updated to Healthy.")
-            return True
+            log("ERROR", "Playwright/Chromium browser runtime is not installed. Please install Playwright & Chromium to launch manual login.")
+            return False
 
         profile_dir = self.get_profile_dir(account["id"])
         try:
@@ -1017,13 +1036,13 @@ class SessionManager:
 
         launch_flags = [
             "--disable-blink-features=AutomationControlled",
-            "--start-maximized",
             "--disable-infobars",
             "--ignore-certificate-errors",
             "--allow-running-insecure-content",
             "--disable-web-security",
             "--no-first-run",
-            "--no-service-autorun"
+            "--no-service-autorun",
+            *build_window_chrome_args(total_slots=1, slot_index=0),
         ]
         launch_flags.extend(ext_args)
 
@@ -1109,14 +1128,14 @@ class SessionManager:
                             for c_sel in cookie_consent_selectors:
                                 c_btn = await page.query_selector(c_sel)
                                 if c_btn and await c_btn.is_visible():
-                                    await c_btn.click()
-                                    await asyncio.sleep(0.5)
+                                    await human_click_element(page, c_btn, hover_pause=False)
+                                    await human_pause(0.4, 0.75)
                                     break
                         except Exception:
                             pass
 
                         try:
-                            # Enter email / UID
+                            # Enter email / UID with natural human typing
                             email_selectors = [
                                 'input[name="email"]',
                                 'input#email',
@@ -1132,10 +1151,10 @@ class SessionManager:
                                     break
 
                             if email_field:
-                                await email_field.fill(uid_or_email)
-                                await asyncio.sleep(0.3)
+                                await human_type_text(page, email_field, uid_or_email, clear_first=True, allow_typos=False)
+                                await human_pause(0.3, 0.65)
 
-                            # Enter password
+                            # Enter password with natural human typing
                             pass_selectors = [
                                 'input[name="pass"]',
                                 'input#pass',
@@ -1151,14 +1170,14 @@ class SessionManager:
                                     break
 
                             if pass_field:
-                                await pass_field.fill(password)
-                                await asyncio.sleep(0.3)
+                                await human_type_text(page, pass_field, password, clear_first=True, allow_typos=False)
+                                await human_pause(0.4, 0.8)
 
-                            # Click Login button
+                            # Click Login button naturally
                             l_btn = await page.query_selector('button[name="login"], button#loginbutton, button[data-testid="royal_login_button"], button[type="submit"], input[type="submit"]')
                             if l_btn and await l_btn.is_visible():
                                 log("INFO", "🚀 Submitting Facebook login credentials...")
-                                await l_btn.click()
+                                await human_click_element(page, l_btn)
                         except Exception as af_err:
                             log("WARNING", f"Auto-fill notice: {af_err}")
 
@@ -1307,13 +1326,13 @@ class SessionManager:
 
         launch_flags = [
             "--disable-blink-features=AutomationControlled",
-            "--start-maximized",
             "--disable-infobars",
             "--ignore-certificate-errors",
             "--allow-running-insecure-content",
             "--disable-web-security",
             "--no-first-run",
-            "--no-service-autorun"
+            "--no-service-autorun",
+            *build_window_chrome_args(total_slots=1, slot_index=0),
         ]
         launch_flags.extend(ext_args)
 
@@ -1406,8 +1425,8 @@ class SessionManager:
                         for c_sel in cookie_consent_selectors:
                             c_btn = await page.query_selector(c_sel)
                             if c_btn and await c_btn.is_visible():
-                                await c_btn.click()
-                                await asyncio.sleep(1.0)
+                                await human_click_element(page, c_btn, hover_pause=False)
+                                await human_pause(0.8, 1.3)
                                 break
                     except Exception:
                         pass
@@ -1430,13 +1449,11 @@ class SessionManager:
                             break
 
                     if email_field:
-                        await email_field.click()
-                        await email_field.fill("")
-                        await email_field.type(uid_or_email, delay=random.randint(25, 50))
-                        await asyncio.sleep(0.4)
+                        await human_type_text(page, email_field, uid_or_email, clear_first=True, allow_typos=False)
+                        await human_pause(0.35, 0.7)
                     else:
                         log("WARNING", "Could not locate email field with standard selectors; attempting fallback...")
-                        await page.keyboard.type(uid_or_email, delay=35)
+                        await page.keyboard.type(uid_or_email, delay=random.randint(32, 68))
 
                     # Fill Password with human-like typing
                     log("INFO", "Entering Facebook Password...")
@@ -1455,12 +1472,10 @@ class SessionManager:
                             break
 
                     if pass_field:
-                        await pass_field.click()
-                        await pass_field.fill("")
-                        await pass_field.type(password, delay=random.randint(25, 50))
-                        await asyncio.sleep(0.5)
+                        await human_type_text(page, pass_field, password, clear_first=True, allow_typos=False)
+                        await human_pause(0.45, 0.85)
 
-                    # Click Login button with selector fallback & DOM click
+                    # Click Login button via curved mouse movement + fallback
                     log("INFO", "Submitting Facebook credentials...")
                     login_clicked = False
                     login_btn_selectors = [
@@ -1476,7 +1491,7 @@ class SessionManager:
                         try:
                             lbtn = await page.query_selector(lbs)
                             if lbtn and await lbtn.is_visible():
-                                await lbtn.click()
+                                await human_click_element(page, lbtn)
                                 login_clicked = True
                                 break
                         except Exception:
@@ -1484,11 +1499,23 @@ class SessionManager:
 
                     if not login_clicked:
                         try:
-                            login_clicked = await page.evaluate("""() => {
+                            btn_coords = await page.evaluate("""() => {
                                 const b = document.querySelector('button[name="login"], button#loginbutton, button[type="submit"], input[type="submit"]');
-                                if (b) { b.click(); return true; }
-                                return false;
+                                if (b) {
+                                    b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    const r = b.getBoundingClientRect();
+                                    if (r.width > 4 && r.height > 4) {
+                                        return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                                    }
+                                    b.click();
+                                    return { found: false, fallbackClicked: true };
+                                }
+                                return { found: false };
                             }""")
+                            if btn_coords and btn_coords.get("found"):
+                                login_clicked = await human_click_coords(page, btn_coords["x"], btn_coords["y"])
+                            elif btn_coords and btn_coords.get("fallbackClicked"):
+                                login_clicked = True
                         except Exception:
                             pass
 
@@ -1533,14 +1560,14 @@ class SessionManager:
                                     log("INFO", f"🔑 Generated 6-digit TOTP Code ({totp_code}). Submitting to 2FA challenge...")
                                     code_input = await page.query_selector('input[name="approvals_code"], input[name="code"], input#approvals_code, input[type="number"], input[type="text"]')
                                     if code_input and await code_input.is_visible():
-                                        await code_input.fill(totp_code)
-                                        await asyncio.sleep(0.5)
+                                        await human_type_text(page, code_input, totp_code, clear_first=True, allow_typos=False)
+                                        await human_pause(0.4, 0.8)
                                         submit_2fa = await page.query_selector('button#checkpointSubmitButton, button[type="submit"], button:has-text("Continue"), button:has-text("Submit")')
                                         if submit_2fa:
-                                            await submit_2fa.click()
+                                            await human_click_element(page, submit_2fa)
                                         else:
                                             await page.keyboard.press("Enter")
-                                        await asyncio.sleep(2.0)
+                                        await human_pause(1.8, 2.6)
                             else:
                                 log("WARNING", f"⚠️ Account [{acc_name}] triggered Checkpoint / Verification prompt.")
                                 log("INFO", "Closing browser window automatically as requested for checkpointed profile...")
@@ -1554,14 +1581,15 @@ class SessionManager:
                         save_btn = await page.query_selector('button:has-text("Save"), button:has-text("Not Now"), a:has-text("Not Now"), button:has-text("Continue")')
                         if save_btn and await save_btn.is_visible():
                             try:
-                                await save_btn.click()
+                                await human_click_element(page, save_btn, hover_pause=False)
                             except Exception:
                                 pass
 
-                # Once authenticated, click Facebook Profile link / picture to confirm session
+                # Perform human warm-up + click Facebook Profile link / picture to confirm session
                 try:
+                    await human_session_warmup(page, duration_range=(1.0, 1.8))
                     log("INFO", "Clicking Facebook Profile picture / link to confirm live session...")
-                    prof_clicked = await page.evaluate("""() => {
+                    prof_coords = await page.evaluate("""() => {
                         const links = Array.from(document.querySelectorAll('a'));
                         let profLink = links.find(a => {
                             const href = (a.href || '').toLowerCase();
@@ -1569,14 +1597,23 @@ class SessionManager:
                             return href.includes('/me/') || href.includes('profile.php') || aria.includes('your profile') || aria.includes('profile');
                         });
                         if (profLink) {
+                            profLink.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            const r = profLink.getBoundingClientRect();
+                            if (r.width > 4 && r.height > 4) {
+                                return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                            }
                             profLink.click();
-                            return true;
+                            return { found: false, fallbackClicked: true };
                         }
-                        return false;
+                        return { found: false };
                     }""")
-                    if prof_clicked:
+                    if prof_coords and prof_coords.get("found"):
+                        await human_click_coords(page, prof_coords["x"], prof_coords["y"])
                         log("SUCCESS", "✅ Clicked Facebook profile picture!")
-                        await asyncio.sleep(2.0)
+                        await human_pause(1.6, 2.5)
+                    elif prof_coords and prof_coords.get("fallbackClicked"):
+                        log("SUCCESS", "✅ Clicked Facebook profile picture!")
+                        await human_pause(1.6, 2.5)
                 except Exception:
                     pass
 

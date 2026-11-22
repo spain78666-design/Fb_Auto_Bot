@@ -29,8 +29,62 @@ import shutil
 import uuid
 import gc
 import re
+import random
 from urllib.parse import urlparse
 from typing import Dict, Any, List, Optional, Tuple, Callable
+
+try:
+    from automation.browser_window_manager import (
+        resolve_tile_context,
+        build_window_chrome_args,
+        apply_cdp_window_bounds,
+        human_move_and_click,
+        human_click_coords,
+        human_type_text,
+        human_session_warmup,
+        human_pause,
+    )
+except ImportError:
+    try:
+        from desktop_app.automation.browser_window_manager import (
+            resolve_tile_context,
+            build_window_chrome_args,
+            apply_cdp_window_bounds,
+            human_move_and_click,
+            human_click_coords,
+            human_type_text,
+            human_session_warmup,
+            human_pause,
+        )
+    except ImportError:
+        def resolve_tile_context(account_data=None, window_slot=None, total_window_slots=None, tile_rect=None):
+            return 0, 1, (0, 0, 1920, 1080)
+        def build_window_chrome_args(tile_rect=None, total_slots=1, slot_index=0, profile_directory=None, apply_scale_factor=True):
+            return []
+        async def apply_cdp_window_bounds(context, page=None, tile_rect=None, total_slots=1, slot_index=0):
+            return False
+        async def human_move_and_click(page, locator, hover_pause=True, force_fallback=True):
+            try:
+                await locator.click(timeout=4000)
+                return True
+            except Exception:
+                return False
+        async def human_click_coords(page, x, y, hover_pause=True):
+            try:
+                await page.mouse.click(x, y)
+                return True
+            except Exception:
+                return False
+        async def human_type_text(page, locator, text, clear_first=True, allow_typos=False):
+            try:
+                await locator.fill(text)
+                return True
+            except Exception:
+                return False
+        async def human_session_warmup(page, duration_range=(0.7, 1.3), log_cb=None):
+            await asyncio.sleep(0.8)
+        async def human_pause(low=0.55, high=1.45, mult=1.0):
+            await asyncio.sleep(random.uniform(low, high) * mult)
 
 logger = logging.getLogger("CookieExtractorBot")
 logger.setLevel(logging.INFO)
@@ -41,6 +95,10 @@ try:
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
+    async_playwright = None
+    Playwright = Any
+    BrowserContext = Any
+    Page = Any
 
 try:
     from playwright_stealth import stealth_async
@@ -158,18 +216,24 @@ class FacebookCookieExtractorBot:
         timeout_seconds: int = 25,
         switch_to_page: bool = True,
         page_target: str = "",
-        log_callback: Optional[Callable[[str, str], None]] = None
+        log_callback: Optional[Callable[[str, str], None]] = None,
+        window_slot: int = 0,
+        total_window_slots: int = 1,
+        tile_rect: Optional[Tuple[int, int, int, int]] = None,
     ):
         self.uid_or_email = str(uid_or_email).strip()
         self.password = str(password).strip()
         self.two_factor_secret = str(two_factor_secret).strip()
         self.proxy = str(proxy).strip()
         self.headless = headless
-        # Cap timeout between 15 and 45 seconds to prevent endless hangs
-        self.timeout_seconds = max(15, min(45, int(timeout_seconds)))
+        # Respect user's timeout (between 15s and 180s)
+        self.timeout_seconds = max(15, min(180, int(timeout_seconds)))
         self.switch_to_page = switch_to_page
         self.page_target = str(page_target).strip()
         self.log_callback = log_callback
+        self.window_slot = int(window_slot or 0)
+        self.total_window_slots = max(1, int(total_window_slots or 1))
+        self.tile_rect = tile_rect
 
         self.playwright: Optional[Playwright] = None
         self.context: Optional[BrowserContext] = None
@@ -267,6 +331,12 @@ class FacebookCookieExtractorBot:
         try:
             self.playwright = await async_playwright().start()
 
+            slot_idx, total_slots, resolved_tile = resolve_tile_context(
+                window_slot=self.window_slot,
+                total_window_slots=self.total_window_slots,
+                tile_rect=self.tile_rect,
+            )
+
             launch_args = [
                 "--disable-blink-features=AutomationControlled",
                 "--disable-infobars",
@@ -284,6 +354,12 @@ class FacebookCookieExtractorBot:
             ]
             if self.headless:
                 launch_args.append("--headless=new")
+            else:
+                launch_args.extend(build_window_chrome_args(
+                    tile_rect=resolved_tile,
+                    total_slots=total_slots,
+                    slot_index=slot_idx,
+                ))
 
             proxy_cfg = None
             if self.proxy and "direct" not in self.proxy.lower() and "no proxy" not in self.proxy.lower():
@@ -300,16 +376,25 @@ class FacebookCookieExtractorBot:
                 except Exception:
                     proxy_cfg = None
 
-            # Launch with browser channel fallback: Chrome -> Edge -> Chromium -> bundled
-            channels_to_try = ["chrome", "msedge", "chromium", None]
+            # Launch with real Chrome binary + channel fallback
+            chrome_exe = None
+            try:
+                from automation.extension_manager import get_system_chrome_executable
+                chrome_exe = get_system_chrome_executable()
+            except Exception:
+                chrome_exe = None
+
+            launch_candidates: List[Tuple[Optional[str], Optional[str]]] = []
+            if chrome_exe and os.path.isfile(chrome_exe):
+                launch_candidates.append(("real_chrome", chrome_exe))
+            launch_candidates.extend([("chrome", None), ("msedge", None), ("chromium", None), (None, None)])
             context = None
 
-            for ch in channels_to_try:
+            for ch, exe_p in launch_candidates:
                 try:
                     kws: Dict[str, Any] = {
                         "user_data_dir": self.temp_profile_dir,
                         "headless": self.headless,
-                        "viewport": {"width": 1280, "height": 800},
                         "args": launch_args,
                         "ignore_default_args": ["--enable-automation", "--disable-extensions"],
                         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
@@ -320,9 +405,15 @@ class FacebookCookieExtractorBot:
                             "Upgrade-Insecure-Requests": "1"
                         }
                     }
+                    if self.headless:
+                        kws["viewport"] = {"width": 1280, "height": 800}
+                    else:
+                        kws["no_viewport"] = True
                     if proxy_cfg:
                         kws["proxy"] = proxy_cfg
-                    if ch:
+                    if exe_p:
+                        kws["executable_path"] = exe_p
+                    elif ch and ch != "real_chrome":
                         kws["channel"] = ch
 
                     context = await self.playwright.chromium.launch_persistent_context(**kws)
@@ -335,6 +426,14 @@ class FacebookCookieExtractorBot:
                 raise Exception("Could not launch Google Chrome or MS Edge on this PC.")
 
             page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+            if not self.headless:
+                await apply_cdp_window_bounds(
+                    self.context,
+                    page,
+                    tile_rect=resolved_tile,
+                    total_slots=total_slots,
+                    slot_index=slot_idx,
+                )
 
             # Anti-Detection Stealth Script Injection
             try:
@@ -371,12 +470,17 @@ class FacebookCookieExtractorBot:
                 if self._cancelled:
                     return {"success": False, "uid": self.uid_or_email, "name": "", "cookie": "", "status": "Cancelled", "message": "Cancelled."}
                 try:
-                    await page.goto(u, wait_until="commit", timeout=8000)
+                    resp = await page.goto(u, wait_until="domcontentloaded", timeout=12000)
+                    if resp and resp.status >= 400:
+                        self.log("WARNING", f"{tag} HTTP {resp.status} received from {u}; trying next fallback...")
+                        continue
                     nav_ok = True
                     break
                 except Exception:
                     try:
-                        await page.goto(u, timeout=8000)
+                        resp = await page.goto(u, timeout=10000)
+                        if resp and resp.status >= 400:
+                            continue
                         nav_ok = True
                         break
                     except Exception:
@@ -384,9 +488,18 @@ class FacebookCookieExtractorBot:
 
             if not nav_ok:
                 try:
-                    await page.goto("https://www.facebook.com/", timeout=10000)
+                    await page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=12000)
                 except Exception:
                     pass
+
+            if not self.headless:
+                await apply_cdp_window_bounds(
+                    self.context,
+                    page,
+                    tile_rect=resolved_tile,
+                    total_slots=total_slots,
+                    slot_index=slot_idx,
+                )
 
             # Check if session is already authenticated (e.g. cookie retained)
             try:
@@ -403,47 +516,52 @@ class FacebookCookieExtractorBot:
             if not has_authenticated:
                 await self._dismiss_all_overlays(page)
 
-                # Step 2: Locate and Fill Email and Password Inputs
-                self.log("INFO", f"{tag} ✍️ Inputting Facebook UID & Password...")
-                
-                # Multi-Layer Injection: DOM Event Dispatch + Playwright Native Fill
-                fill_res = await page.evaluate("""(data) => {
-                    const emailInput = document.querySelector('input[name="email"], input#email, input#m_login_email, input[data-testid="royal_email"], input[type="text"][autocomplete="username"], input[type="text"]');
-                    const passInput = document.querySelector('input[name="pass"], input#pass, input#m_login_password, input[data-testid="royal_pass"], input[type="password"]');
-                    
-                    if (emailInput) {
-                        emailInput.focus();
-                        emailInput.value = data.u;
-                        emailInput.dispatchEvent(new Event('input', { bubbles: true }));
-                        emailInput.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                    if (passInput) {
-                        passInput.focus();
-                        passInput.value = data.p;
-                        passInput.dispatchEvent(new Event('input', { bubbles: true }));
-                        passInput.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                    return { emailFound: !!emailInput, passFound: !!passInput };
-                }""", {"u": self.uid_or_email, "p": self.password})
+                # Step 2: Locate and Fill Email and Password Inputs with Human-Like Typing
+                self.log("INFO", f"{tag} ✍️ Entering Facebook UID & Password naturally...")
+                email_filled = False
+                pass_filled = False
 
-                # Native Playwright typing fallback
                 try:
-                    email_loc = page.locator('input[name="email"], input#email, input#m_login_email, input[type="text"]').first
-                    if await email_loc.count() > 0:
-                        await email_loc.click()
-                        await email_loc.fill(self.uid_or_email)
+                    email_loc = page.locator(
+                        'input[name="email"], input#email, input#m_login_email, input[data-testid="royal_email"], input[type="text"][autocomplete="username"]'
+                    ).first
+                    if await email_loc.count() > 0 and await email_loc.is_visible():
+                        email_filled = await human_type_text(page, email_loc, self.uid_or_email, clear_first=True)
                 except Exception:
                     pass
 
+                await asyncio.sleep(random.uniform(0.22, 0.48))
+
                 try:
-                    pass_loc = page.locator('input[name="pass"], input#pass, input#m_login_password, input[type="password"]').first
-                    if await pass_loc.count() > 0:
-                        await pass_loc.click()
-                        await pass_loc.fill(self.password)
+                    pass_loc = page.locator(
+                        'input[name="pass"], input#pass, input#m_login_password, input[data-testid="royal_pass"], input[type="password"]'
+                    ).first
+                    if await pass_loc.count() > 0 and await pass_loc.is_visible():
+                        pass_filled = await human_type_text(page, pass_loc, self.password, clear_first=True)
                 except Exception:
                     pass
 
-                # Step 3: Instant Form Submission
+                if not email_filled or not pass_filled:
+                    await page.evaluate("""(data) => {
+                        const emailInput = document.querySelector('input[name="email"], input#email, input#m_login_email, input[data-testid="royal_email"], input[type="text"][autocomplete="username"], input[type="text"]');
+                        const passInput = document.querySelector('input[name="pass"], input#pass, input#m_login_password, input[data-testid="royal_pass"], input[type="password"]');
+                        if (emailInput && !emailInput.value) {
+                            emailInput.focus();
+                            emailInput.value = data.u;
+                            emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+                            emailInput.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                        if (passInput && !passInput.value) {
+                            passInput.focus();
+                            passInput.value = data.p;
+                            passInput.dispatchEvent(new Event('input', { bubbles: true }));
+                            passInput.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    }""", {"u": self.uid_or_email, "p": self.password})
+
+                await asyncio.sleep(random.uniform(0.28, 0.6))
+
+                # Step 3: Natural Form Submission
                 self.log("INFO", f"{tag} ⚡ Submitting Facebook login credentials...")
                 submitted = False
                 submit_selectors = [
@@ -453,15 +571,16 @@ class FacebookCookieExtractorBot:
                     'button[type="submit"]',
                     'input[type="submit"]',
                     'button:has-text("Log In")',
+                    'button:has-text("Log in")',
                     'button:has-text("Login")'
                 ]
                 for ss in submit_selectors:
                     s_btn = page.locator(ss).first
-                    if await s_btn.count() > 0:
+                    if await s_btn.count() > 0 and await s_btn.is_visible():
                         try:
-                            await s_btn.click(timeout=1500)
-                            submitted = True
-                            break
+                            if await human_move_and_click(page, s_btn, hover_pause=True):
+                                submitted = True
+                                break
                         except Exception:
                             continue
 
@@ -551,16 +670,16 @@ class FacebookCookieExtractorBot:
                             totp_code = generate_totp(self.two_factor_secret)
                             if totp_code:
                                 self.log("INFO", f"{tag} 🔑 2FA Required. Generated TOTP ({totp_code}). Submitting...")
-                                await two_fa_input.fill(totp_code)
-                                await asyncio.sleep(0.2)
+                                await human_type_text(page, two_fa_input, totp_code, clear_first=True)
+                                await asyncio.sleep(random.uniform(0.25, 0.5))
                                 submit_2fa = page.locator(
                                     'button#checkpointSubmitButton, button[type="submit"], button:has-text("Continue"), button:has-text("Submit")'
                                 ).first
                                 if await submit_2fa.count() > 0 and await submit_2fa.is_visible():
-                                    await submit_2fa.click()
+                                    await human_move_and_click(page, submit_2fa)
                                 else:
                                     await page.keyboard.press("Enter")
-                                await asyncio.sleep(1.2)
+                                await asyncio.sleep(1.8)
                                 continue
                         else:
                             error_status = "2FA Required"
@@ -579,29 +698,31 @@ class FacebookCookieExtractorBot:
                         "upload a photo of your id",
                         "security check"
                     ])
-                    if (is_checkpoint_url or is_checkpoint_text) and (time.time() - poll_start > 3.0):
+                    if (is_checkpoint_url or is_checkpoint_text) and (time.time() - poll_start > 4.0):
                         if await two_fa_input.count() == 0:
                             error_status = "Checkpoint"
                             error_msg = "Account is in Facebook security checkpoint."
                             self.log("WARNING", f"{tag} 🔒 Genuine Checkpoint detected. Routed to Checkpoint column.")
                             break
 
-                    # 5. Auto-dismiss "Remember Password", "Save Info", "Not Now" dialogs
+                    # 5. Auto-dismiss Save Info / Remember Browser / Not Now modal dialogs cleanly
                     try:
-                        save_selectors = [
-                            'button:has-text("Save")',
-                            'button:has-text("Save Info")',
-                            'button:has-text("Not Now")',
-                            'a:has-text("Not Now")',
-                            'button:has-text("Continue")',
-                            'button:has-text("OK")'
-                        ]
-                        for s_sel in save_selectors:
-                            s_btn = page.locator(s_sel).first
-                            if await s_btn.count() > 0 and await s_btn.is_visible():
-                                await s_btn.click()
-                                await asyncio.sleep(0.2)
-                                break
+                        if time.time() - poll_start > 2.5:
+                            save_selectors = [
+                                'div[role="dialog"] button:has-text("Not Now")',
+                                'div[role="dialog"] a:has-text("Not Now")',
+                                'div[role="dialog"] div[role="button"]:has-text("Not Now")',
+                                'div[role="dialog"] button:has-text("Save Info")',
+                                'button#checkpointSubmitButton:has-text("Save Browser")',
+                                'button:has-text("Trust this device")',
+                                'div[role="dialog"] button[data-cookiebanner*="accept" i]'
+                            ]
+                            for s_sel in save_selectors:
+                                s_btn = page.locator(s_sel).first
+                                if await s_btn.count() > 0 and await s_btn.is_visible():
+                                    await human_move_and_click(page, s_btn, hover_pause=False)
+                                    await asyncio.sleep(0.45)
+                                    break
                     except Exception:
                         pass
 
@@ -666,8 +787,9 @@ class FacebookCookieExtractorBot:
                 }
 
             # =========================================================================
-            # CASE B: LIVE Session - Page Switch & Full Token Extraction
+            # CASE B: LIVE Session - Warm-up, Page Switch & Full Token Extraction
             # =========================================================================
+            await human_session_warmup(page, duration_range=(0.7, 1.3))
             self.log("INFO", f"{tag} 🔍 Fetching device display metrics (dpr, wd)...")
             dpr_from_page = "1.125"
             wd_from_page = "833x811"
@@ -818,10 +940,88 @@ class FacebookCookieExtractorBot:
                 detected_page_name = page_switch_info.get("name", "")
                 detected_page_id = page_switch_info.get("id", "")
                 self.log("INFO", f"{tag} ⚡ Clicked 'Switch Now' for page: '{detected_page_name}'")
-                await asyncio.sleep(1.5)
+
+                # Handle optional confirmation modal ("Switch" / "Continue") & wait for i_user cookie update
+                for _ in range(10):
+                    await asyncio.sleep(0.5)
+                    try:
+                        modal_confirm = page.locator(
+                            'div[role="dialog"] div[role="button"]:has-text("Switch"), '
+                            'div[role="dialog"] button:has-text("Switch"), '
+                            'div[role="dialog"] div[role="button"]:has-text("Continue"), '
+                            'div[role="dialog"] button:has-text("Continue")'
+                        ).last
+                        if await modal_confirm.count() > 0 and await modal_confirm.is_visible():
+                            await human_move_and_click(page, modal_confirm)
+                            await human_pause(0.8, 1.3)
+                    except Exception:
+                        pass
+
+                    try:
+                        curr_cookies = await self.context.cookies()
+                        i_user = next((c.get("value") for c in curr_cookies if c.get("name") == "i_user"), "")
+                        if i_user:
+                            detected_page_id = detected_page_id or i_user
+                            break
+                    except Exception:
+                        pass
 
         except Exception as e:
             self.log("DEBUG", f"{tag} Pages directory check note: {e}")
+
+        # Method 1b: Top-right Profile Switcher fallback (when Pages directory shows no Switch Now button)
+        if not switched:
+            try:
+                await page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=10000)
+                await asyncio.sleep(1.0)
+                avatar_btn = page.locator(
+                    'div[aria-label="Your profile"][role="button"], '
+                    'div[aria-label="Account"][role="button"], '
+                    'svg[aria-label="Your profile"]'
+                ).first
+                if await avatar_btn.count() > 0 and await avatar_btn.is_visible():
+                    await human_move_and_click(page, avatar_btn, hover_pause=False)
+                    await asyncio.sleep(0.9)
+                    see_all = page.locator(
+                        'div[role="dialog"] span:has-text("See all profiles"), '
+                        'div[role="menu"] span:has-text("See all profiles"), '
+                        'div[role="button"]:has-text("See all profiles")'
+                    ).first
+                    if await see_all.count() > 0 and await see_all.is_visible():
+                        await human_move_and_click(page, see_all, hover_pause=False)
+                        await asyncio.sleep(1.0)
+
+                    # Click secondary profile / Page entry inside the profile switcher menu
+                    picked = await page.evaluate("""(target) => {
+                        const menus = Array.from(document.querySelectorAll('div[role="dialog"], div[role="menu"], div[aria-label*="Account" i]'));
+                        for (const m of menus) {
+                            const items = Array.from(m.querySelectorAll('div[role="listitem"], div[role="radio"], div[role="button"]'));
+                            for (const it of items) {
+                                const txt = (it.innerText || it.textContent || '').trim();
+                                if (!txt || txt.length > 90) continue;
+                                const low = txt.toLowerCase();
+                                if (low.includes('see all profiles') || low.includes('settings') || low.includes('log out') || low.includes('help') || low.includes('display')) continue;
+                                // Skip already-selected main personal profile (first radio checked)
+                                if (it.getAttribute('aria-checked') === 'true') continue;
+                                if (target && !low.includes(target)) continue;
+                                it.click();
+                                return txt.split('\\n')[0].trim();
+                            }
+                        }
+                        return '';
+                    }""", target_name)
+                    if picked:
+                        detected_page_name = detected_page_name or picked
+                        for _ in range(10):
+                            await asyncio.sleep(0.5)
+                            curr_cookies = await self.context.cookies()
+                            i_user = next((c.get("value") for c in curr_cookies if c.get("name") == "i_user"), "")
+                            if i_user:
+                                switched = True
+                                detected_page_id = detected_page_id or i_user
+                                break
+            except Exception as sw_menu_err:
+                self.log("DEBUG", f"{tag} Top-right profile switcher fallback notice: {sw_menu_err}")
 
         # Method 2: Check current cookies for 'i_user'
         try:

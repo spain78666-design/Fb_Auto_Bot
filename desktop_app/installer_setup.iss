@@ -5,8 +5,8 @@
 ; ==============================================================================
 
 #define MyAppName "FB Auto Bot"
-#define MyAppVersion "5.0.0"
-#define MyAppPublisher "FB Auto Bot Enterprise"
+#define MyAppVersion "5.2.0"
+#define MyAppPublisher "ABM CodeSpace"
 #define MyAppURL "https://fbautobot.vercel.app/"
 #define MyAppExeName "FBAutoBot.exe"
 #define MyAppID "fbautobot.enterprise.automation.v24"
@@ -26,8 +26,8 @@ DisableProgramGroupPage=yes
 DefaultGroupName={#MyAppName}
 OutputDir=dist_installer
 OutputBaseFilename=FBAutoBot_Setup_v5.0
-Compression=lzma2/ultra64
-SolidCompression=yes
+Compression=lzma2/normal
+SolidCompression=no
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64
 DisableDirPage=no
@@ -45,7 +45,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 ; Main Executable & Compiled Application Directory
 ; Note: Run PyInstaller first so 'dist\FBAutoBot' exists
-Source: "dist\FBAutoBot\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\FBAutoBot\*"; DestDir: "{app}"; Excludes: "config\accounts_db.json,config\listings_history.json,config\projects.json,config\license.dat,config\admin_keys_vault.json,config\custom_chrome_paths.json,admin_keys_db.json"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; Preserve user's local config and accounts during updates
 [Dirs]

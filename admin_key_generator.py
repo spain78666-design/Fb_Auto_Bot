@@ -19,7 +19,12 @@ from typing import Dict, Any, Tuple, Optional
 
 # Secret Master Salt (Must strictly match desktop_app/utils/licensing.py)
 MASTER_SECRET_SALT = b"FBAUTO_BOT_MASTER_SECURE_SALT_2026_V9X_MARKETPLACE_AUTOMATION"
-DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "admin_keys_db.json")
+_BASE_RUNTIME_DIR = (
+    os.path.dirname(sys.executable)
+    if getattr(sys, "frozen", False)
+    else os.path.dirname(os.path.abspath(__file__))
+)
+DB_FILE = os.path.join(_BASE_RUNTIME_DIR, "admin_keys_db.json")
 
 
 def get_tier_code(tier: str) -> str:
@@ -228,9 +233,15 @@ def run_gui():
                 self.setWindowTitle("FB Auto Bot - Admin Key Generator & Licensing Suite")
                 self.resize(880, 740)
                 
-                icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public", "assets", "logo.ico")
-                if os.path.exists(icon_path):
-                    self.setWindowIcon(QIcon(icon_path))
+                for icon_candidate in [
+                    os.path.join(getattr(sys, "_MEIPASS", ""), "assets", "logo.ico"),
+                    os.path.join(_BASE_RUNTIME_DIR, "assets", "logo.ico"),
+                    os.path.join(_BASE_RUNTIME_DIR, "desktop_app", "assets", "logo.ico"),
+                    os.path.join(_BASE_RUNTIME_DIR, "public", "assets", "logo.ico"),
+                ]:
+                    if icon_candidate and os.path.exists(icon_candidate):
+                        self.setWindowIcon(QIcon(icon_candidate))
+                        break
 
                 self.setStyleSheet("""
                     QMainWindow { background-color: #0b0f19; color: #f1f5f9; }

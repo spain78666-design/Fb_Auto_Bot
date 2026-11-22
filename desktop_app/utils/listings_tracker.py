@@ -11,6 +11,7 @@ import json
 import time
 import uuid
 import logging
+import threading
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
@@ -23,6 +24,7 @@ def get_base_dir() -> str:
 
 class ListingsTracker:
     def __init__(self, storage_path: Optional[str] = None):
+        self._lock = threading.RLock()
         if storage_path:
             self.storage_path = storage_path
         else:
@@ -30,38 +32,51 @@ class ListingsTracker:
             os.makedirs(config_dir, exist_ok=True)
             self.storage_path = os.path.join(config_dir, "listings_history.json")
         self._listings: List[Dict[str, Any]] = []
+        self._module_events: List[Dict[str, Any]] = []
         self._load()
 
     def _load(self):
-        """Loads persisted listings from JSON file."""
-        if not os.path.isfile(self.storage_path):
-            self._listings = []
-            self._save()
-            return
+        """Loads persisted listings and module events from JSON file."""
+        with self._lock:
+            if not os.path.isfile(self.storage_path):
+                self._listings = []
+                self._module_events = []
+                self._save()
+                return
 
-        try:
-            with open(self.storage_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    self._listings = data
-                elif isinstance(data, dict):
-                    self._listings = data.get("listings", [])
-                else:
-                    self._listings = []
-        except Exception as e:
-            logger.warning(f"Failed to load listings history from {self.storage_path}: {e}")
-            self._listings = []
+            try:
+                with open(self.storage_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        self._listings = data
+                        self._module_events = []
+                    elif isinstance(data, dict):
+                        self._listings = data.get("listings", [])
+                        self._module_events = data.get("module_events", [])
+                    else:
+                        self._listings = []
+                        self._module_events = []
+            except Exception as e:
+                logger.warning(f"Failed to load listings history from {self.storage_path}: {e}")
+                self._listings = []
+                self._module_events = []
 
     def _save(self):
-        """Atomically saves listings to JSON file."""
-        try:
-            os.makedirs(os.path.dirname(self.storage_path), exist_ok=True)
-            tmp_path = self.storage_path + f".tmp.{os.getpid()}"
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump({"listings": self._listings}, f, indent=2, ensure_ascii=False)
-            os.replace(tmp_path, self.storage_path)
-        except Exception as e:
-            logger.error(f"Error saving listings history to {self.storage_path}: {e}")
+        """Atomically saves listings and module events to JSON file."""
+        with self._lock:
+            try:
+                os.makedirs(os.path.dirname(self.storage_path), exist_ok=True)
+                tmp_path = self.storage_path + f".tmp.{os.getpid()}.{threading.get_ident()}"
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    json.dump(
+                        {"listings": self._listings, "module_events": self._module_events},
+                        f,
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+                os.replace(tmp_path, self.storage_path)
+            except Exception as e:
+                logger.error(f"Error saving listings history to {self.storage_path}: {e}")
 
     def record_listing(
         self,
@@ -129,9 +144,50 @@ class ListingsTracker:
                     "status": "Published"
                 })
 
-        self._listings.extend(records_to_add)
-        self._save()
-        return len(self._listings)
+        with self._lock:
+            self._listings.extend(records_to_add)
+            self._save()
+            return len(self._listings)
+
+    def record_activity(
+        self,
+        module: str,
+        account_name: str,
+        count: int = 1,
+        account_id: str = "",
+        details: str = ""
+    ) -> int:
+        """
+        Records completed actions for non-Marketplace automation modules:
+        'reels', 'pages', 'friend_requests', 'profile_pics', 'cookies'.
+        """
+        clean_count = int(count or 0)
+        if clean_count <= 0:
+            return 0
+
+        now = datetime.now()
+        clean_acc_name = (account_name or account_id or "Facebook Account").strip()
+        clean_acc_id = (account_id or clean_acc_name).strip()
+        mod_key = str(module or "other").strip().lower()
+
+        event = {
+            "id": f"act_{uuid.uuid4().hex[:10]}",
+            "module": mod_key,
+            "count": clean_count,
+            "timestamp": now.isoformat(),
+            "date": now.strftime("%Y-%m-%d"),
+            "time": now.strftime("%H:%M:%S"),
+            "epoch": time.time(),
+            "account_name": clean_acc_name,
+            "account_id": clean_acc_id,
+            "details": details
+        }
+        with self._lock:
+            self._module_events.append(event)
+            if len(self._module_events) > 5000:
+                self._module_events = self._module_events[-5000:]
+            self._save()
+            return len(self._module_events)
 
     def get_all_listings(self) -> List[Dict[str, Any]]:
         self._load()
@@ -210,10 +266,41 @@ class ListingsTracker:
             "listings": filtered_listings
         }
 
+    def get_module_stats(self, account_name: Optional[str] = None) -> Dict[str, Dict[str, int]]:
+        """Returns aggregated counts across all automation modules (All-Time & Today)."""
+        self._load()
+        target_acc = account_name.strip() if account_name else ""
+        if target_acc in ("All Accounts", "All Profiles", "All Users", "Total", ""):
+            target_acc = None
+
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        summary: Dict[str, Dict[str, int]] = {
+            "reels": {"total": 0, "today": 0},
+            "pages": {"total": 0, "today": 0},
+            "friend_requests": {"total": 0, "today": 0},
+            "profile_pics": {"total": 0, "today": 0},
+            "cookies": {"total": 0, "today": 0},
+            "renew_listings": {"total": 0, "today": 0},
+            "deleted_listings": {"total": 0, "today": 0},
+        }
+        for ev in self._module_events:
+            acc = ev.get("account_name") or ev.get("account_id") or "Unknown"
+            if target_acc and acc != target_acc and ev.get("account_id") != target_acc:
+                continue
+            mod = str(ev.get("module", "")).lower()
+            if mod not in summary:
+                summary[mod] = {"total": 0, "today": 0}
+            cnt = int(ev.get("count", 0) or 0)
+            summary[mod]["total"] += cnt
+            if ev.get("date") == today_str:
+                summary[mod]["today"] += cnt
+        return summary
+
     def clear_history(self):
         """Clears all listings history."""
-        self._listings = []
-        self._save()
+        with self._lock:
+            self._listings = []
+            self._save()
 
 # Global Singleton Accessor
 _GLOBAL_TRACKER: Optional[ListingsTracker] = None

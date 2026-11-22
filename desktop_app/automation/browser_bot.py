@@ -7,10 +7,12 @@ import os
 import sys
 import re
 import json
+import time
+import uuid
 import random
 import socket
 import asyncio
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Tuple, Callable
 from urllib.parse import urlparse
 try:
     from playwright.async_api import async_playwright, Browser, BrowserContext, Page, TimeoutError as PlaywrightTimeoutError
@@ -23,6 +25,86 @@ except ImportError:
     Page = None
     class PlaywrightTimeoutError(Exception):
         pass
+
+try:
+    from automation.browser_window_manager import (
+        resolve_tile_context,
+        build_window_chrome_args,
+        apply_cdp_window_bounds,
+        prepare_profile_tile_placement,
+        human_click_element,
+        human_move_and_click,
+        human_click_coords,
+        human_type_text,
+        human_smooth_scroll,
+        human_pause,
+        human_session_warmup,
+        human_idle_drift,
+    )
+except ImportError:
+    try:
+        from desktop_app.automation.browser_window_manager import (
+            resolve_tile_context,
+            build_window_chrome_args,
+            apply_cdp_window_bounds,
+            prepare_profile_tile_placement,
+            human_click_element,
+            human_move_and_click,
+            human_click_coords,
+            human_type_text,
+            human_smooth_scroll,
+            human_pause,
+            human_session_warmup,
+            human_idle_drift,
+        )
+    except ImportError:
+        def resolve_tile_context(account_data=None, window_slot=None, total_window_slots=None, tile_rect=None):
+            return 0, 1, (0, 0, 1920, 1080)
+        def build_window_chrome_args(tile_rect=None, total_slots=1, slot_index=0, profile_directory=None, apply_scale_factor=False):
+            return []
+        async def apply_cdp_window_bounds(context, page=None, tile_rect=None, total_slots=1, slot_index=0):
+            return False
+        def prepare_profile_tile_placement(user_data_dir=None, tile_rect=None, profile_subdir=None, work_area=None):
+            return None
+        async def human_pause(low=0.55, high=1.45, mult=1.0):
+            await asyncio.sleep(random.uniform(low, high) * float(mult or 1.0))
+        async def human_click_element(page, target, hover_pause=True, force_fallback=True):
+            if target is None:
+                return False
+            try:
+                await target.scroll_into_view_if_needed()
+                await target.click()
+                return True
+            except Exception:
+                return False
+        async def human_move_and_click(page, locator, hover_pause=True, force_fallback=True):
+            return await human_click_element(page, locator, hover_pause=hover_pause, force_fallback=force_fallback)
+        async def human_click_coords(page, x, y, hover_pause=True):
+            try:
+                await page.mouse.move(x, y, steps=8)
+                await page.mouse.click(x, y)
+                return True
+            except Exception:
+                return False
+        async def human_type_text(page, target, text, clear_first=True, allow_typos=False):
+            if target is None:
+                return False
+            try:
+                await target.click()
+                if clear_first:
+                    await target.fill("")
+                await page.keyboard.type(str(text), delay=40)
+                return True
+            except Exception:
+                return False
+        async def human_smooth_scroll(page, total_delta_y=550, steps=6):
+            for _ in range(max(2, steps)):
+                await page.mouse.wheel(0, total_delta_y / max(2, steps))
+                await asyncio.sleep(0.06)
+        async def human_session_warmup(page, duration_range=(1.2, 2.3), log_cb=None):
+            await asyncio.sleep(random.uniform(*duration_range))
+        async def human_idle_drift(page):
+            await asyncio.sleep(random.uniform(0.2, 0.45))
 
 try:
     from playwright_stealth import stealth_async
@@ -440,12 +522,18 @@ class FacebookMarketplaceBot:
         headless: bool = False,
         speed_mode: str = "Normal",
         log_callback: Optional[Callable[[str, str], None]] = None,
-        progress_callback: Optional[Callable[[int], None]] = None
+        progress_callback: Optional[Callable[[int], None]] = None,
+        window_slot: int = 0,
+        total_window_slots: int = 1,
+        tile_rect: Optional[Tuple[int, int, int, int]] = None,
     ):
         self.headless = headless
         self.speed_mode = speed_mode
         self.log_callback = log_callback or (lambda level, msg: None)
         self.progress_callback = progress_callback or (lambda val: None)
+        self.window_slot = int(window_slot or 0)
+        self.total_window_slots = max(1, int(total_window_slots or 1))
+        self.tile_rect = tile_rect
         
         # Speed multipliers for delays
         self.speed_multipliers = {
@@ -489,8 +577,8 @@ class FacebookMarketplaceBot:
         if not element:
             raise ListingSubmissionError(f"Target input '{selector}' not found.")
         
-        await element.click()
-        await self.sleep(random.uniform(0.2, 0.5))
+        await human_click_element(self.page, element, hover_pause=False)
+        await self.sleep(random.uniform(0.18, 0.42))
 
         # Clear existing text safely
         await self.page.keyboard.press("Control+A")
@@ -499,14 +587,21 @@ class FacebookMarketplaceBot:
         for idx, char in enumerate(text):
             if self._cancel_requested:
                 raise MarketplaceBotError("Automation cancelled by user.")
-            
+
+            if char == "\n":
+                await self.page.keyboard.press("Shift+Enter")
+                await asyncio.sleep(random.uniform(0.08, 0.18) * self.mult)
+                continue
+
             # Randomized human jitter
             delay = (random.randint(min_delay_ms, max_delay_ms) / 1000.0) * self.mult
+            if char in (" ", ".", ",", "-", "!", "?"):
+                delay += random.uniform(0.03, 0.09) * self.mult
             await asyncio.sleep(delay)
             await self.page.keyboard.type(char)
 
-            # 1.5% chance of realistic typo and backspace correction for longer strings
-            if len(text) > 15 and idx > 3 and random.random() < 0.015:
+            # 1.5% chance of realistic typo and backspace correction for longer ASCII strings
+            if len(text) > 15 and 3 < idx < len(text) - 2 and "a" <= char <= "y" and random.random() < 0.015:
                 wrong_char = chr(ord(char) + 1)
                 await self.page.keyboard.type(wrong_char)
                 await asyncio.sleep(random.uniform(0.12, 0.25))
@@ -514,13 +609,12 @@ class FacebookMarketplaceBot:
                 await asyncio.sleep(random.uniform(0.08, 0.18))
 
     async def human_scroll(self, steps: int = 4):
-        """Emulates organic human scrolling with deceleration."""
-        for _ in range(steps):
-            if self._cancel_requested:
-                break
-            delta = random.randint(150, 350)
-            await self.page.mouse.wheel(0, delta)
-            await asyncio.sleep(random.uniform(0.3, 0.7) * self.mult)
+        """Emulates organic human scrolling with smooth deceleration."""
+        if self._cancel_requested:
+            return
+        total_delta = random.randint(150, 350) * max(1, int(steps))
+        await human_smooth_scroll(self.page, total_delta_y=total_delta, steps=max(2, int(steps)))
+        await asyncio.sleep(random.uniform(0.25, 0.55) * self.mult)
 
     # --------------------------------------------------------------------------
     # Browser Initialization & Session Verification
@@ -560,15 +654,24 @@ class FacebookMarketplaceBot:
                     "--enable-extensions"
                 ]
 
+        slot_idx, total_slots, resolved_tile = resolve_tile_context(
+            window_slot=self.window_slot,
+            total_window_slots=self.total_window_slots,
+            tile_rect=self.tile_rect,
+        )
+
         launch_args = [
             "--disable-blink-features=AutomationControlled",
             "--disable-infobars",
-            "--start-maximized",
             "--no-default-browser-check",
             "--no-first-run",
             "--enable-extensions",
             "--enable-unsafe-extension-debugging",
             "--disable-features=IsolateOrigins,site-per-process",
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+            "--disable-ipc-flooding-protection",
             "--disable-dev-shm-usage",
             "--lang=en-US,en",
             "--ignore-certificate-errors",
@@ -578,6 +681,12 @@ class FacebookMarketplaceBot:
             "--password-store=basic",
             "--no-service-autorun"
         ]
+        if not self.headless:
+            launch_args.extend(build_window_chrome_args(
+                tile_rect=resolved_tile,
+                total_slots=total_slots,
+                slot_index=slot_idx,
+            ))
         launch_args.extend(ext_args)
 
         if ext_path and os.path.exists(ext_path):
@@ -605,6 +714,8 @@ class FacebookMarketplaceBot:
 
         async def launch_context_smart():
             clean_profile_locks(user_data_dir)
+            if not self.headless:
+                prepare_profile_tile_placement(user_data_dir, resolved_tile)
             for ch_name, exe_p in channels_to_try:
                 try:
                     kwargs = {
@@ -673,9 +784,16 @@ class FacebookMarketplaceBot:
             # Failsafe: Try launching without extension flags if extension failed
             try:
                 self.log("WARNING", "Attempting failsafe browser launch without extension flags...")
+                failsafe_args = ["--disable-blink-features=AutomationControlled"]
+                if not self.headless:
+                    failsafe_args.extend(build_window_chrome_args(
+                        tile_rect=resolved_tile,
+                        total_slots=total_slots,
+                        slot_index=slot_idx,
+                    ))
                 b = await self.playwright.chromium.launch(
                     headless=self.headless,
-                    args=["--disable-blink-features=AutomationControlled", "--start-maximized"],
+                    args=failsafe_args,
                     ignore_default_args=ignore_default_args
                 )
                 return b
@@ -739,6 +857,16 @@ class FacebookMarketplaceBot:
             else:
                 raise MarketplaceBotError(f"Failed to launch browser: {str(e)}")
 
+        # Enforce exact tiled window bounds via CDP before loading Facebook
+        if not self.headless and self.context and self.page:
+            await apply_cdp_window_bounds(
+                self.context,
+                self.page,
+                tile_rect=resolved_tile,
+                total_slots=total_slots,
+                slot_index=slot_idx,
+            )
+
         # Apply stealth scripts
         if HAS_PLAYWRIGHT_STEALTH:
             await stealth_async(self.page)
@@ -776,6 +904,14 @@ class FacebookMarketplaceBot:
                 wait_until="domcontentloaded",
                 timeout=35000
             )
+            if not self.headless and self.context and self.page:
+                await apply_cdp_window_bounds(
+                    self.context,
+                    self.page,
+                    tile_rect=self.tile_rect,
+                    total_slots=self.total_window_slots,
+                    slot_index=self.window_slot,
+                )
             await self.sleep(2.0)
         except PlaywrightTimeoutError:
             raise NavigationTimeoutError("Facebook failed to load within 35 seconds. Check proxy latency.")
@@ -802,17 +938,17 @@ class FacebookMarketplaceBot:
 
                     email_el = await self.page.wait_for_selector('input[name="email"], input#email', timeout=10000)
                     if email_el:
-                        await email_el.fill(uid_email)
+                        await human_type_text(self.page, email_el, uid_email, clear_first=True, allow_typos=False)
                         await self.sleep(0.4)
 
                     pass_el = await self.page.wait_for_selector('input[name="pass"], input#pass', timeout=8000)
                     if pass_el:
-                        await pass_el.fill(pwd)
+                        await human_type_text(self.page, pass_el, pwd, clear_first=True, allow_typos=False)
                         await self.sleep(0.5)
 
                     btn = await self.page.query_selector('button[name="login"], button#loginbutton, input[type="submit"]')
                     if btn:
-                        await btn.click()
+                        await human_click_element(self.page, btn, hover_pause=True)
                     else:
                         await self.page.keyboard.press("Enter")
 
@@ -828,11 +964,11 @@ class FacebookMarketplaceBot:
                                     self.log("INFO", f"Generated 6-digit TOTP code ({code}). Submitting to 2FA...")
                                     c_inp = await self.page.wait_for_selector('input[name="approvals_code"], input[name="code"]', timeout=8000)
                                     if c_inp:
-                                        await c_inp.fill(code)
+                                        await human_type_text(self.page, c_inp, code, clear_first=True, allow_typos=False)
                                         await self.sleep(0.5)
                                         s_btn = await self.page.query_selector('button#checkpointSubmitButton, button[type="submit"]')
                                         if s_btn:
-                                            await s_btn.click()
+                                            await human_click_element(self.page, s_btn, hover_pause=True)
                                         else:
                                             await self.page.keyboard.press("Enter")
                                         await self.sleep(3.0)
@@ -851,6 +987,7 @@ class FacebookMarketplaceBot:
                                 sm.save_account(account_id=account_data["id"], cookies=c_str, status="Healthy")
                         except Exception:
                             pass
+                        await human_session_warmup(self.page, duration_range=(1.0, 1.8), log_cb=self.log)
                         self.set_progress(35)
                         return
                 except Exception as auto_log_err:
@@ -865,6 +1002,7 @@ class FacebookMarketplaceBot:
             )
 
         self.log("SUCCESS", "Session authenticated successfully! Active Facebook profile confirmed.")
+        await human_session_warmup(self.page, duration_range=(1.0, 1.8), log_cb=self.log)
         self.set_progress(35)
 
     # --------------------------------------------------------------------------
@@ -923,21 +1061,18 @@ class FacebookMarketplaceBot:
 
             if loc_btn:
                 self.log("INFO", "📍 Clicking blue Marketplace location selector link...")
-                await loc_btn.click(force=True)
+                await human_move_and_click(page, loc_btn, hover_pause=True)
                 await self.sleep(2.0)
 
                 # Find input inside 'Change location' popup dialog
                 dialog_input = page.locator("div[role='dialog'] input[type='text'], div[role='dialog'] input[aria-label*='Location'], input[placeholder*='Location']").first
                 if await dialog_input.is_visible(timeout=3500):
-                    await dialog_input.click(force=True)
-                    await page.keyboard.press("Control+A")
-                    await page.keyboard.press("Backspace")
-                    await dialog_input.fill(loc_name)
+                    await human_type_text(page, dialog_input, loc_name, clear_first=True, allow_typos=False)
                     await self.sleep(1.8)
 
                     sug = page.locator("ul[role='listbox'] li, div[role='option'], div[role='dialog'] ul li").first
                     if await sug.is_visible(timeout=3000):
-                        await sug.click(force=True)
+                        await human_move_and_click(page, sug, hover_pause=True)
                         await self.sleep(1.0)
                     else:
                         await page.keyboard.press("Enter")
@@ -976,7 +1111,7 @@ class FacebookMarketplaceBot:
                             if not opened_radius:
                                 rad_btn = page.locator("div[role='dialog'] div[aria-label*='Radius' i], div[role='dialog'] label:has-text('Radius'), div[role='dialog'] div[role='combobox'], div[role='dialog'] span:has-text('mile'), div[role='dialog'] span:has-text('km')").first
                                 if await rad_btn.is_visible(timeout=2000):
-                                    await rad_btn.click(force=True)
+                                    await human_move_and_click(page, rad_btn, hover_pause=True)
 
                             await self.sleep(0.8)
 
@@ -989,15 +1124,23 @@ class FacebookMarketplaceBot:
                                 for (const opt of options) {
                                     const text = (opt.innerText || opt.textContent || '').trim().toLowerCase();
                                     if (text === tClean || text === `${tNum} miles` || text === `${tNum} mile` || text === `${tNum} km`) {
-                                        opt.scrollIntoView({ behavior: 'instant', block: 'center' });
+                                        opt.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                        const r = opt.getBoundingClientRect();
+                                        if (r.width > 2 && r.height > 2) {
+                                            return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                                        }
                                         opt.click();
-                                        return true;
+                                        return { found: true, x: 0, y: 0 };
                                     }
                                 }
-                                return false;
+                                return { found: false };
                             }""", rad_val)
 
-                            if not matched_opt:
+                            if matched_opt and matched_opt.get("found") and matched_opt.get("x"):
+                                await asyncio.sleep(0.2)
+                                await human_click_coords(page, matched_opt["x"], matched_opt["y"], hover_pause=True)
+
+                            if not matched_opt or not matched_opt.get("found"):
                                 option_selectors = [
                                     f"div[role='option']:has-text('{rad_val}')",
                                     f"ul[role='listbox'] li:has-text('{rad_val}')",
@@ -1011,7 +1154,7 @@ class FacebookMarketplaceBot:
                                     try:
                                         r_elem = page.locator(r_sel).first
                                         if await r_elem.is_visible(timeout=600):
-                                            await r_elem.click(force=True)
+                                            await human_move_and_click(page, r_elem, hover_pause=True)
                                             await self.sleep(0.5)
                                             break
                                     except Exception:
@@ -1022,7 +1165,7 @@ class FacebookMarketplaceBot:
 
                     apply_btn = page.locator("div[role='dialog'] div[role='button']:has-text('Apply'), div[role='dialog'] button:has-text('Apply'), div[role='dialog'] span:has-text('Apply'), div[role='dialog'] div[role='button']:has-text('Save'), div[role='dialog'] div[role='button']:has-text('حفظ')").first
                     if await apply_btn.is_visible(timeout=2500):
-                        await apply_btn.click(force=True)
+                        await human_move_and_click(page, apply_btn, hover_pause=True)
                         await self.sleep(2.0)
                     else:
                         await page.keyboard.press("Enter")
@@ -1159,7 +1302,7 @@ class FacebookMarketplaceBot:
         self.log("INFO", f"⚡ Distinct Tab Assignments:")
         for idx, tp in enumerate(tab_payloads, 1):
             img_name = os.path.basename(tp['images'][0]) if tp.get('images') else 'None'
-            self.log("INFO", f"   📍 Tab [{idx}/{tabs_count}]: Type = '{tp['listing_type']}' | Loc = '{tp['location']}' | Photo = '{img_name}'")
+            self.log("INFO", f"   📍 Tab [{idx}/{tabs_count}]: Type = '{tp.get('listing_type', 'Item for sale')}' | Loc = '{tp.get('location', 'Local Radius')}' | Photo = '{img_name}'")
 
         # 2. Open ALL tabs simultaneously in Chrome
         tabs: List[Page] = [self.page]
@@ -1236,6 +1379,9 @@ class FacebookMarketplaceBot:
             """
             if page_obj.is_closed() or self._cancel_requested:
                 return False
+
+            if tab_idx > 1:
+                await human_pause(0.18 * min(tab_idx, 5), 0.42 * min(tab_idx, 5))
 
             ad_type = tab_load.get("listing_type", "Item for sale").strip()
             self.log("INFO", f"📑 Tab [{tab_idx}/{tabs_count}]: Starting form automation for '{ad_type}'...")
@@ -1387,54 +1533,153 @@ class FacebookMarketplaceBot:
             fill_and_advance_tab(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))
         ], return_exceptions=True)
 
-        # 5. Synchronization Barrier & 1-Click Mass Publish
+        # 5. Synchronization Barrier & True <1ms Simultaneous 1-Click Mass Publish
         if not self._cancel_requested:
+            batch_token = f"mp_{uuid.uuid4().hex[:10]}"
+            bc_channel_name = f"fb_mass_publish_{batch_token}"
+
             self.log("INFO", f"==================================================")
-            self.log("INFO", f"⏳ SYNCHRONIZATION BARRIER: Verifying all {len(tabs)} tabs are 100% ready on Publish screen...")
-            self.log("INFO", f"🛑 CRITICAL RULE: No tab will publish until EVERY tab has reached the Publish screen!")
+            self.log("INFO", f"⏳ SYNCHRONIZATION BARRIER: Verifying & pre-arming all {len(tabs)} tabs on Publish screen...")
+            self.log("INFO", f"🛑 CRITICAL RULE: No tab will publish until EVERY tab has its real Publish button ready!")
+
+            arm_publish_js = """
+            ([channelName, batchToken]) => {
+                const isVisible = (el) => {
+                    if (!el || !el.isConnected) return false;
+                    if (el.closest('[aria-hidden="true"]')) return false;
+                    const cs = window.getComputedStyle(el);
+                    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0' || cs.pointerEvents === 'none') {
+                        return false;
+                    }
+                    const r = el.getBoundingClientRect();
+                    return r.width >= 24 && r.height >= 18;
+                };
+                const isDisabled = (el) => {
+                    if (!el) return true;
+                    if (el.disabled) return true;
+                    if ((el.getAttribute('aria-disabled') || '').toLowerCase() === 'true') return true;
+                    if (el.closest('[aria-disabled="true"]')) return true;
+                    return false;
+                };
+
+                const bannedWords = [
+                    'draft', 'save', 'boost', 'more places', 'group', 'groups',
+                    'manage', 'recent', 'share', 'cancel', 'back', 'previous', 'next', 'discard', 'محفوظ'
+                ];
+                const exactPublish = ['publish', 'publish listing', 'شائع', 'پبلش', 'شائع کریں'];
+                const fallbackTargets = ['post', 'done'];
+
+                const candidates = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"], a[role="button"]'));
+                let bestEl = null;
+                let bestScore = -1;
+                let bestLabel = '';
+
+                for (const el of candidates) {
+                    if (!isVisible(el) || isDisabled(el)) continue;
+                    const aria = (el.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                    const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                    if (!aria && !text) continue;
+                    if (bannedWords.some(b => aria.includes(b) || text.includes(b))) continue;
+
+                    let score = -1;
+                    if (exactPublish.some(t => aria === t || text === t)) {
+                        score = 100;
+                    } else if ((aria.startsWith('publish') && aria.length < 30) || (text.startsWith('publish') && text.length < 30)) {
+                        score = 80;
+                    } else if (fallbackTargets.some(t => aria === t || text === t)) {
+                        // Only accept generic Post/Done if inside main composer & lower half of viewport
+                        const inMain = Boolean(el.closest('div[role="main"], form'));
+                        const r = el.getBoundingClientRect();
+                        if (inMain && r.top >= (window.innerHeight || 700) * 0.35) {
+                            score = 40;
+                        }
+                    }
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestEl = el;
+                        bestLabel = aria || text;
+                    }
+                }
+
+                if (!bestEl) {
+                    return { armed: false };
+                }
+
+                // Scroll into view NOW during barrier so fire phase has ZERO layout reflow delay
+                try {
+                    bestEl.scrollIntoView({ behavior: 'instant', block: 'center' });
+                } catch (e) {}
+
+                window.__armedPublishBtn = bestEl;
+                window.__marketplace_publish_triggered = false;
+                window.__fbPublishFiredAtMs = 0;
+
+                window.__fireArmedPublish = (expectedToken) => {
+                    if (expectedToken && expectedToken !== batchToken) return false;
+                    if (window.__marketplace_publish_triggered) return true;
+                    const btn = window.__armedPublishBtn;
+                    if (!btn || !btn.isConnected || isDisabled(btn)) return false;
+
+                    window.__marketplace_publish_triggered = true;
+                    window.__fbPublishFiredAtMs = (typeof performance !== 'undefined' && performance.timeOrigin)
+                        ? (performance.timeOrigin + performance.now())
+                        : Date.now();
+
+                    try { btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true })); } catch (e) {}
+                    try { btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); } catch (e) {}
+                    try { btn.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true })); } catch (e) {}
+                    try { btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true })); } catch (e) {}
+                    btn.click();
+                    try {
+                        btn.setAttribute('data-published-clicked', 'true');
+                        btn.style.pointerEvents = 'none';
+                    } catch (e) {}
+                    return true;
+                };
+
+                try {
+                    if (window.__fbMassPublishBc) {
+                        try { window.__fbMassPublishBc.close(); } catch (e) {}
+                    }
+                    const bc = new BroadcastChannel(channelName);
+                    bc.onmessage = (ev) => {
+                        if (ev && ev.data && ev.data.cmd === 'FIRE' && ev.data.token === batchToken) {
+                            if (typeof window.__fireArmedPublish === 'function') {
+                                window.__fireArmedPublish(batchToken);
+                            }
+                        }
+                    };
+                    window.__fbMassPublishBc = bc;
+                } catch (e) {}
+
+                return { armed: true, label: bestLabel, score: bestScore };
+            }
+            """
 
             async def wait_until_tab_ready_for_publish(t_idx: int, page_obj: Page) -> bool:
-                """Ensures page is on final Publish screen before allowing simultaneous release."""
-                for attempt in range(25):
+                """Waits until page is on final Publish screen and pre-arms its Publish button & BroadcastChannel."""
+                for attempt in range(36):
                     if page_obj.is_closed() or self._cancel_requested:
                         return False
                     try:
-                        # Check for Publish / Post / Done button presence (excluding drafts)
-                        btn_ready = await page_obj.evaluate("""
-                            () => {
-                                const elements = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"]'));
-                                const targets = ['publish', 'post', 'done', 'شائع', 'پبلش', 'publish listing', 'شائع کریں'];
-                                for (const el of elements) {
-                                    const aria = (el.getAttribute('aria-label') || '').toLowerCase();
-                                    const text = (el.innerText || el.textContent || '').toLowerCase();
-                                    if (aria.includes('draft') || text.includes('draft') || aria.includes('save') || text.includes('save') || aria.includes('boost') || text.includes('boost')) {
-                                        continue;
-                                    }
-                                    const isDisabled = el.getAttribute('aria-disabled') === 'true' || el.disabled;
-                                    if (isDisabled) continue;
-                                    for (const t of targets) {
-                                        if (aria === t || text === t || aria.startsWith(t) || (text.length < 25 && text.startsWith(t))) {
-                                            return true;
-                                        }
-                                    }
-                                }
-                                return false;
-                            }
-                        """)
-                        if btn_ready:
-                            self.log("SUCCESS", f"✨ Tab [{t_idx}/{len(tabs)}]: Confirmed ready on final Publish screen!")
+                        arm_res = await page_obj.evaluate(arm_publish_js, [bc_channel_name, batch_token])
+                        if arm_res and arm_res.get("armed"):
+                            self.log("SUCCESS", f"✨ Tab [{t_idx}/{len(tabs)}]: Armed on Publish screen ('{arm_res.get('label', 'publish')}')!")
                             return True
                     except Exception:
                         pass
 
-                    # If tab is still on Step 1 with Next button active, try advancing to Next
+                    # If tab is still on Step 1 with Next button active, advance it to Next
                     try:
                         is_step_1 = await page_obj.evaluate("""
                             () => {
-                                const nextBtns = Array.from(document.querySelectorAll('div[role="button"], button')).filter(el => {
-                                    const a = (el.getAttribute('aria-label') || '').toLowerCase();
-                                    const t = (el.innerText || '').toLowerCase();
-                                    return (a === 'next' || t === 'next' || a === 'اگلا') && el.getAttribute('aria-disabled') !== 'true';
+                                const nextBtns = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"]')).filter(el => {
+                                    const r = el.getBoundingClientRect();
+                                    if (r.width < 20 || r.height < 16) return false;
+                                    const a = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+                                    const t = (el.innerText || '').trim().toLowerCase();
+                                    const dis = el.disabled || el.getAttribute('aria-disabled') === 'true';
+                                    return !dis && (a === 'next' || t === 'next' || a === 'اگلا' || t === 'اگلا');
                                 });
                                 return nextBtns.length > 0;
                             }
@@ -1444,43 +1689,154 @@ class FacebookMarketplaceBot:
                             await self._advance_next_step(page_obj)
                     except Exception:
                         pass
-                    await asyncio.sleep(0.8)
-                return True
+                    await asyncio.sleep(0.65)
+                return False
 
-            # Barrier: wait for all tabs to be confirmed ready
-            await asyncio.gather(*[wait_until_tab_ready_for_publish(i + 1, tabs[i]) for i in range(len(tabs))])
-            self.log("SUCCESS", f"✅ ALL {len(tabs)} TABS ARE FULLY SYNCHRONIZED & READY ON PUBLISH SCREEN!")
+            # Barrier: wait for ALL tabs to confirm armed on Publish screen
+            barrier_states = await asyncio.gather(
+                *[wait_until_tab_ready_for_publish(i + 1, tabs[i]) for i in range(len(tabs))],
+                return_exceptions=True,
+            )
+            armed_count = sum(1 for s in barrier_states if s is True)
+            self.log("SUCCESS", f"✅ BARRIER COMPLETE: {armed_count}/{len(tabs)} tabs pre-armed & synchronized on Publish screen!")
 
-            self.log("INFO", f"🚀 1-CLICK INSTANT MASS PUBLISH: Dispatching simultaneous Publish clicks across ALL {len(tabs)} tabs in parallel (1ms window)...")
-            
-            # Step 1: Sub-millisecond parallel trigger using Playwright JS evaluation
-            async def trigger_instant_tab_publish(t_idx, page_obj, p_load):
+            # Re-arm once right before firing in case React re-rendered any tab while waiting for slower tabs
+            async def refresh_armed_state(page_obj: Page):
+                if page_obj.is_closed():
+                    return False
                 try:
-                    title_str = p_load.get("title", "Listing")
-                    return await self._instant_js_click_publish(page_obj, title_str)
-                except Exception as ex:
-                    self.log("WARNING", f"Tab [{t_idx}] instantaneous click notice: {str(ex)}")
+                    res = await page_obj.evaluate(arm_publish_js, [bc_channel_name, batch_token])
+                    return bool(res and res.get("armed"))
+                except Exception:
                     return False
 
-            # Fire the instant click on ALL tabs simultaneously in a single event-loop cycle
-            click_outcomes = await asyncio.gather(*[
-                trigger_instant_tab_publish(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))
-            ], return_exceptions=True)
+            await asyncio.gather(*[refresh_armed_state(p) for p in tabs], return_exceptions=True)
 
-            self.log("INFO", f"⚡ All {len(tabs)} tab publish signals dispatched simultaneously! Confirming publication...")
-            await asyncio.sleep(2.5)
+            self.log("INFO", f"🚀 1-CLICK INSTANT MASS PUBLISH: Firing ALL {len(tabs)} tabs simultaneously (<1ms window)...")
 
-            # Step 2: Confirm or fallback click if any tab needed a retry
-            async def verify_and_finalize_tab(t_idx, page_obj, p_load):
+            # Step 1: Fire BroadcastChannel signal across ALL same-origin tabs inside Chromium in the exact same turn
+            bc_dispatched = False
+            for p_obj in tabs:
+                if p_obj.is_closed():
+                    continue
                 try:
-                    return await self.publish_marketplace_listing_on_page(page_obj, p_load)
-                except Exception as ex:
-                    self.log("WARNING", f"Tab [{t_idx}] finalize notice: {str(ex)}")
-                    return True
+                    bc_dispatched = await p_obj.evaluate(
+                        """([channelName, batchToken]) => {
+                            try {
+                                const bc = new BroadcastChannel(channelName);
+                                bc.postMessage({ cmd: 'FIRE', token: batchToken });
+                                setTimeout(() => { try { bc.close(); } catch (e) {} }, 600);
+                            } catch (e) {}
+                            setTimeout(() => {
+                                if (typeof window.__fireArmedPublish === 'function') {
+                                    window.__fireArmedPublish(batchToken);
+                                }
+                            }, 0);
+                            return true;
+                        }""",
+                        [bc_channel_name, batch_token],
+                    )
+                    if bc_dispatched:
+                        break
+                except Exception:
+                    continue
 
-            pub_results = await asyncio.gather(*[
-                verify_and_finalize_tab(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))
-            ], return_exceptions=True)
+            # Brief yield (~120ms) so BroadcastChannel + setTimeout(0) complete inside renderer across all tabs
+            await asyncio.sleep(0.12)
+
+            # Step 2: Parallel idempotent check/backup across all tabs (no-op for any tab already fired by BroadcastChannel)
+            async def collect_or_backup_fire(t_idx: int, page_obj: Page, p_load: dict) -> float:
+                if page_obj.is_closed():
+                    return 0.0
+                try:
+                    res = await page_obj.evaluate(
+                        """(batchToken) => {
+                            if (window.__marketplace_publish_triggered) {
+                                return window.__fbPublishFiredAtMs || 1;
+                            }
+                            if (typeof window.__fireArmedPublish === 'function' && window.__fireArmedPublish(batchToken)) {
+                                return window.__fbPublishFiredAtMs || 1;
+                            }
+                            return 0;
+                        }""",
+                        batch_token,
+                    )
+                    if res:
+                        try:
+                            page_obj._is_marketplace_published = True
+                        except Exception:
+                            pass
+                        return float(res)
+                except Exception as ex:
+                    self.log("WARNING", f"Tab [{t_idx}] fire check notice: {str(ex)[:60]}")
+                return 0.0
+
+            fire_timestamps = await asyncio.gather(
+                *[collect_or_backup_fire(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))],
+                return_exceptions=True,
+            )
+            valid_ts = [t for t in fire_timestamps if isinstance(t, (int, float)) and t > 1000]
+            if len(valid_ts) >= 2:
+                spread_ms = max(valid_ts) - min(valid_ts)
+                self.log("INFO", f"⚡ Synchronized fire spread across {len(valid_ts)}/{len(tabs)} tabs: {spread_ms:.2f}ms!")
+            else:
+                fired_cnt = sum(1 for t in fire_timestamps if isinstance(t, (int, float)) and t > 0)
+                self.log("INFO", f"⚡ Dispatched simultaneous Publish signal across {fired_cnt}/{len(tabs)} tab(s)!")
+
+            # Step 3: Wait genuinely for Facebook's Publish GraphQL mutations / redirects to settle BEFORE closing Chrome
+            self.log("INFO", "⏳ Waiting for Facebook to finalize & publish all tabs before closing Chrome...")
+            await asyncio.sleep(3.0)
+
+            async def confirm_tab_published(t_idx: int, page_obj: Page, p_load: dict) -> bool:
+                if page_obj.is_closed():
+                    return bool(getattr(page_obj, "_is_marketplace_published", False))
+
+                for wait_round in range(10):
+                    if self._cancel_requested or page_obj.is_closed():
+                        break
+                    try:
+                        cur_url = (page_obj.url or "").lower()
+                        if "/marketplace/create" not in cur_url:
+                            page_obj._is_marketplace_published = True
+                            self.log("SUCCESS", f"✅ Tab [{t_idx}/{len(tabs)}]: Redirected after Publish ({cur_url[:65]}).")
+                            return True
+
+                        dom_state = await page_obj.evaluate("""() => {
+                            const txt = (document.body.innerText || '').toLowerCase();
+                            if (txt.includes('your listing is published') || txt.includes('listing published') || txt.includes('publishing your listing')) {
+                                return { done: true, hasEnabledPublish: false };
+                            }
+                            const btns = Array.from(document.querySelectorAll('div[role="button"], button'));
+                            const hasEnabledPublish = btns.some(el => {
+                                const r = el.getBoundingClientRect();
+                                if (r.width < 24 || r.height < 18) return false;
+                                const a = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+                                const t = (el.innerText || '').trim().toLowerCase();
+                                if (a.includes('draft') || t.includes('draft')) return false;
+                                const isPub = a === 'publish' || t === 'publish' || a === 'publish listing' || t === 'publish listing' || a === 'شائع' || t === 'شائع';
+                                const dis = el.disabled || el.getAttribute('aria-disabled') === 'true' || el.style.pointerEvents === 'none';
+                                return isPub && !dis;
+                            });
+                            return { done: Boolean(window.__marketplace_publish_triggered) && !hasEnabledPublish, hasEnabledPublish };
+                        }""")
+                        if dom_state and dom_state.get("done"):
+                            page_obj._is_marketplace_published = True
+                            return True
+                        # Only attempt recovery if this tab never fired and still shows an active unclicked Publish button after ~4s
+                        if wait_round >= 2 and not getattr(page_obj, "_is_marketplace_published", False):
+                            if dom_state and dom_state.get("hasEnabledPublish"):
+                                self.log("WARNING", f"🔄 Tab [{t_idx}/{len(tabs)}]: Fallback Publish click for un-submitted tab...")
+                                await self.publish_marketplace_listing_on_page(page_obj, p_load)
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.9)
+
+                return bool(getattr(page_obj, "_is_marketplace_published", False))
+
+            pub_results = await asyncio.gather(
+                *[confirm_tab_published(i + 1, tabs[i], tab_payloads[i]) for i in range(len(tabs))],
+                return_exceptions=True,
+            )
             success_count = sum(1 for r in pub_results if isinstance(r, bool) and r is True)
             self.set_progress(100)
             self.log("SUCCESS", f"🎉 1-CLICK MASS PUBLISH COMPLETE: {success_count}/{tabs_count} tabs published simultaneously in parallel!")
@@ -1792,59 +2148,69 @@ class FacebookMarketplaceBot:
 
         js_code = """
         () => {
-            // Strictly guard against duplicate publication inside DOM window context
             if (window.__marketplace_publish_triggered) {
                 return true;
             }
 
-            // Strictly target Publish and Post actions; NEVER click 'Save Draft', 'Boost', 'More places', 'Group'
-            const exactTargets = ['publish', 'post', 'done', 'شائع', 'پبلش', 'publish listing', 'شائع کریں'];
-            const bannedWords = ['draft', 'save', 'boost', 'more places', 'group', 'groups', 'manage', 'recent', 'share', 'cancel', 'back', 'previous', 'محفوظ'];
-            
-            const elements = Array.from(document.querySelectorAll('div[role="button"], button, div[aria-label*="Publish"], div[aria-label*="Post"], div[aria-label*="شائع"]'));
-            
-            for (const el of elements) {
-                const label = (el.getAttribute('aria-label') || '').trim().toLowerCase();
-                const text = (el.innerText || el.textContent || '').trim().toLowerCase();
-                
-                // Strictly exclude any banned terms
-                if (bannedWords.some(b => label.includes(b) || text.includes(b))) {
-                    continue;
+            const isVisible = (el) => {
+                if (!el || !el.isConnected || el.closest('[aria-hidden="true"]')) return false;
+                const cs = window.getComputedStyle(el);
+                if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0' || cs.pointerEvents === 'none') {
+                    return false;
                 }
-                
-                const isExact = exactTargets.some(t => label === t || text === t);
-                const isPrefix = (label.startsWith('publish') && !label.includes('draft')) || 
-                                 (text.startsWith('publish') && text.length < 25 && !text.includes('draft'));
+                const r = el.getBoundingClientRect();
+                return r.width >= 24 && r.height >= 18;
+            };
+            const isDisabled = (el) => {
+                return Boolean(el.disabled) || (el.getAttribute('aria-disabled') || '').toLowerCase() === 'true' || Boolean(el.closest('[aria-disabled="true"]'));
+            };
 
-                if (isExact || isPrefix) {
-                    window.__marketplace_publish_triggered = true;
-                    el.scrollIntoView({ behavior: 'instant', block: 'center' });
-                    // Trigger SINGLE clean click only
-                    el.click();
-                    // Disable element to prevent any subsequent duplicate clicks
-                    try {
-                        el.setAttribute('data-published-clicked', 'true');
-                        el.style.pointerEvents = 'none';
-                    } catch (e) {}
-                    return true;
+            const exactPublish = ['publish', 'publish listing', 'شائع', 'پبلش', 'شائع کریں'];
+            const fallbackTargets = ['post', 'done'];
+            const bannedWords = ['draft', 'save', 'boost', 'more places', 'group', 'groups', 'manage', 'recent', 'share', 'cancel', 'back', 'previous', 'next', 'discard', 'محفوظ'];
+
+            const elements = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"], a[role="button"]'));
+            let bestEl = null;
+            let bestScore = -1;
+
+            for (const el of elements) {
+                if (!isVisible(el) || isDisabled(el)) continue;
+                const label = (el.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                const text = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                if (!label && !text) continue;
+                if (bannedWords.some(b => label.includes(b) || text.includes(b))) continue;
+
+                let score = -1;
+                if (exactPublish.some(t => label === t || text === t)) {
+                    score = 100;
+                } else if ((label.startsWith('publish') && label.length < 30) || (text.startsWith('publish') && text.length < 30)) {
+                    score = 80;
+                } else if (fallbackTargets.some(t => label === t || text === t)) {
+                    const inMain = Boolean(el.closest('div[role="main"], form'));
+                    const r = el.getBoundingClientRect();
+                    if (inMain && r.top >= (window.innerHeight || 700) * 0.35) {
+                        score = 40;
+                    }
+                }
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestEl = el;
                 }
             }
 
-            // Secondary fallback: find primary action button on bottom right composer
-            const primaryBtn = document.querySelector('div[aria-label="Publish"][role="button"], div[aria-label="Post"][role="button"], div[aria-label="شائع"][role="button"]');
-            if (primaryBtn) {
-                const pLabel = (primaryBtn.getAttribute('aria-label') || '').trim().toLowerCase();
-                const pText = (primaryBtn.innerText || primaryBtn.textContent || '').trim().toLowerCase();
-                if (!bannedWords.some(b => pLabel.includes(b) || pText.includes(b))) {
-                    window.__marketplace_publish_triggered = true;
-                    primaryBtn.scrollIntoView({ behavior: 'instant', block: 'center' });
-                    primaryBtn.click();
-                    try {
-                        primaryBtn.setAttribute('data-published-clicked', 'true');
-                        primaryBtn.style.pointerEvents = 'none';
-                    } catch (e) {}
-                    return true;
-                }
+            if (bestEl) {
+                window.__marketplace_publish_triggered = true;
+                bestEl.scrollIntoView({ behavior: 'instant', block: 'center' });
+                try { bestEl.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true })); } catch (e) {}
+                try { bestEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); } catch (e) {}
+                try { bestEl.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true })); } catch (e) {}
+                try { bestEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true })); } catch (e) {}
+                bestEl.click();
+                try {
+                    bestEl.setAttribute('data-published-clicked', 'true');
+                    bestEl.style.pointerEvents = 'none';
+                } catch (e) {}
+                return true;
             }
 
             return false;
@@ -1863,7 +2229,7 @@ class FacebookMarketplaceBot:
 
         # Tertiary fallback with strict exclusion of 'Save' / 'Draft'
         if not getattr(page, "_is_marketplace_published", False):
-            clicked_fallback = await self._click_button_with_text(page, ["Publish", "Post", "شائع", "Done", "پبلش"])
+            clicked_fallback = await self._click_button_with_text(page, ["Publish listing", "Publish", "شائع کریں", "شائع", "پبلش"])
             if clicked_fallback:
                 try:
                     page._is_marketplace_published = True
@@ -1950,7 +2316,7 @@ class FacebookMarketplaceBot:
                 input_el = None
             except Exception:
                 pass
-            await page.evaluate("window.scrollBy(0, 150)")
+            await human_smooth_scroll(page, total_delta_y=160, steps=3)
             await self.sleep(0.5)
 
         if not input_el:
@@ -1971,8 +2337,7 @@ class FacebookMarketplaceBot:
             return
 
         try:
-            await input_el.scroll_into_view_if_needed()
-            await input_el.click()
+            await human_click_element(page, input_el, hover_pause=False)
             await self.sleep(random.uniform(0.2, 0.4))
             await page.keyboard.press("Control+A")
             await page.keyboard.press("Backspace")
@@ -2024,7 +2389,7 @@ class FacebookMarketplaceBot:
                 input_el = None
             except Exception:
                 pass
-            await page.evaluate("window.scrollBy(0, 150)")
+            await human_smooth_scroll(page, total_delta_y=160, steps=3)
             await self.sleep(0.5)
 
         if not input_el:
@@ -2032,8 +2397,7 @@ class FacebookMarketplaceBot:
             return
 
         try:
-            await input_el.scroll_into_view_if_needed()
-            await input_el.click()
+            await human_click_element(page, input_el, hover_pause=False)
             await self.sleep(random.uniform(0.15, 0.3))
             await page.keyboard.press("Control+A")
             await page.keyboard.press("Backspace")
@@ -2077,7 +2441,7 @@ class FacebookMarketplaceBot:
                     continue
             if input_el:
                 break
-            await page.evaluate("window.scrollBy(0, 200)")
+            await human_smooth_scroll(page, total_delta_y=210, steps=3)
             await self.sleep(0.5)
 
         if not input_el:
@@ -2085,8 +2449,7 @@ class FacebookMarketplaceBot:
             return
 
         try:
-            await input_el.scroll_into_view_if_needed()
-            await input_el.click()
+            await human_click_element(page, input_el, hover_pause=False)
             await self.sleep(random.uniform(0.2, 0.4))
             await page.keyboard.press("Control+A")
             await page.keyboard.press("Backspace")
@@ -2131,7 +2494,7 @@ class FacebookMarketplaceBot:
                     continue
             if input_el:
                 break
-            await page.evaluate("window.scrollBy(0, 300)")
+            await human_smooth_scroll(page, total_delta_y=280, steps=4)
             await self.sleep(0.5)
 
         if not input_el:
@@ -2139,8 +2502,7 @@ class FacebookMarketplaceBot:
             return
 
         try:
-            await input_el.scroll_into_view_if_needed()
-            await input_el.click()
+            await human_click_element(page, input_el, hover_pause=False)
             await self.sleep(random.uniform(0.2, 0.4))
             await page.keyboard.press("Control+A")
             await page.keyboard.press("Backspace")
@@ -2151,7 +2513,7 @@ class FacebookMarketplaceBot:
 
             option_el = await page.query_selector('div[role="listbox"] div[role="option"], ul[role="listbox"] li, div[role="option"]')
             if option_el and await option_el.is_visible():
-                await option_el.click()
+                await human_click_element(page, option_el, hover_pause=True)
                 self.log("INFO", f"Location suggestion matched for '{location_str}'.")
             else:
                 await page.keyboard.press("ArrowDown")
@@ -2231,8 +2593,7 @@ class FacebookMarketplaceBot:
             return
 
         try:
-            await drop_el.scroll_into_view_if_needed()
-            await drop_el.click()
+            await human_click_element(page, drop_el, hover_pause=True)
             await self.sleep(1.0)
         except Exception as click_err:
             self.log("WARNING", f"Category dropdown click notice: {click_err}")
@@ -2242,8 +2603,7 @@ class FacebookMarketplaceBot:
         try:
             search_input = await page.query_selector('div[role="dialog"] input[type="text"], div[role="listbox"] input[type="text"], input[aria-label*="Search categories" i], input[placeholder*="Search categories" i]')
             if search_input and await search_input.is_visible():
-                await search_input.click()
-                await search_input.fill(cat_clean)
+                await human_type_text(page, search_input, cat_clean, clear_first=True, allow_typos=False)
                 await self.sleep(0.8)
                 await page.keyboard.press("Enter")
                 await self.sleep(0.5)
@@ -2474,8 +2834,7 @@ class FacebookMarketplaceBot:
 
             # Click Condition trigger to open the options popover
             try:
-                await cond_el.scroll_into_view_if_needed()
-                await cond_el.click()
+                await human_click_element(page, cond_el, hover_pause=True)
                 # Dispatch JS event as fallback
                 await page.evaluate("""(el) => {
                     if (el) {
@@ -2584,7 +2943,7 @@ class FacebookMarketplaceBot:
                     try:
                         loc = page.locator(f'div[role="option"]:has-text("{phrase}")').first
                         if await loc.count() > 0 and await loc.is_visible():
-                            await loc.click()
+                            await human_move_and_click(page, loc, hover_pause=True)
                             selected = True
                             self.log("SUCCESS", f"✅ Selected Item Condition '{canonical_name}' via Playwright locator.")
                             break
@@ -2658,17 +3017,16 @@ class FacebookMarketplaceBot:
                 continue
         if el:
             try:
-                await el.scroll_into_view_if_needed()
-                await el.click()
+                await human_click_element(page, el, hover_pause=True)
                 await self.sleep(0.8)
                 opt = await page.query_selector(f'div[role="option"]:has-text("{vehicle_type}"), span:has-text("{vehicle_type}"), div[role="button"]:has-text("{vehicle_type}")')
                 if opt and await opt.is_visible():
-                    await opt.click()
+                    await human_click_element(page, opt, hover_pause=True)
                     self.log("INFO", f"Vehicle type '{vehicle_type}' selected.")
                 else:
                     first_opt = await page.query_selector('div[role="listbox"] div[role="option"], div[role="option"]')
                     if first_opt and await first_opt.is_visible():
-                        await first_opt.click()
+                        await human_click_element(page, first_opt, hover_pause=True)
                 await self.sleep(0.5)
             except Exception as ex:
                 self.log("WARNING", f"Notice while selecting vehicle type: {str(ex)}")
@@ -2700,22 +3058,21 @@ class FacebookMarketplaceBot:
             try:
                 tag = await el.evaluate("el => el.tagName.toLowerCase()")
                 if tag == "input":
-                    await el.click()
+                    await human_click_element(page, el, hover_pause=False)
                     await page.keyboard.press("Control+A")
                     await page.keyboard.press("Backspace")
                     await self._human_type(page, str(year_str), min_delay=30, max_delay=60)
                 else:
-                    await el.scroll_into_view_if_needed()
-                    await el.click()
+                    await human_click_element(page, el, hover_pause=True)
                     await self.sleep(0.8)
                     opt = await page.query_selector(f'div[role="option"]:has-text("{year_str}"), span:has-text("{year_str}")')
                     if opt and await opt.is_visible():
-                        await opt.click()
+                        await human_click_element(page, opt, hover_pause=True)
                         self.log("INFO", f"Vehicle year '{year_str}' selected.")
                     else:
                         first_opt = await page.query_selector('div[role="listbox"] div[role="option"], div[role="option"]')
                         if first_opt and await first_opt.is_visible():
-                            await first_opt.click()
+                            await human_click_element(page, first_opt, hover_pause=True)
                 await self.sleep(0.5)
             except Exception as ex:
                 self.log("WARNING", f"Notice while setting vehicle year: {str(ex)}")
@@ -2742,8 +3099,7 @@ class FacebookMarketplaceBot:
                 continue
         if input_el:
             try:
-                await input_el.scroll_into_view_if_needed()
-                await input_el.click()
+                await human_click_element(page, input_el, hover_pause=False)
                 await self.sleep(0.2)
                 await page.keyboard.press("Control+A")
                 await page.keyboard.press("Backspace")
@@ -2752,7 +3108,7 @@ class FacebookMarketplaceBot:
                 # Autocomplete option selection for Make
                 opt = await page.query_selector('div[role="listbox"] div[role="option"], ul[role="listbox"] li, div[role="option"]')
                 if opt and await opt.is_visible():
-                    await opt.click()
+                    await human_click_element(page, opt, hover_pause=True)
                 else:
                     await page.keyboard.press("ArrowDown")
                     await self.sleep(0.2)
@@ -2784,8 +3140,7 @@ class FacebookMarketplaceBot:
                 continue
         if input_el:
             try:
-                await input_el.scroll_into_view_if_needed()
-                await input_el.click()
+                await human_click_element(page, input_el, hover_pause=False)
                 await self.sleep(0.2)
                 await page.keyboard.press("Control+A")
                 await page.keyboard.press("Backspace")
@@ -2794,7 +3149,7 @@ class FacebookMarketplaceBot:
                 # Autocomplete option selection for Model
                 opt = await page.query_selector('div[role="listbox"] div[role="option"], ul[role="listbox"] li, div[role="option"]')
                 if opt and await opt.is_visible():
-                    await opt.click()
+                    await human_click_element(page, opt, hover_pause=True)
                 else:
                     await page.keyboard.press("ArrowDown")
                     await self.sleep(0.2)
@@ -2827,17 +3182,16 @@ class FacebookMarketplaceBot:
                 continue
         if el:
             try:
-                await el.scroll_into_view_if_needed()
-                await el.click()
+                await human_click_element(page, el, hover_pause=True)
                 await self.sleep(0.8)
                 opt = await page.query_selector(f'div[role="option"]:has-text("{rental_type}"), span:has-text("{rental_type}")')
                 if opt and await opt.is_visible():
-                    await opt.click()
+                    await human_click_element(page, opt, hover_pause=True)
                     self.log("INFO", f"Property transaction type '{rental_type}' selected.")
                 else:
                     first_opt = await page.query_selector('div[role="listbox"] div[role="option"], div[role="option"]')
                     if first_opt and await first_opt.is_visible():
-                        await first_opt.click()
+                        await human_click_element(page, first_opt, hover_pause=True)
                 await self.sleep(0.5)
             except Exception as ex:
                 self.log("WARNING", f"Notice while selecting rental/sale type: {str(ex)}")
@@ -2865,17 +3219,16 @@ class FacebookMarketplaceBot:
                 continue
         if el:
             try:
-                await el.scroll_into_view_if_needed()
-                await el.click()
+                await human_click_element(page, el, hover_pause=True)
                 await self.sleep(0.8)
                 opt = await page.query_selector(f'div[role="option"]:has-text("{prop_type}"), span:has-text("{prop_type}")')
                 if opt and await opt.is_visible():
-                    await opt.click()
+                    await human_click_element(page, opt, hover_pause=True)
                     self.log("INFO", f"Property type '{prop_type}' selected.")
                 else:
                     first_opt = await page.query_selector('div[role="listbox"] div[role="option"], div[role="option"]')
                     if first_opt and await first_opt.is_visible():
-                        await first_opt.click()
+                        await human_click_element(page, first_opt, hover_pause=True)
                 await self.sleep(0.5)
             except Exception as ex:
                 self.log("WARNING", f"Notice while selecting property type: {str(ex)}")
@@ -2904,16 +3257,16 @@ class FacebookMarketplaceBot:
             try:
                 tag = await el.evaluate("el => el.tagName.toLowerCase()")
                 if tag == "input":
-                    await el.click()
+                    await human_click_element(page, el, hover_pause=False)
                     await page.keyboard.press("Control+A")
                     await page.keyboard.press("Backspace")
                     await self._human_type(page, str(bedrooms), min_delay=30, max_delay=60)
                 else:
-                    await el.click()
+                    await human_click_element(page, el, hover_pause=True)
                     await self.sleep(0.7)
                     opt = await page.query_selector(f'div[role="option"]:has-text("{bedrooms}"), span:has-text("{bedrooms}")')
                     if opt and await opt.is_visible():
-                        await opt.click()
+                        await human_click_element(page, opt, hover_pause=True)
                 self.log("INFO", f"Bedrooms count '{bedrooms}' set.")
                 await self.sleep(0.4)
             except Exception as ex:
@@ -2943,16 +3296,16 @@ class FacebookMarketplaceBot:
             try:
                 tag = await el.evaluate("el => el.tagName.toLowerCase()")
                 if tag == "input":
-                    await el.click()
+                    await human_click_element(page, el, hover_pause=False)
                     await page.keyboard.press("Control+A")
                     await page.keyboard.press("Backspace")
                     await self._human_type(page, str(bathrooms), min_delay=30, max_delay=60)
                 else:
-                    await el.click()
+                    await human_click_element(page, el, hover_pause=True)
                     await self.sleep(0.7)
                     opt = await page.query_selector(f'div[role="option"]:has-text("{bathrooms}"), span:has-text("{bathrooms}")')
                     if opt and await opt.is_visible():
-                        await opt.click()
+                        await human_click_element(page, opt, hover_pause=True)
                 self.log("INFO", f"Bathrooms count '{bathrooms}' set.")
                 await self.sleep(0.4)
             except Exception as ex:
@@ -2981,8 +3334,7 @@ class FacebookMarketplaceBot:
                 continue
         if input_el:
             try:
-                await input_el.scroll_into_view_if_needed()
-                await input_el.click()
+                await human_click_element(page, input_el, hover_pause=False)
                 await page.keyboard.press("Control+A")
                 await page.keyboard.press("Backspace")
                 await self._human_type(page, str(sqft_val), min_delay=30, max_delay=60)
@@ -3012,17 +3364,16 @@ class FacebookMarketplaceBot:
                 continue
         if el:
             try:
-                await el.scroll_into_view_if_needed()
-                await el.click()
+                await human_click_element(page, el, hover_pause=True)
                 await self.sleep(0.8)
                 opt = await page.query_selector(f'div[role="option"]:has-text("{value}"), span:has-text("{value}")')
                 if opt and await opt.is_visible():
-                    await opt.click()
+                    await human_click_element(page, opt, hover_pause=True)
                     self.log("INFO", f"Property {label_hint} '{value}' selected.")
                 else:
                     first_opt = await page.query_selector('div[role="listbox"] div[role="option"], div[role="option"]')
                     if first_opt and await first_opt.is_visible():
-                        await first_opt.click()
+                        await human_click_element(page, first_opt, hover_pause=True)
                 await self.sleep(0.5)
             except Exception as ex:
                 self.log("WARNING", f"Notice while selecting {label_hint}: {str(ex)}")
@@ -3078,7 +3429,7 @@ class FacebookMarketplaceBot:
                 )
                 if upload_btn:
                     async with page.expect_file_chooser(timeout=6000) as fc_info:
-                        await upload_btn.click()
+                        await human_click_element(page, upload_btn, hover_pause=False)
                     file_chooser = await fc_info.value
                     await file_chooser.set_files(valid_files)
                     self.log("SUCCESS", f"✅ Set {len(valid_files)} photo(s) via file chooser event.")
@@ -3150,8 +3501,8 @@ class FacebookMarketplaceBot:
                 for (const el of scrollables) {
                     try { el.scrollTop = el.scrollHeight; } catch(e){}
                 }
-                window.scrollBy(0, 1000);
             }""")
+            await human_smooth_scroll(page, total_delta_y=700, steps=5)
         except Exception:
             pass
 
@@ -3162,7 +3513,7 @@ class FacebookMarketplaceBot:
             if page.is_closed() or self._cancel_requested:
                 return False
 
-            clicked = await page.evaluate("""
+            next_meta = await page.evaluate("""
                 () => {
                     const targets = ['next', 'اگلا'];
                     const candidates = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"]'));
@@ -3175,38 +3526,52 @@ class FacebookMarketplaceBot:
 
                         for (const t of targets) {
                             if (aria === t || text === t || aria.startsWith(t) || text.startsWith(t)) {
-                                el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                const r = el.getBoundingClientRect();
+                                if (r.width > 4 && r.height > 4) {
+                                    return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                                }
                                 el.click();
-                                return true;
+                                return { found: true, x: 0, y: 0 };
                             }
                         }
                     }
-                    return false;
+                    return { found: false };
                 }
             """)
+            clicked = False
+            if next_meta and next_meta.get("found"):
+                if next_meta.get("x") and next_meta.get("y"):
+                    await asyncio.sleep(0.2)
+                    clicked = await human_click_coords(page, next_meta["x"], next_meta["y"], hover_pause=True)
+                else:
+                    clicked = True
             if clicked:
                 self.log("INFO", "➡️ 'Next' button clicked successfully.")
                 # Verify transition to Publish screen
-                for _ in range(6):
+                for _ in range(8):
                     await asyncio.sleep(0.5)
                     is_publish_screen = await page.evaluate("""
                         () => {
-                            const elements = Array.from(document.querySelectorAll('div[role="button"], button'));
+                            const elements = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"]'));
                             return elements.some(el => {
-                                const a = (el.getAttribute('aria-label') || '').toLowerCase();
-                                const t = (el.innerText || '').toLowerCase();
-                                return (a === 'publish' || t === 'publish' || a === 'post' || t === 'post' || a === 'شائع' || a === 'پبلش') &&
+                                const r = el.getBoundingClientRect();
+                                if (r.width < 24 || r.height < 18) return false;
+                                const a = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+                                const t = (el.innerText || '').trim().toLowerCase();
+                                const dis = el.disabled || el.getAttribute('aria-disabled') === 'true';
+                                return !dis && (a === 'publish' || t === 'publish' || a === 'publish listing' || t === 'publish listing' || a === 'شائع' || t === 'شائع' || a === 'پبلش' || t === 'پبلش') &&
                                        !a.includes('draft') && !t.includes('draft');
                             });
                         }
                     """)
                     if is_publish_screen:
                         return True
-                return True
+                return False
 
             # If not yet clicked, scroll down further and wait briefly
             try:
-                await page.evaluate("window.scrollBy(0, 300)")
+                await human_smooth_scroll(page, total_delta_y=280, steps=3)
             except Exception:
                 pass
             await asyncio.sleep(0.8)
@@ -3215,7 +3580,7 @@ class FacebookMarketplaceBot:
         return await self._click_button_with_text(page, ["Next", "اگلا"])
 
     async def _click_button_with_text(self, page: Page, text_candidates: List[str]) -> bool:
-        """Finds and clicks a button by text or aria-label."""
+        """Finds and clicks a button by text or aria-label with organic human mouse glide."""
         for txt in text_candidates:
             queries = [
                 f'div[aria-label="{txt}"][role="button"]',
@@ -3228,8 +3593,7 @@ class FacebookMarketplaceBot:
                 try:
                     el = await page.query_selector(q)
                     if el and await el.is_visible():
-                        await el.scroll_into_view_if_needed()
-                        await el.click()
+                        await human_click_element(page, el, hover_pause=True)
                         return True
                 except Exception:
                     continue
@@ -3254,7 +3618,7 @@ class FacebookMarketplaceBot:
             try:
                 el = await self.page.query_selector(sel)
                 if el and await el.is_visible():
-                    await el.click()
+                    await human_click_element(self.page, el, hover_pause=True)
                     return True
             except Exception:
                 continue

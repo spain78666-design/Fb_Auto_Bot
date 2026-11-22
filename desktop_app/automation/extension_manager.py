@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-FB Auto Bot - FewFeed Extension Manager
+FB Auto Bot - METUS Chrome Extension Manager
 Provides robust discovery, configuration, validation, and browser injection
-for the FewFeed Chrome Extension across all automation bots and browser sessions.
+for the METUS Chrome Extension (and custom unpacked extensions) across all automation bots
+and Chrome setup sessions.
 """
 
 import os
@@ -11,7 +12,31 @@ import json
 import logging
 from typing import Optional, List, Tuple
 
+try:
+    from automation.browser_window_manager import build_window_chrome_args
+except ImportError:
+    try:
+        from desktop_app.automation.browser_window_manager import build_window_chrome_args
+    except ImportError:
+        def build_window_chrome_args(tile_rect=None, total_slots=1, slot_index=0, profile_directory=None, apply_scale_factor=True):
+            return []
+
 logger = logging.getLogger("ExtensionManager")
+
+# Built-in Chrome component / unrelated store extension IDs to ignore during auto-discovery
+IGNORED_CHROME_EXTENSION_IDS = {
+    "nmmhkkegccagdldgiimedpiccmgmieda",  # Chrome Web Store Payments
+    "pkedcjkdefgpdelpbcmbmeomcjbeemfm",  # Chrome Media Router
+    "ghbmnnjooekpmoecnnnilnnbdlolhkhi",  # Google Docs Offline
+    "aapocclcgogkmnckokdopfmhonfmgoek",  # Google Slides
+    "aohghmighlieiainnegkcijnfilokake",  # Google Docs
+    "felcaaldnbdncclmgdcncolpebgiejap",  # Google Sheets
+    "blpcfgokakmgnkcojhhkbfbldkacnbeo",  # YouTube
+    "pjkljhegncpnkpknbcohdijeoejaedia",  # Gmail
+    "apdfllckaahabafndbhieahigkjlhalf",  # Google Drive
+    "mhjfbmdgcfjbbpaeojofohoefgiehjai",  # Chrome PDF Viewer
+    "neajdppkdcdipfabeoofebfddakdcjhd",  # Google Network Speech
+}
 
 
 def get_base_dir() -> str:
@@ -21,31 +46,46 @@ def get_base_dir() -> str:
     return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
-def get_custom_extension_path() -> Optional[str]:
-    """Retrieves user-configured FewFeed extension folder from configuration if set and valid."""
+def _is_legacy_fewfeed_path(path_or_name: str) -> bool:
+    if not path_or_name:
+        return False
+    low = path_or_name.lower()
+    return "fewfeed" in low
+
+
+def get_custom_extension_path(allow_legacy_fewfeed: bool = False) -> Optional[str]:
+    """Retrieves user-configured METUS/custom extension folder from config/extension_config.json."""
     try:
         cfg_file = os.path.join(get_base_dir(), "config", "extension_config.json")
         if os.path.isfile(cfg_file):
             with open(cfg_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                custom_p = data.get("extension_path")
-                if custom_p and os.path.isdir(custom_p) and os.path.exists(os.path.join(custom_p, "manifest.json")):
-                    return os.path.abspath(custom_p)
+            custom_p = data.get("extension_path")
+            user_selected = bool(data.get("user_selected", False))
+            if custom_p and os.path.isdir(custom_p) and os.path.exists(os.path.join(custom_p, "manifest.json")):
+                if not allow_legacy_fewfeed and not user_selected and _is_legacy_fewfeed_path(custom_p):
+                    return None
+                return os.path.abspath(custom_p)
     except Exception as e:
         logger.debug(f"Notice reading custom extension config: {e}")
     return None
 
 
-def set_custom_extension_path(folder_path: str) -> bool:
-    """Stores user-configured custom unpacked FewFeed extension directory."""
+def set_custom_extension_path(folder_path: str, user_selected: bool = True) -> bool:
+    """Stores user-configured custom unpacked METUS Chrome extension directory."""
     try:
         if folder_path and os.path.isdir(folder_path) and os.path.exists(os.path.join(folder_path, "manifest.json")):
             cfg_dir = os.path.join(get_base_dir(), "config")
             os.makedirs(cfg_dir, exist_ok=True)
             cfg_file = os.path.join(cfg_dir, "extension_config.json")
+            payload = {
+                "extension_path": os.path.abspath(folder_path),
+                "user_selected": bool(user_selected),
+                "extension_brand": "METUS"
+            }
             with open(cfg_file, "w", encoding="utf-8") as f:
-                json.dump({"extension_path": os.path.abspath(folder_path)}, f, indent=2)
-            logger.info(f"Custom extension path saved: {folder_path}")
+                json.dump(payload, f, indent=2)
+            logger.info(f"Custom METUS extension path saved: {folder_path}")
             return True
     except Exception as e:
         logger.error(f"Failed to save custom extension path: {e}")
@@ -53,7 +93,7 @@ def set_custom_extension_path(folder_path: str) -> bool:
 
 
 def verify_extension_manifest(folder_path: str) -> Tuple[bool, str]:
-    """Checks whether the directory contains a valid FewFeed Chrome extension manifest."""
+    """Checks whether the directory contains a valid Chrome extension manifest.json."""
     if not folder_path or not os.path.isdir(folder_path):
         return False, "Directory does not exist"
     manifest_file = os.path.join(folder_path, "manifest.json")
@@ -62,16 +102,16 @@ def verify_extension_manifest(folder_path: str) -> Tuple[bool, str]:
     try:
         with open(manifest_file, "r", encoding="utf-8") as f:
             manifest_data = json.load(f)
-            name = manifest_data.get("name", "")
-            version = manifest_data.get("version", "")
-            mv = manifest_data.get("manifest_version", 2)
-            return True, f"Found {name} v{version} (MV{mv})"
+        name = manifest_data.get("name", "") or os.path.basename(os.path.abspath(folder_path))
+        version = manifest_data.get("version", "")
+        mv = manifest_data.get("manifest_version", 3)
+        return True, f"Found {name} v{version} (MV{mv})"
     except Exception as e:
         return False, f"Invalid manifest.json: {e}"
 
 
-def _find_extension_recursive(search_root: str, max_depth: int = 3) -> Optional[str]:
-    """Shallow recursive walk to find a directory containing FewFeed manifest.json."""
+def _find_extension_recursive(search_root: str, keywords: Tuple[str, ...] = ("metus",), max_depth: int = 3) -> Optional[str]:
+    """Shallow recursive walk to find a directory containing a matching extension manifest.json."""
     if not search_root or not os.path.isdir(search_root):
         return None
     root_depth = search_root.rstrip(os.path.sep).count(os.path.sep)
@@ -82,63 +122,112 @@ def _find_extension_recursive(search_root: str, max_depth: int = 3) -> Optional[
             continue
         if "manifest.json" in files:
             is_valid, desc = verify_extension_manifest(root)
-            if is_valid and ("fewfeed" in desc.lower() or "fewfeed" in root.lower()):
-                return os.path.abspath(root)
+            if is_valid:
+                haystack = f"{desc} {root}".lower()
+                if any(kw in haystack for kw in keywords):
+                    return os.path.abspath(root)
     return None
 
 
-def extract_extension_path_from_profile(profile_dir: str) -> Optional[str]:
-    """Inspects a Chrome profile's Preferences to find the unpacked FewFeed extension path saved by Chrome."""
+def extract_extension_path_from_profile(profile_dir: str, prefer_metus: bool = True) -> Optional[str]:
+    """
+    Inspects a Chrome profile's Preferences & Extensions directory to find any installed
+    METUS (or custom) Chrome extension folder saved by Chrome.
+    """
     if not profile_dir or not os.path.isdir(profile_dir):
         return None
+
+    fallback_candidates: List[str] = []
+
     for sub in ["Default", ""]:
-        pref_file = os.path.join(profile_dir, sub, "Preferences") if sub else os.path.join(profile_dir, "Preferences")
+        sub_dir = os.path.join(profile_dir, sub) if sub else profile_dir
+        pref_file = os.path.join(sub_dir, "Preferences")
         if os.path.isfile(pref_file):
             try:
                 with open(pref_file, "r", encoding="utf-8") as f:
                     prefs = json.load(f)
                 settings = prefs.get("extensions", {}).get("settings", {})
                 for ext_id, ext_info in settings.items():
-                    if isinstance(ext_info, dict):
-                        p = ext_info.get("path")
-                        if p and os.path.isdir(p) and os.path.isfile(os.path.join(p, "manifest.json")):
-                            return os.path.abspath(p)
+                    if ext_id in IGNORED_CHROME_EXTENSION_IDS:
+                        continue
+                    if not isinstance(ext_info, dict):
+                        continue
+                    # Skip disabled/uninstalled or default component extensions
+                    if ext_info.get("was_installed_by_default"):
+                        continue
+                    raw_path = ext_info.get("path")
+                    if not raw_path:
+                        continue
+
+                    resolved_path = raw_path
+                    if not os.path.isabs(resolved_path):
+                        resolved_path = os.path.join(sub_dir, "Extensions", raw_path)
+
+                    if os.path.isdir(resolved_path) and os.path.isfile(os.path.join(resolved_path, "manifest.json")):
+                        ok, desc = verify_extension_manifest(resolved_path)
+                        if not ok:
+                            continue
+                        ext_name_meta = (ext_info.get("manifest", {}) or {}).get("name", "")
+                        hay = f"{desc} {ext_name_meta} {resolved_path}".lower()
+                        if "metus" in hay:
+                            return os.path.abspath(resolved_path)
+                        if prefer_metus and "fewfeed" in hay:
+                            continue
+                        if not hay.startswith("__msg_"):
+                            fallback_candidates.append(os.path.abspath(resolved_path))
             except Exception:
                 pass
-    return None
+
+        # Also scan <sub_dir>/Extensions/<ext_id>/<version>/manifest.json
+        ext_root = os.path.join(sub_dir, "Extensions")
+        if os.path.isdir(ext_root):
+            try:
+                for ext_id in os.listdir(ext_root):
+                    if ext_id in IGNORED_CHROME_EXTENSION_IDS:
+                        continue
+                    ext_id_dir = os.path.join(ext_root, ext_id)
+                    if not os.path.isdir(ext_id_dir):
+                        continue
+                    for ver in os.listdir(ext_id_dir):
+                        ver_dir = os.path.join(ext_id_dir, ver)
+                        if os.path.isfile(os.path.join(ver_dir, "manifest.json")):
+                            ok, desc = verify_extension_manifest(ver_dir)
+                            if ok:
+                                hay = f"{desc} {ver_dir}".lower()
+                                if "metus" in hay:
+                                    return os.path.abspath(ver_dir)
+                                if not (prefer_metus and "fewfeed" in hay):
+                                    fallback_candidates.append(os.path.abspath(ver_dir))
+            except Exception:
+                pass
+
+    return fallback_candidates[0] if fallback_candidates else None
 
 
-def get_fewfeed_extension_path() -> Optional[str]:
+def get_metus_extension_path(allow_legacy_fewfeed: bool = False) -> Optional[str]:
     """
-    Exhaustively resolves the absolute path to the unpacked FEWFEED extension folder.
-    Guarantees discovery across PyInstaller --onedir, --onefile, source code, profiles, and custom paths.
+    Resolves the absolute path to the METUS Chrome extension folder if present on disk
+    or previously installed inside a Setup Chrome profile.
+    Does NOT auto-save or force-load legacy FewFeed unless allow_legacy_fewfeed=True.
     """
-    # Priority 1: User-selected custom path from config
-    custom = get_custom_extension_path()
+    # Priority 1: User-selected custom path from config/extension_config.json
+    custom = get_custom_extension_path(allow_legacy_fewfeed=allow_legacy_fewfeed)
     if custom:
         return custom
 
     base = get_base_dir()
 
-    # Priority 1.5: Discover extension path from Master Setup profile Preferences if previously loaded
+    # Priority 2: Discover METUS extension installed in Master / Account Setup Chrome profiles
     profiles_root = os.path.join(base, "profiles")
     if os.path.isdir(profiles_root):
-        for p_sub in ["master_fewfeed_profile", "fewfeed_shared", "temp_group_profile"]:
-            extracted = extract_extension_path_from_profile(os.path.join(profiles_root, p_sub))
+        for p_sub in ["master_metus_profile", "master_fewfeed_profile", "metus_shared", "fewfeed_shared", "temp_group_profile"]:
+            extracted = extract_extension_path_from_profile(os.path.join(profiles_root, p_sub), prefer_metus=not allow_legacy_fewfeed)
             if extracted:
-                try:
-                    set_custom_extension_path(extracted)
-                except Exception:
-                    pass
                 return extracted
         try:
             for p_folder in os.listdir(profiles_root):
-                extracted = extract_extension_path_from_profile(os.path.join(profiles_root, p_folder))
+                extracted = extract_extension_path_from_profile(os.path.join(profiles_root, p_folder), prefer_metus=not allow_legacy_fewfeed)
                 if extracted:
-                    try:
-                        set_custom_extension_path(extracted)
-                    except Exception:
-                        pass
                     return extracted
         except Exception:
             pass
@@ -146,95 +235,57 @@ def get_fewfeed_extension_path() -> Optional[str]:
     exe_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else base
     meipass = getattr(sys, '_MEIPASS', '')
 
-    # Priority 2: Standard, PyInstaller onedir (_internal), and bundle candidate locations
-    candidates = [
-        # Base dir candidates
-        os.path.join(base, "FewFeedV3.9.1"),
-        os.path.join(base, "FEWFEED"),
-        os.path.join(base, "_internal", "FewFeedV3.9.1"),
-        os.path.join(base, "_internal", "FEWFEED"),
-        os.path.join(base, "desktop_app", "FewFeedV3.9.1"),
-        os.path.join(base, "desktop_app", "FEWFEED"),
-        os.path.join(base, "extensions", "FewFeedV3.9.1"),
-        os.path.join(base, "extensions", "FEWFEED"),
-        os.path.join(base, "fewfeed"),
-        # Exe dir candidates (critical for PyInstaller on Windows)
-        os.path.join(exe_dir, "FewFeedV3.9.1"),
-        os.path.join(exe_dir, "FEWFEED"),
-        os.path.join(exe_dir, "_internal", "FewFeedV3.9.1"),
-        os.path.join(exe_dir, "_internal", "FEWFEED"),
-        os.path.join(exe_dir, "desktop_app", "FewFeedV3.9.1"),
-        os.path.join(exe_dir, "desktop_app", "FEWFEED"),
-        # Parent of base / exe (when running from dist or build subdirectory)
-        os.path.abspath(os.path.join(base, "..", "FewFeedV3.9.1")),
-        os.path.abspath(os.path.join(base, "..", "FEWFEED")),
-        os.path.abspath(os.path.join(base, "..", "desktop_app", "FewFeedV3.9.1")),
-        os.path.abspath(os.path.join(base, "..", "desktop_app", "FEWFEED")),
-        os.path.abspath(os.path.join(exe_dir, "..", "FewFeedV3.9.1")),
-        os.path.abspath(os.path.join(exe_dir, "..", "FEWFEED")),
-        os.path.abspath(os.path.join(exe_dir, "..", "desktop_app", "FewFeedV3.9.1")),
-        os.path.abspath(os.path.join(exe_dir, "..", "desktop_app", "FEWFEED")),
-        os.path.abspath(os.path.join(exe_dir, "..", "..", "FewFeedV3.9.1")),
-        os.path.abspath(os.path.join(exe_dir, "..", "..", "FEWFEED")),
-        # PyInstaller temp unpack (_MEIPASS)
-        os.path.join(meipass, "FewFeedV3.9.1") if meipass else "",
-        os.path.join(meipass, "FEWFEED") if meipass else "",
-        os.path.join(meipass, "_internal", "FewFeedV3.9.1") if meipass else "",
-        os.path.join(meipass, "_internal", "FEWFEED") if meipass else "",
-        os.path.join(meipass, "desktop_app", "FewFeedV3.9.1") if meipass else "",
-        os.path.join(meipass, "desktop_app", "FEWFEED") if meipass else "",
-        # Current working directory
-        os.path.abspath("FewFeedV3.9.1"),
-        os.path.abspath("FEWFEED"),
-        os.path.abspath("desktop_app/FewFeedV3.9.1"),
-        os.path.abspath("desktop_app/FEWFEED"),
-        os.path.abspath("../FewFeedV3.9.1"),
-        os.path.abspath("../FEWFEED"),
-        # Standard user folders
-        os.path.join(os.path.expanduser("~"), "Desktop", "FewFeedV3.9.1"),
-        os.path.join(os.path.expanduser("~"), "Desktop", "FEWFEED"),
-        os.path.join(os.path.expanduser("~"), "Downloads", "FewFeedV3.9.1"),
-        os.path.join(os.path.expanduser("~"), "Downloads", "FEWFEED")
+    # Priority 3: Standard METUS folder locations
+    metus_names = ["METUS", "Metus", "metus", "MetusExtension", "METUS_Extension"]
+    roots = [
+        base,
+        os.path.join(base, "_internal"),
+        os.path.join(base, "desktop_app"),
+        os.path.join(base, "extensions"),
+        exe_dir,
+        os.path.join(exe_dir, "_internal"),
+        os.path.join(exe_dir, "desktop_app"),
+        os.path.join(exe_dir, "extensions"),
+        os.path.abspath(os.path.join(base, "..")),
+        os.path.abspath(os.path.join(exe_dir, "..")),
+        os.path.join(meipass) if meipass else "",
+        os.path.join(meipass, "_internal") if meipass else "",
+        os.getcwd(),
+        os.path.join(os.path.expanduser("~"), "Desktop"),
+        os.path.join(os.path.expanduser("~"), "Downloads"),
     ]
 
-    for c in candidates:
-        if c and os.path.isdir(c) and os.path.exists(os.path.join(c, "manifest.json")):
-            resolved = os.path.abspath(c)
-            try:
-                set_custom_extension_path(resolved)
-            except Exception:
-                pass
-            return resolved
+    for root in roots:
+        if not root or not os.path.isdir(root):
+            continue
+        for name in metus_names:
+            cand = os.path.join(root, name)
+            if os.path.isdir(cand) and os.path.isfile(os.path.join(cand, "manifest.json")):
+                return os.path.abspath(cand)
 
-    # Priority 3: Dynamic folder matching for any directory containing fewfeed in name
-    search_dirs = [base, exe_dir, os.path.join(base, "desktop_app"), os.path.join(exe_dir, "desktop_app"), os.getcwd()]
-    for sdir in search_dirs:
-        if sdir and os.path.isdir(sdir):
-            try:
-                for entry in os.listdir(sdir):
-                    if "fewfeed" in entry.lower():
-                        full_entry = os.path.join(sdir, entry)
-                        if os.path.isdir(full_entry) and os.path.exists(os.path.join(full_entry, "manifest.json")):
-                            resolved = os.path.abspath(full_entry)
-                            try:
-                                set_custom_extension_path(resolved)
-                            except Exception:
-                                pass
-                            return resolved
-            except Exception:
-                pass
-
-    # Priority 4: Shallow recursive search from known roots
+    # Priority 4: Shallow recursive scan for any folder containing "metus" in name or manifest
     for root in [base, exe_dir, meipass, os.getcwd()]:
-        found = _find_extension_recursive(root, max_depth=3)
+        found = _find_extension_recursive(root, keywords=("metus",), max_depth=3)
         if found:
-            try:
-                set_custom_extension_path(found)
-            except Exception:
-                pass
             return found
 
+    if allow_legacy_fewfeed:
+        legacy_roots = [
+            os.path.join(base, "FewFeedV3.9.1"),
+            os.path.join(base, "FEWFEED"),
+            os.path.join(exe_dir, "FewFeedV3.9.1"),
+            os.path.join(exe_dir, "FEWFEED"),
+        ]
+        for lc in legacy_roots:
+            if os.path.isdir(lc) and os.path.isfile(os.path.join(lc, "manifest.json")):
+                return os.path.abspath(lc)
+
     return None
+
+
+# Backward-compatible alias (defaults to METUS / user-selected extension without forcing legacy FewFeed)
+def get_fewfeed_extension_path(allow_legacy_fewfeed: bool = False) -> Optional[str]:
+    return get_metus_extension_path(allow_legacy_fewfeed=allow_legacy_fewfeed)
 
 
 def get_clean_path_for_chrome(path: str) -> str:
@@ -256,14 +307,15 @@ def get_clean_path_for_chrome(path: str) -> str:
 
 def get_extension_chrome_args(ext_path: Optional[str] = None) -> List[str]:
     """
-    Constructs the exact, standard Chrome command-line arguments needed to load the unpacked extension.
-    Uses forward-slash absolute path format recognized by Chrome on Windows and Unix.
+    Constructs the Chrome command-line arguments to load an unpacked METUS extension if specified.
+    Does NOT pass --disable-extensions-except so Chrome profile extensions installed from Web Store
+    or chrome://extensions also stay active.
     """
     if not ext_path:
-        ext_path = get_fewfeed_extension_path()
+        ext_path = get_metus_extension_path(allow_legacy_fewfeed=False)
 
-    if not ext_path or not os.path.exists(ext_path):
-        return []
+    if not ext_path or not os.path.exists(ext_path) or not os.path.isfile(os.path.join(ext_path, "manifest.json")):
+        return ["--enable-extensions"]
 
     fwd_p = get_clean_path_for_chrome(ext_path)
 
@@ -276,8 +328,8 @@ def get_extension_chrome_args(ext_path: Optional[str] = None) -> List[str]:
 
 def prepare_profile_for_extension(profile_dir: str, ext_path: Optional[str] = None) -> None:
     """
-    Ensures Chrome user profile Default/Preferences has Developer Mode and extension toolbar settings
-    while strictly preserving Secure Preferences to maintain Chrome's HMAC signatures for cloned profiles.
+    Ensures Chrome user profile Default/Preferences has Developer Mode enabled so users
+    can install/load METUS in Chrome Setup cleanly, while strictly preserving Secure Preferences.
     """
     if not profile_dir:
         return
@@ -306,28 +358,11 @@ def prepare_profile_for_extension(profile_dir: str, ext_path: Optional[str] = No
         if "extensions" not in prefs or not isinstance(prefs["extensions"], dict):
             prefs["extensions"] = {}
 
-        # Enable developer mode cleanly so unpacked extensions run without restrictions
+        # Enable developer mode cleanly so unpacked extensions (METUS) can be loaded easily
         prefs["extensions"]["developer_mode"] = True
         if "ui" not in prefs["extensions"] or not isinstance(prefs["extensions"]["ui"], dict):
             prefs["extensions"]["ui"] = {}
         prefs["extensions"]["ui"]["developer_mode"] = True
-
-        KNOWN_FEWFEED_IDS = [
-            "anmefodffnjcfkmodpaijmckfhcnccnn",
-            "bjeenfnhfdgdgijpmgdekklokkisiakk",
-            "ogpafcdeciolipenoiknghjhoihmkekh"
-        ]
-        pinned = prefs["extensions"].get("pinned_extensions", [])
-        if not isinstance(pinned, list):
-            pinned = []
-
-        for fid in KNOWN_FEWFEED_IDS:
-            if fid not in pinned:
-                pinned.append(fid)
-
-        # Pin FewFeed extension icon directly onto the Chrome toolbar
-        prefs["extensions"]["pinned_extensions"] = pinned
-        prefs["extensions"]["toolbar"] = pinned
 
         with open(pref_file, "w", encoding="utf-8") as f:
             json.dump(prefs, f, indent=2)
@@ -352,11 +387,9 @@ def get_system_chrome_executable() -> Optional[str]:
             os.path.join(prog_files_x86, "Google", "Chrome", "Application", "chrome.exe"),
             os.path.join(local_app_data, "Google", "Chrome", "Application", "chrome.exe"),
             os.path.join(prog_w6432, "Google", "Chrome", "Application", "chrome.exe"),
-            # Edge as fallback
             os.path.join(prog_files, "Microsoft", "Edge", "Application", "msedge.exe"),
             os.path.join(prog_files_x86, "Microsoft", "Edge", "Application", "msedge.exe"),
             os.path.join(local_app_data, "Microsoft", "Edge", "Application", "msedge.exe"),
-            # Brave as fallback
             os.path.join(prog_files, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
             os.path.join(local_app_data, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
         ]
@@ -390,8 +423,7 @@ def launch_native_chrome_profile(
     urls: Optional[List[str]] = None
 ) -> Tuple[bool, str, Optional[object]]:
     """
-    Launches the user's real desktop Google Chrome process with the chosen profile and FewFeed extension loaded.
-    Bypasses Playwright sandbox so Chrome runs 100% natively without any --no-sandbox or security warnings.
+    Launches the user's real desktop Google Chrome process with the chosen profile and METUS extension support.
     """
     import subprocess
     import shutil
@@ -415,34 +447,32 @@ def launch_native_chrome_profile(
                 pass
 
     if not ext_path:
-        ext_path = get_fewfeed_extension_path()
+        ext_path = get_metus_extension_path(allow_legacy_fewfeed=False)
 
-    # Pre-configure preferences
+    # Pre-configure preferences (enables developer mode without wiping existing extensions)
     try:
         prepare_profile_for_extension(profile_dir, ext_path)
     except Exception:
         pass
 
-    # Build launch command
     norm_profile = os.path.normpath(os.path.abspath(profile_dir))
     cmd = [
         chrome_exe,
         f"--user-data-dir={norm_profile}",
         "--no-first-run",
         "--no-default-browser-check",
-        "--start-maximized",
         "--lang=en-US,en",
         "--disable-blink-features=AutomationControlled",
         "--enable-extensions",
-        "--enable-unsafe-extension-debugging"
+        "--enable-unsafe-extension-debugging",
+        *build_window_chrome_args(total_slots=1, slot_index=0),
     ]
 
     if ext_path and os.path.isdir(ext_path) and os.path.exists(os.path.join(ext_path, "manifest.json")):
-        fwd_ext = os.path.abspath(ext_path).replace('\\', '/')
+        fwd_ext = get_clean_path_for_chrome(ext_path)
         cmd.append(f"--load-extension={fwd_ext}")
-        cmd.append(f"--disable-extensions-except={fwd_ext}")
 
-    target_urls = urls or ["https://www.facebook.com", "https://fewfeed.app", "chrome://extensions/"]
+    target_urls = urls or ["https://www.facebook.com", "chrome://extensions/"]
     cmd.extend(target_urls)
 
     try:

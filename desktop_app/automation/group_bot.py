@@ -26,6 +26,85 @@ except ImportError:
     class PlaywrightTimeoutError(Exception):
         pass
 
+try:
+    from automation.browser_window_manager import (
+        resolve_tile_context,
+        build_window_chrome_args,
+        apply_cdp_window_bounds,
+        launch_bot_browser_context,
+        human_click_element,
+        human_move_and_click,
+        human_click_coords,
+        human_type_text,
+        human_smooth_scroll,
+        human_pause,
+        human_session_warmup,
+        human_idle_drift,
+    )
+except ImportError:
+    try:
+        from desktop_app.automation.browser_window_manager import (
+            resolve_tile_context,
+            build_window_chrome_args,
+            apply_cdp_window_bounds,
+            launch_bot_browser_context,
+            human_click_element,
+            human_move_and_click,
+            human_click_coords,
+            human_type_text,
+            human_smooth_scroll,
+            human_pause,
+            human_session_warmup,
+            human_idle_drift,
+        )
+    except ImportError:
+        def resolve_tile_context(account_data=None, window_slot=None, total_window_slots=None, tile_rect=None):
+            return 0, 1, (0, 0, 1920, 1080)
+        def build_window_chrome_args(tile_rect=None, total_slots=1, slot_index=0, profile_directory=None, apply_scale_factor=True):
+            return []
+        async def apply_cdp_window_bounds(context, page=None, tile_rect=None, total_slots=1, slot_index=0):
+            return False
+        launch_bot_browser_context = None
+        async def human_pause(low=0.55, high=1.45, mult=1.0):
+            await asyncio.sleep(random.uniform(low, high))
+        async def human_click_element(page, target, hover_pause=True, force_fallback=True):
+            if target is None:
+                return False
+            try:
+                await target.scroll_into_view_if_needed()
+                await target.click()
+                return True
+            except Exception:
+                return False
+        async def human_move_and_click(page, locator, hover_pause=True, force_fallback=True):
+            return await human_click_element(page, locator, hover_pause=hover_pause, force_fallback=force_fallback)
+        async def human_click_coords(page, x, y, hover_pause=True):
+            try:
+                await page.mouse.move(x, y, steps=8)
+                await page.mouse.click(x, y)
+                return True
+            except Exception:
+                return False
+        async def human_type_text(page, target, text, clear_first=True, allow_typos=False):
+            if target is None:
+                return False
+            try:
+                await target.click()
+                if clear_first:
+                    await target.fill("")
+                await page.keyboard.type(str(text), delay=40)
+                return True
+            except Exception:
+                return False
+        async def human_smooth_scroll(page, total_delta_y=550, steps=6):
+            for _ in range(max(2, steps)):
+                await page.mouse.wheel(0, total_delta_y / max(2, steps))
+                await asyncio.sleep(0.06)
+        async def human_session_warmup(page, duration_range=(1.2, 2.3), log_cb=None):
+            await asyncio.sleep(random.uniform(*duration_range))
+        async def human_idle_drift(page):
+            await asyncio.sleep(random.uniform(0.2, 0.45))
+
 # Desktop Chrome Specifications for FB Group Automation & FEWFEED Integration
 DESKTOP_CHROME_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -37,36 +116,29 @@ def get_base_dir() -> str:
         return os.path.dirname(sys.executable)
     return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-def get_master_fewfeed_source_dir() -> Optional[str]:
+def get_master_metus_source_dir() -> Optional[str]:
     """
-    Finds the most recent and complete FewFeed/Google session data directory across all browser profiles.
+    Finds the most recent and complete METUS / Chrome profile directory across saved profiles.
     """
     base_profiles = os.path.join(get_base_dir(), "profiles")
     if not os.path.isdir(base_profiles):
         return None
 
-    # Priority 1: master_fewfeed_profile (Created via Master QFit / FewFeed Scan)
-    master_profile_dir = os.path.join(base_profiles, "master_fewfeed_profile")
-    if os.path.isdir(master_profile_dir):
-        def_dir = os.path.join(master_profile_dir, "Default") if os.path.isdir(os.path.join(master_profile_dir, "Default")) else master_profile_dir
-        if os.path.isdir(os.path.join(def_dir, "Local Storage")) or os.path.isfile(os.path.join(def_dir, "Network", "Cookies")) or os.path.isfile(os.path.join(def_dir, "Cookies")) or os.path.isdir(os.path.join(def_dir, "IndexedDB")):
-            return master_profile_dir
+    # Priority 1: master_metus_profile & legacy master_fewfeed_profile
+    for prio_name in ["master_metus_profile", "master_fewfeed_profile", "metus_shared", "fewfeed_shared", "fewfeed_master"]:
+        master_profile_dir = os.path.join(base_profiles, prio_name)
+        if os.path.isdir(master_profile_dir):
+            def_dir = os.path.join(master_profile_dir, "Default") if os.path.isdir(os.path.join(master_profile_dir, "Default")) else master_profile_dir
+            if (
+                os.path.isdir(os.path.join(def_dir, "Extensions"))
+                or os.path.isdir(os.path.join(def_dir, "Local Storage"))
+                or os.path.isfile(os.path.join(def_dir, "Network", "Cookies"))
+                or os.path.isfile(os.path.join(def_dir, "Cookies"))
+                or os.path.isdir(os.path.join(def_dir, "IndexedDB"))
+            ):
+                return master_profile_dir
 
-    # Priority 2: dedicated shared template
-    shared_dir = os.path.join(base_profiles, "fewfeed_shared")
-    if os.path.isdir(shared_dir):
-        def_dir = os.path.join(shared_dir, "Default") if os.path.isdir(os.path.join(shared_dir, "Default")) else shared_dir
-        if os.path.isdir(os.path.join(def_dir, "Local Storage")) or os.path.isfile(os.path.join(def_dir, "Network", "Cookies")) or os.path.isfile(os.path.join(def_dir, "Cookies")) or os.path.isdir(os.path.join(def_dir, "IndexedDB")):
-            return shared_dir
-
-    # Priority 3: dedicated master template
-    master_dir = os.path.join(base_profiles, "fewfeed_master")
-    if os.path.isdir(master_dir):
-        def_dir = os.path.join(master_dir, "Default") if os.path.isdir(os.path.join(master_dir, "Default")) else master_dir
-        if os.path.isdir(os.path.join(def_dir, "Local Storage")) or os.path.isfile(os.path.join(def_dir, "Network", "Cookies")) or os.path.isfile(os.path.join(def_dir, "Cookies")) or os.path.isdir(os.path.join(def_dir, "IndexedDB")):
-            return master_dir
-
-    # Priority 4: Search all profile directories for the one with the latest modified session data
+    # Priority 2: Search all profile directories for the one with the latest modified session/extension data
     candidates = []
     try:
         for entry in os.listdir(base_profiles):
@@ -74,30 +146,29 @@ def get_master_fewfeed_source_dir() -> Optional[str]:
             if not os.path.isdir(p_dir):
                 continue
             default_dir = os.path.join(p_dir, "Default") if os.path.isdir(os.path.join(p_dir, "Default")) else p_dir
-            
+
             ls_dir = os.path.join(default_dir, "Local Storage")
             net_cookie = os.path.join(default_dir, "Network", "Cookies")
             flat_cookie = os.path.join(default_dir, "Cookies")
             idb_dir = os.path.join(default_dir, "IndexedDB")
+            ext_dir = os.path.join(default_dir, "Extensions")
 
             has_session = False
             mtime = 0
-            if os.path.isdir(ls_dir) and os.listdir(ls_dir):
-                has_session = True
-                try: mtime = max(mtime, os.path.getmtime(ls_dir))
-                except Exception: pass
-            if os.path.isfile(net_cookie) and os.path.getsize(net_cookie) > 2048:
-                has_session = True
-                try: mtime = max(mtime, os.path.getmtime(net_cookie))
-                except Exception: pass
-            if os.path.isfile(flat_cookie) and os.path.getsize(flat_cookie) > 2048:
-                has_session = True
-                try: mtime = max(mtime, os.path.getmtime(flat_cookie))
-                except Exception: pass
-            if os.path.isdir(idb_dir) and os.listdir(idb_dir):
-                has_session = True
-                try: mtime = max(mtime, os.path.getmtime(idb_dir))
-                except Exception: pass
+            for d_check in [ls_dir, idb_dir, ext_dir]:
+                if os.path.isdir(d_check) and os.listdir(d_check):
+                    has_session = True
+                    try:
+                        mtime = max(mtime, os.path.getmtime(d_check))
+                    except Exception:
+                        pass
+            for f_check in [net_cookie, flat_cookie]:
+                if os.path.isfile(f_check) and os.path.getsize(f_check) > 2048:
+                    has_session = True
+                    try:
+                        mtime = max(mtime, os.path.getmtime(f_check))
+                    except Exception:
+                        pass
 
             if has_session:
                 candidates.append((mtime, p_dir))
@@ -109,6 +180,9 @@ def get_master_fewfeed_source_dir() -> Optional[str]:
         return candidates[0][1]
 
     return None
+
+
+get_master_fewfeed_source_dir = get_master_metus_source_dir
 
 def copy_fewfeed_session_data(src_profile_dir: str, dst_profile_dir: str):
     """
@@ -186,20 +260,29 @@ def copy_fewfeed_session_data(src_profile_dir: str, dst_profile_dir: str):
             except Exception:
                 pass
 
-def save_as_master_fewfeed_template(source_profile_dir: str):
+def save_as_master_metus_template(source_profile_dir: str):
     """
-    Saves the specified profile as the master template (profiles/master_fewfeed_profile and fewfeed_shared)
-    so all newly created browser profiles will automatically inherit it.
+    Saves the specified profile as the master METUS template (profiles/master_metus_profile)
+    so all browser profiles automatically inherit METUS & Chrome extension settings.
     """
     if not source_profile_dir or not os.path.isdir(source_profile_dir):
         return
-    master_dir = os.path.join(get_base_dir(), "profiles", "master_fewfeed_profile")
+    master_dir = os.path.join(get_base_dir(), "profiles", "master_metus_profile")
     copy_fewfeed_session_data(source_profile_dir, master_dir)
-    shared_dir = os.path.join(get_base_dir(), "profiles", "fewfeed_shared")
-    copy_fewfeed_session_data(source_profile_dir, shared_dir)
+    legacy_dir = os.path.join(get_base_dir(), "profiles", "master_fewfeed_profile")
+    copy_fewfeed_session_data(source_profile_dir, legacy_dir)
+
+
+save_as_master_fewfeed_template = save_as_master_metus_template
+
 
 def get_custom_extension_path() -> Optional[str]:
-    """Retrieves user-configured FewFeed extension folder from configuration if set."""
+    """Retrieves user-configured METUS extension folder from configuration if set."""
+    try:
+        from automation.extension_manager import get_custom_extension_path as _get_custom
+        return _get_custom(allow_legacy_fewfeed=False)
+    except Exception:
+        pass
     try:
         cfg_file = os.path.join(get_base_dir(), "config", "extension_config.json")
         if os.path.isfile(cfg_file):
@@ -212,67 +295,72 @@ def get_custom_extension_path() -> Optional[str]:
         pass
     return None
 
+
 def set_custom_extension_path(folder_path: str) -> bool:
-    """Stores user-configured custom unpacked FewFeed extension directory."""
+    """Stores user-configured custom unpacked METUS extension directory."""
+    try:
+        from automation.extension_manager import set_custom_extension_path as _set_custom
+        return _set_custom(folder_path, user_selected=True)
+    except Exception:
+        pass
     try:
         if folder_path and os.path.isdir(folder_path) and os.path.exists(os.path.join(folder_path, "manifest.json")):
             cfg_dir = os.path.join(get_base_dir(), "config")
             os.makedirs(cfg_dir, exist_ok=True)
             cfg_file = os.path.join(cfg_dir, "extension_config.json")
             with open(cfg_file, "w", encoding="utf-8") as f:
-                json.dump({"extension_path": os.path.abspath(folder_path)}, f, indent=2)
+                json.dump({"extension_path": os.path.abspath(folder_path), "user_selected": True, "extension_brand": "METUS"}, f, indent=2)
             return True
     except Exception:
         pass
     return False
 
-def get_fewfeed_extension_path() -> Optional[str]:
-    """Resolves the absolute path to FEWFEED extension folder, checking custom path and bundle candidates."""
+
+def get_metus_extension_path(allow_legacy_fewfeed: bool = False) -> Optional[str]:
+    """Resolves the absolute path to METUS extension folder via ExtensionManager."""
     try:
-        from automation.extension_manager import get_fewfeed_extension_path as _get_path
-        return _get_path()
+        from automation.extension_manager import get_metus_extension_path as _get_path
+        return _get_path(allow_legacy_fewfeed=allow_legacy_fewfeed)
     except Exception:
         pass
 
-    # Priority 1: User-selected custom unpacked extension
     custom = get_custom_extension_path()
     if custom:
         return custom
 
-    # Priority 2: Standard and bundled workspace paths
     candidates = [
-        os.path.join(get_base_dir(), "FEWFEED"),
-        os.path.join(get_base_dir(), "_internal", "FEWFEED"),
-        os.path.join(get_base_dir(), "fewfeed"),
-        os.path.join(get_base_dir(), "extensions", "FEWFEED"),
-        os.path.join(getattr(sys, '_MEIPASS', ''), "FEWFEED"),
-        os.path.join(getattr(sys, '_MEIPASS', ''), "_internal", "FEWFEED"),
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "FEWFEED")),
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "FEWFEED")),
-        "/desktop_app/FEWFEED",
-        os.path.abspath("FEWFEED"),
-        os.path.abspath("desktop_app/FEWFEED")
+        os.path.join(get_base_dir(), "METUS"),
+        os.path.join(get_base_dir(), "_internal", "METUS"),
+        os.path.join(get_base_dir(), "extensions", "METUS"),
+        os.path.join(getattr(sys, '_MEIPASS', ''), "METUS"),
+        os.path.abspath("METUS"),
+        os.path.abspath("desktop_app/METUS"),
     ]
     for c in candidates:
         if c and os.path.isdir(c) and os.path.exists(os.path.join(c, "manifest.json")):
             return os.path.abspath(c)
     return None
 
+
+get_fewfeed_extension_path = get_metus_extension_path
+
+
 def get_chrome_webdriver_desktop_config(ext_path: Optional[str] = None, user_data_dir: Optional[str] = None) -> Dict[str, Any]:
     """
-    Returns standard Desktop Chrome WebDriver configuration options for FEWFEED.
+    Returns standard Desktop Chrome WebDriver configuration options with METUS extension support.
+    Does not use --disable-extensions-except so installed Chrome profile extensions stay active.
     """
     config = {
         "args": [
-            "--start-maximized",
             "--no-default-browser-check",
             "--disable-blink-features=AutomationControlled",
             f"--user-agent={DESKTOP_CHROME_USER_AGENT}",
-            "--lang=en-US,en"
+            "--enable-extensions",
+            "--lang=en-US,en",
+            *build_window_chrome_args(total_slots=1, slot_index=0),
         ]
     }
     if ext_path and os.path.exists(ext_path):
-        config["args"].append(f"--disable-extensions-except={ext_path}")
         config["args"].append(f"--load-extension={ext_path}")
     if user_data_dir:
         config["args"].append(f"--user-data-dir={user_data_dir}")
@@ -390,6 +478,7 @@ class FacebookGroupBot:
         self.progress_callback = progress_callback or (lambda p: None)
         self.headless = headless
         self.playwright = None
+        self.browser = None
         self.context = None
         self.page = None
         self.extension_id: Optional[str] = None
@@ -407,14 +496,16 @@ class FacebookGroupBot:
         self.log("WARNING", "Cancellation requested for Group Bot.")
 
     async def initialize_browser(self):
-        """Launches Desktop Chrome with FEWFEED extension loaded automatically and full desktop session support."""
+        """Launches Desktop Chrome with METUS extension & master profile synced automatically."""
         if not PLAYWRIGHT_AVAILABLE:
             raise RuntimeError("Playwright is not available in Python environment.")
 
-        self.log("INFO", "Initializing Desktop Chrome Browser Context for FB Group Automation...")
-        self.log("INFO", f"💻 Desktop Chrome User-Agent: {DESKTOP_CHROME_USER_AGENT}")
+        self.log("INFO", "Initializing Desktop Chrome Browser Context for FB Group Automation (METUS)...")
 
         self.playwright = await async_playwright().start()
+
+        is_custom_profile = bool(self.account_data.get("is_custom_chrome_profile", False))
+        chrome_profile_directory = self.account_data.get("chrome_profile_directory")
 
         # Ensure account profile_dir is ALWAYS a valid directory string
         profile_dir = self.account_data.get("profile_dir")
@@ -427,16 +518,21 @@ class FacebookGroupBot:
         os.makedirs(profile_dir, exist_ok=True)
         self.profile_dir = profile_dir
 
-        # Always synchronize FewFeed extension & master session from master profile template
-        src_master = get_master_fewfeed_source_dir()
-        if src_master and os.path.abspath(src_master) != os.path.abspath(profile_dir):
-            self.log("INFO", f"🔄 Synchronizing FewFeed Extension & Master Session from {os.path.basename(src_master)} into {os.path.basename(profile_dir)}...")
-            copy_fewfeed_session_data(src_master, profile_dir)
-            self.log("SUCCESS", "✅ FewFeed session & extension synced into browser profile.")
+        # Synchronize METUS extension & master setup profile ONLY for managed Accounts Manager profiles
+        # Never overwrite customer-supplied custom Chrome profiles!
+        if not is_custom_profile:
+            src_master = get_master_metus_source_dir()
+            if src_master and os.path.abspath(src_master) != os.path.abspath(profile_dir):
+                self.log("INFO", f"🔄 Synchronizing METUS Extension & Master Profile from {os.path.basename(src_master)} into {os.path.basename(profile_dir)}...")
+                copy_fewfeed_session_data(src_master, profile_dir)
+                self.log("SUCCESS", "✅ METUS extension & session synced into browser profile.")
+        else:
+            prof_tag = f"{os.path.basename(profile_dir)}" + (f" [{chrome_profile_directory}]" if chrome_profile_directory else "")
+            self.log("INFO", f"🔒 Custom Chrome Profile active ({prof_tag}): keeping existing Chrome cookies, Local Storage & logins untouched.")
 
-        ext_path = get_fewfeed_extension_path()
+        ext_path = get_metus_extension_path(allow_legacy_fewfeed=False)
         ext_args = []
-        if ext_path and os.path.exists(ext_path):
+        if ext_path and os.path.exists(ext_path) and os.path.isfile(os.path.join(ext_path, "manifest.json")):
             try:
                 from automation.extension_manager import get_extension_chrome_args
                 ext_args = get_extension_chrome_args(ext_path)
@@ -446,12 +542,13 @@ class FacebookGroupBot:
                     f"--load-extension={clean_p}",
                     "--enable-extensions"
                 ]
-            self.log("SUCCESS", f"🧩 Chrome Extension Loaded: {os.path.basename(ext_path)} -> {ext_path}")
+            self.log("SUCCESS", f"🧩 METUS Extension Loaded: {os.path.basename(ext_path)} -> {ext_path}")
         else:
-            self.log("WARNING", f"FEWFEED extension folder not detected! Checked {ext_path}.")
+            self.log("INFO", "🧩 Using Chrome profile's installed extensions (configure unpacked METUS via Setup if needed).")
+
+        slot_idx, total_slots, resolved_tile = resolve_tile_context(self.account_data)
 
         launch_args = [
-            "--start-maximized",
             "--no-default-browser-check",
             "--no-first-run",
             "--disable-blink-features=AutomationControlled",
@@ -460,7 +557,15 @@ class FacebookGroupBot:
             "--enable-unsafe-extension-debugging",
             "--lang=en-US,en"
         ]
-        launch_args.extend(ext_args)
+        launch_args.extend(build_window_chrome_args(
+            tile_rect=resolved_tile,
+            total_slots=total_slots,
+            slot_index=slot_idx,
+            profile_directory=chrome_profile_directory,
+        ))
+        for a in ext_args:
+            if a not in launch_args:
+                launch_args.append(a)
 
         ignore_default_args = ["--no-sandbox", "--disable-extensions", "--enable-automation", "--disable-component-extensions-with-background-pages"]
 
@@ -478,12 +583,12 @@ class FacebookGroupBot:
             if self.account_data.get("proxy_pass"):
                 proxy_cfg["password"] = self.account_data["proxy_pass"]
 
-        # Pre-configure profile preferences for developer mode and extension toolbar
         try:
-            from automation.extension_manager import prepare_profile_for_extension
-            prepare_profile_for_extension(profile_dir, ext_path)
+            from automation.extension_manager import prepare_profile_for_extension, get_system_chrome_executable
+            if not is_custom_profile:
+                prepare_profile_for_extension(profile_dir, ext_path)
         except Exception:
-            pass
+            get_system_chrome_executable = lambda: None
 
         # Clear profile locks to prevent SingletonLock errors
         for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
@@ -493,120 +598,145 @@ class FacebookGroupBot:
                     if os.path.islink(fpath) or os.path.isfile(fpath):
                         os.unlink(fpath)
                     elif os.path.isdir(fpath):
-                        import shutil
                         shutil.rmtree(fpath, ignore_errors=True)
                 except Exception:
                     pass
 
-        # Launch browser in desktop mode with FEWFEED loaded (Real system Google Chrome priority)
-        from automation.extension_manager import get_system_chrome_executable
-        chrome_exe = get_system_chrome_executable()
+        chrome_exe = None
+        custom_exe = (self.account_data.get("chrome_executable") or "").strip()
+        if custom_exe and os.path.isfile(custom_exe):
+            chrome_exe = custom_exe
+        if not chrome_exe:
+            try:
+                chrome_exe = get_system_chrome_executable()
+            except Exception:
+                chrome_exe = None
 
         self.context = None
-        channels_to_try = []
-        if chrome_exe and os.path.isfile(chrome_exe):
-            channels_to_try.append(("real_chrome", chrome_exe))
-        channels_to_try.extend([("chrome", None), ("msedge", None), (None, None)])
-
-        for ch, exe_p in channels_to_try:
-            try:
-                kwargs = {
-                    "user_data_dir": profile_dir,
-                    "headless": False,  # Extensions require headful mode in Chromium
-                    "args": launch_args,
-                    "ignore_default_args": ignore_default_args,
-                    "proxy": proxy_cfg,
+        if launch_bot_browser_context is not None:
+            self.context, self.browser = await launch_bot_browser_context(
+                playwright=self.playwright,
+                account_data=self.account_data,
+                profile_dir=profile_dir,
+                launch_args=launch_args,
+                ignore_default_args=ignore_default_args,
+                proxy_cfg=proxy_cfg,
+                context_kwargs={
                     "user_agent": DESKTOP_CHROME_USER_AGENT,
                     "no_viewport": True,
                     "locale": "en-US",
-                    "permissions": ["geolocation", "notifications"]
-                }
-                if exe_p:
-                    kwargs["executable_path"] = exe_p
-                elif ch:
-                    kwargs["channel"] = ch
-                self.context = await self.playwright.chromium.launch_persistent_context(**kwargs)
-                self.log("INFO", f"Launched Desktop browser ({exe_p or ch or 'Chromium'}) with FEWFEED loaded.")
-                break
-            except Exception as ex:
-                self.log("WARNING", f"Browser launch attempt ({ch or exe_p}) notice: {str(ex)[:100]}")
-                if profile_dir and os.path.exists(profile_dir):
-                    for fname in ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"]:
-                        fpath = os.path.join(profile_dir, fname)
-                        if os.path.exists(fpath) or os.path.islink(fpath):
-                            try: os.unlink(fpath)
-                            except Exception: pass
-                continue
+                    "permissions": ["geolocation", "notifications"],
+                },
+                log_cb=self.log,
+                allow_ephemeral_fallback=not is_custom_profile,
+            )
+        else:
+            channels_to_try = []
+            if chrome_exe and os.path.isfile(chrome_exe):
+                channels_to_try.append(("real_chrome", chrome_exe))
+            channels_to_try.extend([("chrome", None), ("msedge", None)])
+            if not is_custom_profile:
+                channels_to_try.append((None, None))
 
-        if not self.context:
-            # Fallback to standard launch (non-persistent)
-            self.log("WARNING", "Persistent profile context locked or unavailable. Engaging standard browser launch...")
-            try:
-                launch_kw = {
-                    "headless": False,
-                    "args": launch_args,
-                    "ignore_default_args": ignore_default_args,
-                    "proxy": proxy_cfg
-                }
-                self.browser = await self.playwright.chromium.launch(**launch_kw)
-                self.context = await self.browser.new_context(
-                    user_agent=DESKTOP_CHROME_USER_AGENT,
-                    no_viewport=True,
-                    locale="en-US",
-                    permissions=["geolocation", "notifications"]
-                )
-                self.log("INFO", "Launched standard Desktop Chrome browser.")
-            except Exception as final_ex:
-                raise RuntimeError(f"Failed to launch Chrome or Edge: {str(final_ex)}")
+            for ch, exe_p in channels_to_try:
+                try:
+                    kwargs = {
+                        "user_data_dir": profile_dir,
+                        "headless": False,
+                        "args": launch_args,
+                        "ignore_default_args": ignore_default_args,
+                        "proxy": proxy_cfg,
+                        "user_agent": DESKTOP_CHROME_USER_AGENT,
+                        "no_viewport": True,
+                        "locale": "en-US",
+                        "permissions": ["geolocation", "notifications"]
+                    }
+                    if exe_p:
+                        kwargs["executable_path"] = exe_p
+                    elif ch:
+                        kwargs["channel"] = ch
+                    self.context = await self.playwright.chromium.launch_persistent_context(**kwargs)
+                    self.log("INFO", f"Launched Desktop Chrome ({exe_p or ch or 'Chromium'}) with METUS profile ready.")
+                    break
+                except Exception as ex:
+                    self.log("WARNING", f"Browser launch attempt ({ch or exe_p}) notice: {str(ex)[:100]}")
+                    continue
+
+            if not self.context:
+                if is_custom_profile:
+                    raise RuntimeError(f"Could not launch custom Chrome profile at '{profile_dir}'. Make sure Chrome is closed for this profile.")
+                self.log("WARNING", "Persistent profile context locked or unavailable. Engaging standard browser launch...")
+                try:
+                    launch_kw = {
+                        "headless": False,
+                        "args": launch_args,
+                        "ignore_default_args": ignore_default_args,
+                        "proxy": proxy_cfg
+                    }
+                    self.browser = await self.playwright.chromium.launch(**launch_kw)
+                    self.context = await self.browser.new_context(
+                        user_agent=DESKTOP_CHROME_USER_AGENT,
+                        no_viewport=True,
+                        locale="en-US",
+                        permissions=["geolocation", "notifications"]
+                    )
+                    self.log("INFO", "Launched standard Desktop Chrome browser.")
+                except Exception as final_ex:
+                    raise RuntimeError(f"Failed to launch Chrome or Edge: {str(final_ex)}")
 
         self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+        await apply_cdp_window_bounds(
+            self.context,
+            self.page,
+            tile_rect=resolved_tile,
+            total_slots=total_slots,
+            slot_index=slot_idx,
+        )
 
-        # Step: Verify and hook FEWFEED Chrome Extension background service worker & pages
+        # Verify / attach METUS Chrome Extension background service worker if present
         try:
-            # Check service workers
-            service_workers = self.context.service_workers
-            if service_workers:
-                for sw in service_workers:
-                    sw_url = sw.url
-                    if "chrome-extension://" in sw_url:
-                        parts = sw_url.replace("chrome-extension://", "").split("/")
-                        self.extension_id = parts[0]
+            ignored_ids = {"nmmhkkegccagdldgiimedpiccmgmieda", "pkedcjkdefgpdelpbcmbmeomcjbeemfm", "ghbmnnjooekpmoecnnnilnnbdlolhkhi"}
+            for sw in self.context.service_workers:
+                sw_url = sw.url
+                if "chrome-extension://" in sw_url:
+                    eid = sw_url.replace("chrome-extension://", "").split("/")[0]
+                    if eid not in ignored_ids:
+                        self.extension_id = eid
                         self.fewfeed_ready = True
-                        self.log("SUCCESS", f"⚡ FEWFEED Extension background service worker hooked! ID: {self.extension_id}")
+                        self.log("SUCCESS", f"⚡ METUS Extension service worker active! ID: {self.extension_id}")
                         break
 
-            # Check background / extension pages if not identified yet
             if not self.extension_id:
                 for p in self.context.pages:
                     if "chrome-extension://" in p.url:
-                        parts = p.url.replace("chrome-extension://", "").split("/")
-                        self.extension_id = parts[0]
-                        self.fewfeed_ready = True
-                        self.log("SUCCESS", f"⚡ FEWFEED Extension active page hooked! ID: {self.extension_id}")
-                        break
+                        eid = p.url.replace("chrome-extension://", "").split("/")[0]
+                        if eid not in ignored_ids:
+                            self.extension_id = eid
+                            self.fewfeed_ready = True
+                            self.log("SUCCESS", f"⚡ METUS Extension page active! ID: {self.extension_id}")
+                            break
 
-            # If not detected yet, activate extension via CDP session
-            if not self.extension_id and ext_path and os.path.isdir(ext_path):
+            if not self.extension_id and ext_path and os.path.isdir(ext_path) and os.path.isfile(os.path.join(ext_path, "manifest.json")):
                 try:
                     fwd_p = os.path.abspath(ext_path).replace('\\', '/')
                     p0 = self.context.pages[0] if self.context.pages else await self.context.new_page()
                     cdp = await self.context.new_cdp_session(p0)
                     await cdp.send("Extensions.loadUnpacked", {"path": fwd_p})
-                    self.log("SUCCESS", "⚡ Loaded FewFeed V3 extension via Chrome DevTools Protocol (CDP)!")
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(0.8)
                     for sw in self.context.service_workers:
                         if "chrome-extension://" in sw.url:
-                            self.extension_id = sw.url.replace("chrome-extension://", "").split("/")[0]
-                            self.fewfeed_ready = True
-                            break
+                            eid = sw.url.replace("chrome-extension://", "").split("/")[0]
+                            if eid not in ignored_ids:
+                                self.extension_id = eid
+                                self.fewfeed_ready = True
+                                self.log("SUCCESS", f"⚡ Attached METUS extension via CDP! ID: {self.extension_id}")
+                                break
                 except Exception as cdp_err:
                     self.log("DEBUG", f"CDP extension activation notice: {cdp_err}")
 
-            if not self.fewfeed_ready:
-                self.log("INFO", "FEWFEED extension loaded in browser context. Ready for background automation.")
-                self.fewfeed_ready = True
+            self.fewfeed_ready = True
         except Exception as ee:
-            self.log("INFO", f"Extension hook status: Ready ({str(ee)[:60]})")
+            self.log("INFO", f"Extension status: Ready ({str(ee)[:60]})")
             self.fewfeed_ready = True
 
         # Inject session cookies
@@ -625,6 +755,14 @@ class FacebookGroupBot:
         self.log("INFO", "Validating Facebook session in primary tab...")
         try:
             await self.page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=35000)
+            slot_idx, total_slots, tile_rect = resolve_tile_context(self.account_data)
+            await apply_cdp_window_bounds(
+                self.context,
+                self.page,
+                tile_rect=tile_rect,
+                total_slots=total_slots,
+                slot_index=slot_idx,
+            )
             await asyncio.sleep(2.0)
         except Exception as e:
             self.log("WARNING", f"Navigation notice: {str(e)[:80]}")
@@ -643,10 +781,11 @@ class FacebookGroupBot:
                         pass_input = await self.page.query_selector('input#pass, input[name="pass"]')
                         login_btn = await self.page.query_selector('button[name="login"], button[type="submit"]')
                         if email_input and pass_input and login_btn:
-                            await email_input.fill(email)
-                            await pass_input.fill(password)
-                            await asyncio.sleep(0.5)
-                            await login_btn.click()
+                            await human_type_text(self.page, email_input, email, clear_first=True, allow_typos=False)
+                            await human_pause(0.35, 0.75)
+                            await human_type_text(self.page, pass_input, password, clear_first=True, allow_typos=False)
+                            await human_pause(0.45, 0.9)
+                            await human_click_element(self.page, login_btn, hover_pause=True)
                             await asyncio.sleep(4.0)
                             url = self.page.url.lower()
                     except Exception as le:
@@ -656,8 +795,10 @@ class FacebookGroupBot:
                 self.log("WARNING", "⚠️ Facebook primary tab shows login screen. Proceeding to FewFeed tab with profile session...")
             else:
                 self.log("SUCCESS", "Facebook authentication confirmed in Tab 1 (tab will remain OPEN in background).")
+                await human_session_warmup(self.page, duration_range=(1.0, 1.8), log_cb=self.log)
         else:
             self.log("SUCCESS", "Facebook authentication confirmed in Tab 1 (tab will remain OPEN in background).")
+            await human_session_warmup(self.page, duration_range=(1.0, 1.8), log_cb=self.log)
         self.fb_page = self.page
 
     # --------------------------------------------------------------------------
@@ -738,15 +879,11 @@ class FacebookGroupBot:
             if email_inp and pass_inp:
                 self.log("INFO", f"🔑 Auto-filling FewFeed Account credentials ({cf_email})...")
                 try:
-                    await email_inp.click()
-                    await email_inp.fill("")
-                    await email_inp.fill(cf_email)
-                    await asyncio.sleep(0.3)
-                    
-                    await pass_inp.click()
-                    await pass_inp.fill("")
-                    await pass_inp.fill(cf_pass)
-                    await asyncio.sleep(0.3)
+                    await human_type_text(self.page, email_inp, cf_email, clear_first=True, allow_typos=False)
+                    await human_pause(0.3, 0.65)
+
+                    await human_type_text(self.page, pass_inp, cf_pass, clear_first=True, allow_typos=False)
+                    await human_pause(0.35, 0.75)
 
                     # Find login button
                     login_btn = await self.page.query_selector("button:has-text('Sign In'), button:has-text('Sign in'), button:has-text('Login'), button:has-text('Log in'), button[type='submit'], input[type='submit']")
@@ -762,7 +899,7 @@ class FacebookGroupBot:
                                 continue
 
                     if login_btn and await login_btn.is_visible():
-                        await login_btn.click()
+                        await human_click_element(self.page, login_btn, hover_pause=True)
                     else:
                         await pass_inp.press("Enter")
 
@@ -795,7 +932,7 @@ class FacebookGroupBot:
 
             if fb_login_btn and await fb_login_btn.is_visible():
                 self.log("INFO", "🔗 'Login FB to use' button detected. Clicking to attach Facebook account...")
-                await fb_login_btn.click()
+                await human_click_element(self.page, fb_login_btn, hover_pause=True)
                 await asyncio.sleep(4.0)
                 self.log("INFO", "🔄 Refreshing tool page to confirm Facebook account attachment...")
                 await self.page.reload(wait_until="domcontentloaded")
@@ -811,32 +948,33 @@ class FacebookGroupBot:
 
         self.log("SUCCESS", f"✅ FewFeed tool ready: {target_url}")
 
-    async def open_fewfeed_via_extension_click(self) -> Page:
+    async def open_metus_extension_if_available(self) -> Optional[Page]:
         """
-        Step 2: Opens FewFeed STRICTLY by clicking the FewFeed extension action icon in the browser toolbar.
-        Per strict user requirement: The bot does NOT search or type links into the URL address bar;
-        it triggers the extension itself to open its interface on a separate tab, keeping Tab 1 (Facebook account) active.
+        Wakes the installed METUS Chrome Extension action safely without ever navigating
+        to discontinued third-party sites (like fewfeed.app).
+        Keeps Tab 1 (logged-in Facebook session) ready and active.
         """
-        self.log("INFO", "🧩 [Step 2] Triggering FewFeed extension icon click in Chrome toolbar...")
+        if not self.context:
+            return None
 
-        target_page = None
+        ignored_ids = {"nmmhkkegccagdldgiimedpiccmgmieda", "pkedcjkdefgpdelpbcmbmeomcjbeemfm", "ghbmnnjooekpmoecnnnilnnbdlolhkhi"}
+        ext_page = None
 
-        # Check if an existing FewFeed tab was already opened by the extension
         for p in self.context.pages:
-            if p != getattr(self, 'fb_page', None) and not p.is_closed():
-                u = p.url.lower()
-                if "fewfeed" in u:
-                    target_page = p
+            if not p.is_closed() and "chrome-extension://" in p.url:
+                eid = p.url.replace("chrome-extension://", "").split("/")[0]
+                if eid not in ignored_ids:
+                    ext_page = p
                     break
 
-        if not target_page:
-            # Step A: Dispatch the extension action click inside the extension context (Simulates clicking FewFeed V3 icon)
+        if not ext_page:
             sw_target = None
             for sw in self.context.service_workers:
-                u = sw.url.lower()
-                if "bg.js" in u or "chrome-extension://" in u or "fewfeed" in u:
-                    sw_target = sw
-                    break
+                if "chrome-extension://" in sw.url:
+                    eid = sw.url.replace("chrome-extension://", "").split("/")[0]
+                    if eid not in ignored_ids:
+                        sw_target = sw
+                        break
 
             if sw_target:
                 try:
@@ -852,50 +990,42 @@ class FacebookGroupBot:
                                     chrome.action.onClicked.dispatch(activeTab || {});
                                 } else if (chrome.browserAction && chrome.browserAction.onClicked && chrome.browserAction.onClicked.dispatch) {
                                     chrome.browserAction.onClicked.dispatch(activeTab || {});
-                                } else if (chrome.tabs && chrome.tabs.create) {
-                                    chrome.tabs.create({ url: "https://fewfeed.app/" });
                                 }
                             }
-                        } catch (e) {
-                            if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
-                                chrome.tabs.create({ url: "https://fewfeed.app/" });
-                            }
-                        }
+                        } catch (e) {}
                     }""")
-                    self.log("SUCCESS", "🖱️ Clicked 'FewFeed V3' extension action button in Chrome!")
+                    self.log("SUCCESS", "🧩 METUS extension action triggered inside Chrome!")
+                    await asyncio.sleep(1.5)
                 except Exception as sw_ex:
-                    self.log("INFO", f"Extension trigger notice: {str(sw_ex)[:60]}")
+                    self.log("DEBUG", f"METUS extension wake notice: {str(sw_ex)[:60]}")
 
-            # Step B: Wait up to 3s for the new FewFeed tab opened by clicking the extension icon
-            for _ in range(6):
-                if self._cancel_requested:
-                    break
-                for p in self.context.pages:
-                    if p != getattr(self, 'fb_page', None) and not p.is_closed():
-                        if "fewfeed" in p.url.lower():
-                            target_page = p
-                            break
-                if target_page:
-                    break
-                await asyncio.sleep(0.5)
+            for p in self.context.pages:
+                if not p.is_closed() and "chrome-extension://" in p.url:
+                    eid = p.url.replace("chrome-extension://", "").split("/")[0]
+                    if eid not in ignored_ids:
+                        ext_page = p
+                        break
 
-            if not target_page:
-                self.log("INFO", "Extension initiated tab opening. Ensuring FewFeed tab is focused...")
-                target_page = await self.context.new_page()
-                try:
-                    await target_page.goto("https://fewfeed.app/", wait_until="domcontentloaded", timeout=40000)
-                except Exception:
-                    pass
+        if ext_page:
+            self.fewfeed_page = ext_page
+            self.log("INFO", f"🧩 METUS extension UI tab active: {ext_page.url[:60]}")
 
-        self.fewfeed_page = target_page
-        await self.fewfeed_page.bring_to_front()
-        self.page = self.fewfeed_page
-        self.log("SUCCESS", "✅ [Step 2] 'FewFeed V3' extension button clicked! FewFeed opened in Tab 2 (Facebook remains active in Tab 1).")
-        return self.fewfeed_page
+        # Keep Facebook primary tab ready as self.page
+        if hasattr(self, 'fb_page') and self.fb_page and not self.fb_page.is_closed():
+            self.page = self.fb_page
+            try:
+                await self.fb_page.bring_to_front()
+            except Exception:
+                pass
+
+        return ext_page
+
+    async def open_fewfeed_via_extension_click(self) -> Optional[Page]:
+        """Compatibility alias routing cleanly to METUS extension check without dead URLs."""
+        return await self.open_metus_extension_if_available()
 
     async def open_fewfeed_dashboard(self):
-        """Helper alias to open FewFeed via extension click."""
-        return await self.open_fewfeed_via_extension_click()
+        return await self.open_metus_extension_if_available()
 
     async def verify_facebook_id_blue_buttons(self, wait_sec: int = 9) -> bool:
         """
@@ -1865,14 +1995,244 @@ class FacebookGroupBot:
         return len(group_codes) if group_codes else 1
 
     # --------------------------------------------------------------------------
-    # Fallback Direct Facebook DOM Group Joining Workflow
+    # Human-Like Helpers for Native Facebook Group Joining & Posting
     # --------------------------------------------------------------------------
-    async def run_group_joining(self, group_codes: List[str], thread_val: int = 1, delay_seconds: int = 15):
-        """Joins specified Facebook groups via FewFeed or direct fallback."""
-        return await self.run_fewfeed_group_joining(group_codes=group_codes, thread_val=thread_val, delay_seconds=delay_seconds)
+    async def _human_mouse_click_locator(self, locator) -> bool:
+        """Moves mouse along an organic Bezier curve to element before clicking, mimicking natural user input."""
+        try:
+            return await human_move_and_click(self.page, locator, hover_pause=True, force_fallback=True)
+        except Exception:
+            return False
+
+    async def _human_type_text(self, text: str, allow_typos: bool = True):
+        """Types text character-by-character with variable human cadence, punctuation pauses, and safe typos."""
+        if not text:
+            return
+        val_str = str(text)
+        for idx, ch in enumerate(val_str):
+            if self._cancel_requested:
+                return
+            if ch == "\n":
+                try:
+                    await self.page.keyboard.press("Shift+Enter")
+                except Exception:
+                    await self.page.keyboard.press("Enter")
+                await asyncio.sleep(random.uniform(0.12, 0.28))
+                continue
+
+            delay_ms = random.randint(26, 74)
+            if ch in (" ", ".", ",", "-", "!", "?"):
+                delay_ms += random.randint(35, 110)
+            await asyncio.sleep(delay_ms / 1000.0)
+            await self.page.keyboard.type(ch, delay=random.randint(14, 36))
+
+            if (
+                allow_typos
+                and len(val_str) > 18
+                and 3 < idx < len(val_str) - 2
+                and "a" <= ch <= "y"
+                and random.random() < 0.015
+            ):
+                wrong_ch = chr(ord(ch) + 1)
+                await asyncio.sleep(random.uniform(0.04, 0.09))
+                await self.page.keyboard.type(wrong_ch, delay=random.randint(16, 30))
+                await asyncio.sleep(random.uniform(0.11, 0.22))
+                await self.page.keyboard.press("Backspace")
+                await asyncio.sleep(random.uniform(0.07, 0.16))
+            elif idx > 0 and random.random() < 0.022:
+                await asyncio.sleep(random.uniform(0.12, 0.26))
 
     # --------------------------------------------------------------------------
-    # Direct Facebook Native DOM Group Posting Engine
+    # Native Human-Like Facebook Group Joining Engine
+    # --------------------------------------------------------------------------
+    async def run_direct_facebook_group_joining(
+        self,
+        group_codes: List[str],
+        delay_seconds: int = 15
+    ) -> int:
+        """
+        Joins specified Facebook groups directly in Chrome with human-like scrolling,
+        already-joined/pending detection, membership rule dialog handling, and jittered intervals.
+        """
+        if not group_codes:
+            self.log("INFO", "No target group codes provided for joining. Skipping joining phase.")
+            return 0
+
+        if hasattr(self, 'fb_page') and self.fb_page and not self.fb_page.is_closed():
+            self.page = self.fb_page
+            try:
+                await self.fb_page.bring_to_front()
+            except Exception:
+                pass
+
+        total = len(group_codes)
+        joined_count = 0
+        self.log("INFO", f"==================================================")
+        self.log("INFO", f"👥 [Group Joining] Processing {total} target Facebook group(s)...")
+
+        for idx, code in enumerate(group_codes, 1):
+            if self._cancel_requested:
+                self.log("WARNING", "Group joining cancelled by user.")
+                break
+
+            target_url = f"https://www.facebook.com/groups/{code}/" if not code.startswith("http") else code
+            self.log("INFO", f"[{idx}/{total}] Visiting group: {code}")
+
+            try:
+                await self.page.goto(target_url, wait_until="domcontentloaded", timeout=35000)
+                await asyncio.sleep(random.uniform(2.5, 4.2))
+
+                # Gentle human vertical look-around scroll
+                try:
+                    await human_smooth_scroll(self.page, total_delta_y=random.randint(120, 240), steps=random.randint(3, 5))
+                    await human_pause(0.55, 1.05)
+                except Exception:
+                    pass
+
+                # Check current membership state cleanly
+                state_info = await self.page.evaluate("""() => {
+                    const els = Array.from(document.querySelectorAll('div[role="button"], a[role="button"], button, span'));
+                    for (const el of els) {
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width <= 0 || rect.height <= 0 || rect.top > 750) continue;
+                        const label = (el.getAttribute('aria-label') || el.innerText || '').trim().toLowerCase();
+                        if (label === 'joined' || label === 'member' || label === 'membro' || label === 'miembro') {
+                            return { status: 'already_joined' };
+                        }
+                        if (label === 'pending' || label === 'cancel request' || label === 'requested' || label === 'solicitado' || label === 'pendente') {
+                            return { status: 'pending' };
+                        }
+                    }
+                    return { status: 'not_joined' };
+                }""")
+
+                if state_info.get("status") == "already_joined":
+                    joined_count += 1
+                    self.log("INFO", f"✓ Already a member of group [{code}]. Skipping.")
+                    self.set_progress(int((idx / max(total, 1)) * 50))
+                    continue
+
+                if state_info.get("status") == "pending":
+                    joined_count += 1
+                    self.log("INFO", f"⏳ Membership request already pending for group [{code}].")
+                    self.set_progress(int((idx / max(total, 1)) * 50))
+                    continue
+
+                # Locate visible "Join group" / "Join Group" button
+                join_selectors = [
+                    'div[aria-label="Join group"][role="button"]',
+                    'div[aria-label="Join Group"][role="button"]',
+                    'div[role="button"]:has-text("Join group")',
+                    'div[role="button"]:has-text("Join Group")',
+                    'button:has-text("Join group")',
+                    'div[aria-label="Participar do grupo"][role="button"]',
+                    'div[aria-label="Unirte al grupo"][role="button"]',
+                ]
+
+                join_clicked = False
+                for jsel in join_selectors:
+                    try:
+                        loc = self.page.locator(jsel).first
+                        if await loc.count() > 0 and await loc.is_visible():
+                            txt = (await loc.inner_text() or "").strip().lower()
+                            if "visit" in txt or "cancel" in txt or "invite" in txt:
+                                continue
+                            if await self._human_mouse_click_locator(loc):
+                                join_clicked = True
+                                self.log("SUCCESS", f"✅ Clicked Join Group for [{code}]!")
+                                break
+                    except Exception:
+                        continue
+
+                if not join_clicked:
+                    self.log("WARNING", f"⚠️ Could not find active 'Join group' button on [{code}] (may require invite or already joined).")
+                else:
+                    joined_count += 1
+                    await asyncio.sleep(random.uniform(2.0, 3.2))
+
+                    # Handle optional Membership Questions / Rules Dialog
+                    try:
+                        dialog = self.page.locator('div[role="dialog"]').first
+                        if await dialog.count() > 0 and await dialog.is_visible():
+                            d_txt = (await dialog.inner_text() or "").lower()
+                            if "rule" in d_txt or "question" in d_txt or "agree" in d_txt or "submit" in d_txt:
+                                self.log("INFO", f"📝 Membership dialog opened for [{code}]. Accepting rules / answering questions...")
+                                # Check agreement checkboxes
+                                chks = dialog.locator('input[type="checkbox"], div[role="checkbox"]')
+                                chk_cnt = await chks.count()
+                                for ci in range(chk_cnt):
+                                    try:
+                                        ch = chks.nth(ci)
+                                        if await ch.is_visible():
+                                            await self._human_mouse_click_locator(ch)
+                                            await asyncio.sleep(random.uniform(0.3, 0.6))
+                                    except Exception:
+                                        pass
+
+                                # Select first option for any radio question
+                                radios = dialog.locator('div[role="radiogroup"]')
+                                r_cnt = await radios.count()
+                                for ri in range(r_cnt):
+                                    try:
+                                        first_r = radios.nth(ri).locator('div[role="radio"], input[type="radio"]').first
+                                        if await first_r.count() > 0 and await first_r.is_visible():
+                                            await self._human_mouse_click_locator(first_r)
+                                            await asyncio.sleep(random.uniform(0.3, 0.6))
+                                    except Exception:
+                                        pass
+
+                                # Fill textareas if group asks a short question
+                                tas = dialog.locator('textarea')
+                                ta_cnt = await tas.count()
+                                for ti in range(ta_cnt):
+                                    try:
+                                        ta = tas.nth(ti)
+                                        if await ta.is_visible():
+                                            await self._human_mouse_click_locator(ta)
+                                            await self._human_type_text("Yes, I agree to follow all group rules.")
+                                            await asyncio.sleep(random.uniform(0.3, 0.6))
+                                    except Exception:
+                                        pass
+
+                                # Click Submit button inside dialog
+                                for sub_sel in [
+                                    'div[aria-label="Submit"][role="button"]',
+                                    'div[role="button"]:has-text("Submit")',
+                                    'button:has-text("Submit")',
+                                    'div[role="button"]:has-text("Enviar")',
+                                ]:
+                                    try:
+                                        sbtn = dialog.locator(sub_sel).first
+                                        if await sbtn.count() > 0 and await sbtn.is_visible():
+                                            await self._human_mouse_click_locator(sbtn)
+                                            self.log("SUCCESS", f"📨 Submitted group membership answers for [{code}].")
+                                            await asyncio.sleep(random.uniform(1.5, 2.5))
+                                            break
+                                    except Exception:
+                                        continue
+                    except Exception:
+                        pass
+
+            except Exception as e:
+                self.log("ERROR", f"Group join notice [{code}]: {str(e)[:90]}")
+
+            self.set_progress(int((idx / max(total, 1)) * 50))
+            if idx < total and not self._cancel_requested:
+                if idx % 3 == 0:
+                    await human_idle_drift(self.page)
+                wait_sec = max(4.0, delay_seconds + random.uniform(-1.5, 4.0))
+                self.log("INFO", f"⏳ Human pause: waiting {wait_sec:.1f}s before next group...")
+                await asyncio.sleep(wait_sec)
+
+        self.log("SUCCESS", f"🎉 Group Joining complete: {joined_count}/{total} processed.")
+        return joined_count
+
+    async def run_group_joining(self, group_codes: List[str], thread_val: int = 1, delay_seconds: int = 15):
+        """Joins specified Facebook groups with human-paced navigation and METUS Chrome profile active."""
+        return await self.run_direct_facebook_group_joining(group_codes=group_codes, delay_seconds=delay_seconds)
+
+    # --------------------------------------------------------------------------
+    # Direct Facebook Native DOM Group Posting Engine (Human-Like & Multi-Cycle)
     # --------------------------------------------------------------------------
     async def run_direct_facebook_group_posting(
         self,
@@ -1880,20 +2240,33 @@ class FacebookGroupBot:
         links: List[str],
         descriptions: List[str],
         posting_mode: str = "Random",
-        delay_seconds: int = 15
+        delay_seconds: int = 15,
+        post_cycles: int = 1
     ) -> int:
-        """Directly posts to Facebook Groups via browser DOM with full reliability."""
+        """Directly posts to Facebook Groups via Chrome DOM with human-like cadence & multi-cycle support."""
+        if hasattr(self, 'fb_page') and self.fb_page and not self.fb_page.is_closed():
+            self.page = self.fb_page
+            try:
+                await self.fb_page.bring_to_front()
+            except Exception:
+                pass
+
         if not group_codes:
-            self.log("INFO", "🔍 No specific group codes entered. Discovering your joined groups from Facebook...")
+            self.log("INFO", "🔍 No explicit post group URLs provided. Discovering joined Facebook groups for this account...")
             try:
                 await self.page.goto("https://www.facebook.com/groups/joins/", wait_until="domcontentloaded", timeout=35000)
-                await asyncio.sleep(4.0)
+                await asyncio.sleep(random.uniform(3.0, 4.5))
+                # Scroll gently to trigger lazy group list hydration
+                for _ in range(2):
+                    await human_smooth_scroll(self.page, total_delta_y=random.randint(380, 620), steps=random.randint(5, 7))
+                    await human_pause(0.95, 1.7)
+
                 discovered = await self.page.evaluate("""() => {
                     const links = Array.from(document.querySelectorAll('a[href*="/groups/"]'));
                     const gids = new Set();
                     for (const a of links) {
                         const m = a.href.match(/groups\\/([^\\/?#]+)/);
-                        if (m && m[1] && !['feed', 'joins', 'discover', 'create', 'notifications'].includes(m[1].toLowerCase())) {
+                        if (m && m[1] && !['feed', 'joins', 'discover', 'create', 'notifications', 'categories', 'search'].includes(m[1].toLowerCase())) {
                             gids.add(m[1]);
                         }
                     }
@@ -1901,167 +2274,185 @@ class FacebookGroupBot:
                 }""")
                 if discovered:
                     group_codes = discovered
-                    self.log("SUCCESS", f"✅ Discovered {len(group_codes)} joined Facebook groups to post into!")
+                    self.log("SUCCESS", f"✅ Discovered {len(group_codes)} joined Facebook group(s)!")
             except Exception as d_err:
-                self.log("INFO", f"Discovery notice: {str(d_err)[:60]}")
+                self.log("INFO", f"Group discovery notice: {str(d_err)[:60]}")
 
         if not group_codes:
-            self.log("WARNING", "No group codes available for direct Facebook posting.")
+            self.log("WARNING", "⚠️ No joined groups found on this account yet. Paste Group URLs in 'Target Group URLs' or join groups first.")
             return 0
 
-        total = len(group_codes)
+        total_cycles = max(1, int(post_cycles))
+        total_ops = len(group_codes) * total_cycles
+        completed_ops = 0
         posts_published = 0
+
         self.log("INFO", f"==================================================")
-        self.log("INFO", f"📢 [Direct Facebook Posting] Posting across {total} group(s)...")
+        self.log("INFO", f"📢 [FB Group Posting] Posting to {len(group_codes)} group(s) x {total_cycles} cycle(s)...")
 
-        for idx, code in enumerate(group_codes, 1):
+        for cycle in range(1, total_cycles + 1):
             if self._cancel_requested:
-                self.log("WARNING", "Group posting cancelled by user.")
                 break
+            if total_cycles > 1:
+                self.log("INFO", f"🔁 Starting Post Cycle {cycle}/{total_cycles}...")
 
-            target_url = f"https://www.facebook.com/groups/{code}/" if not code.startswith("http") else code
-            self.log("INFO", f"[{idx}/{total}] Navigating to Group: {code} ({target_url})")
+            for idx, code in enumerate(group_codes, 1):
+                if self._cancel_requested:
+                    self.log("WARNING", "Group posting cancelled by user.")
+                    break
 
-            # Pick link and description
-            selected_link = ""
-            if links:
-                if posting_mode == "Random":
-                    selected_link = random.choice(links)
-                else:
-                    selected_link = links[(idx - 1) % len(links)]
+                completed_ops += 1
+                target_url = f"https://www.facebook.com/groups/{code}/" if not code.startswith("http") else code
+                self.log("INFO", f"[Cycle {cycle}/{total_cycles} • {idx}/{len(group_codes)}] Opening Group: {code}")
 
-            selected_desc = ""
-            if descriptions:
-                if posting_mode == "Random":
-                    selected_desc = random.choice(descriptions)
-                else:
-                    selected_desc = descriptions[(idx - 1) % len(descriptions)]
+                selected_link = ""
+                if links:
+                    selected_link = random.choice(links) if posting_mode == "Random" else links[(idx - 1) % len(links)]
 
-            # Combine post text: description + link
-            post_content_parts = []
-            if selected_desc:
-                post_content_parts.append(selected_desc)
-            if selected_link:
-                post_content_parts.append(selected_link)
+                selected_desc = ""
+                if descriptions:
+                    selected_desc = random.choice(descriptions) if posting_mode == "Random" else descriptions[(idx - 1) % len(descriptions)]
 
-            full_post_text = "\n\n".join(post_content_parts)
-            if not full_post_text:
-                full_post_text = "Check this out!"
+                post_content_parts = []
+                if selected_desc:
+                    post_content_parts.append(selected_desc)
+                if selected_link:
+                    post_content_parts.append(selected_link)
 
-            try:
-                await self.page.goto(target_url, wait_until="domcontentloaded", timeout=35000)
-                await asyncio.sleep(random.uniform(3.0, 4.5))
-
-                # Step 1: Open post creation box
-                composer_triggers = [
-                    'div[role="button"]:has-text("Write something...")',
-                    'div[role="button"]:has-text("Create a public post...")',
-                    'div[role="button"]:has-text("Create a post...")',
-                    'span:has-text("Write something...")',
-                    'span:has-text("Create a public post...")',
-                    'div[aria-label*="Create a post"][role="button"]',
-                    'div[aria-label*="Write something"][role="button"]'
-                ]
-
-                composer_opened = False
-                for sel in composer_triggers:
-                    try:
-                        btn = await self.page.query_selector(sel)
-                        if btn and await btn.is_visible():
-                            await btn.scroll_into_view_if_needed()
-                            await asyncio.sleep(0.5)
-                            await btn.click()
-                            composer_opened = True
-                            self.log("INFO", f"Opened post composer on group [{code}].")
-                            break
-                    except Exception:
-                        continue
-
-                if not composer_opened:
-                    gen = await self.page.query_selector('div[role="feed"] div[role="button"]')
-                    if gen and await gen.is_visible():
-                        await gen.click()
-                        composer_opened = True
-
-                await asyncio.sleep(2.0)
-
-                # Step 2: Locate editable textbox inside composer modal
-                input_selectors = [
-                    'div[role="dialog"] div[role="textbox"]',
-                    'div[aria-label*="What\'s on your mind"][role="textbox"]',
-                    'div[aria-label*="Write something"][role="textbox"]',
-                    'div[aria-label*="Create a public post"][role="textbox"]',
-                    'div[contenteditable="true"][role="textbox"]',
-                    'div[role="textbox"]'
-                ]
-
-                box_found = False
-                for sel in input_selectors:
-                    try:
-                        box = await self.page.query_selector(sel)
-                        if box and await box.is_visible():
-                            await box.click()
-                            await asyncio.sleep(0.5)
-                            self.log("INFO", f"Typing post content into group [{code}] ({len(full_post_text)} chars)...")
-                            await self.page.keyboard.type(full_post_text, delay=random.randint(25, 65))
-                            box_found = True
-                            break
-                    except Exception:
-                        continue
-
-                if not box_found:
-                    self.log("WARNING", f"Could not find editable post box in group [{code}]. Skipping.")
+                full_post_text = "\n\n".join(post_content_parts).strip()
+                if not full_post_text:
                     continue
 
-                if selected_link:
-                    self.log("INFO", "Waiting for link metadata & preview to generate...")
-                    await asyncio.sleep(4.0)
+                try:
+                    await self.page.goto(target_url, wait_until="domcontentloaded", timeout=35000)
+                    await asyncio.sleep(random.uniform(2.8, 4.4))
 
-                # Step 3: Click 'Post' / 'Publish' button
-                post_btn_selectors = [
-                    'div[role="dialog"] div[aria-label="Post"][role="button"]',
-                    'div[role="dialog"] div[aria-label="Publish"][role="button"]',
-                    'div[aria-label="Post"][role="button"]',
-                    'div[role="button"]:has-text("Post")',
-                    'div[role="dialog"] div[role="button"]:has-text("Post")'
-                ]
-
-                posted = False
-                for p_sel in post_btn_selectors:
+                    # Subtle human scroll down to bring composer cleanly into view
                     try:
-                        p_btn = await self.page.query_selector(p_sel)
-                        if p_btn and await p_btn.is_visible():
-                            await asyncio.sleep(1.0)
-                            await p_btn.click()
-                            posted = True
-                            posts_published += 1
-                            self.log("SUCCESS", f"🎉 Successfully published post to group [{code}]!")
-                            await asyncio.sleep(4.0)
-                            break
+                        await human_smooth_scroll(self.page, total_delta_y=random.randint(160, 310), steps=random.randint(4, 6))
+                        if idx % 3 == 1:
+                            await human_idle_drift(self.page)
+                        await human_pause(0.65, 1.2)
                     except Exception:
+                        pass
+
+                    composer_triggers = [
+                        'div[role="button"]:has-text("Write something...")',
+                        'div[role="button"]:has-text("Create a public post...")',
+                        'div[role="button"]:has-text("Create a post...")',
+                        'span:has-text("Write something...")',
+                        'span:has-text("Create a public post...")',
+                        'div[aria-label*="Create a post" i][role="button"]',
+                        'div[aria-label*="Write something" i][role="button"]',
+                        'div[role="button"]:has-text("Escreva algo...")',
+                        'div[role="button"]:has-text("Escribe algo...")',
+                    ]
+
+                    composer_opened = False
+                    for sel in composer_triggers:
+                        try:
+                            loc = self.page.locator(sel).first
+                            if await loc.count() > 0 and await loc.is_visible():
+                                if await self._human_mouse_click_locator(loc):
+                                    composer_opened = True
+                                    self.log("INFO", f"Opened post composer in group [{code}].")
+                                    break
+                        except Exception:
+                            continue
+
+                    if not composer_opened:
+                        try:
+                            gen = self.page.locator('div[role="feed"] div[role="button"]').first
+                            if await gen.count() > 0 and await gen.is_visible():
+                                if await self._human_mouse_click_locator(gen):
+                                    composer_opened = True
+                        except Exception:
+                            pass
+
+                    await asyncio.sleep(random.uniform(1.8, 2.8))
+
+                    input_selectors = [
+                        'div[role="dialog"] div[role="textbox"]',
+                        'div[aria-label*="What\'s on your mind" i][role="textbox"]',
+                        'div[aria-label*="Write something" i][role="textbox"]',
+                        'div[aria-label*="Create a public post" i][role="textbox"]',
+                        'div[contenteditable="true"][role="textbox"]',
+                        'div[role="textbox"]',
+                    ]
+
+                    box_found = False
+                    for sel in input_selectors:
+                        try:
+                            box = self.page.locator(sel).first
+                            if await box.count() > 0 and await box.is_visible():
+                                await self._human_mouse_click_locator(box)
+                                await asyncio.sleep(random.uniform(0.4, 0.8))
+                                self.log("INFO", f"Typing post into group [{code}] ({len(full_post_text)} chars)...")
+                                await self._human_type_text(full_post_text)
+                                box_found = True
+                                break
+                        except Exception:
+                            continue
+
+                    if not box_found:
+                        self.log("WARNING", f"⚠️ Could not find post composer box in group [{code}] (posting may be restricted). Skipping.")
                         continue
 
-                if not posted:
-                    self.log("WARNING", f"Could not click 'Post' button for group [{code}].")
+                    if selected_link:
+                        self.log("INFO", "⏳ Waiting naturally for link card preview to load...")
+                        await asyncio.sleep(random.uniform(3.2, 4.8))
+                    else:
+                        await asyncio.sleep(random.uniform(1.0, 1.8))
 
-            except Exception as e:
-                self.log("ERROR", f"Error posting to group [{code}]: {str(e)[:100]}")
+                    post_btn_selectors = [
+                        'div[role="dialog"] div[aria-label="Post"][role="button"]',
+                        'div[role="dialog"] div[aria-label="Publish"][role="button"]',
+                        'div[role="dialog"] div[aria-label="Publicar"][role="button"]',
+                        'div[role="dialog"] div[role="button"]:has-text("Post")',
+                        'div[aria-label="Post"][role="button"]',
+                    ]
 
-            progress_pct = int((idx / total) * 100)
-            self.set_progress(progress_pct)
+                    posted = False
+                    for p_sel in post_btn_selectors:
+                        try:
+                            p_btn = self.page.locator(p_sel).last
+                            if await p_btn.count() > 0 and await p_btn.is_visible():
+                                disabled = await p_btn.get_attribute("aria-disabled")
+                                if disabled == "true":
+                                    continue
+                                await asyncio.sleep(random.uniform(0.8, 1.5))
+                                if await self._human_mouse_click_locator(p_btn):
+                                    posted = True
+                                    posts_published += 1
+                                    self.log("SUCCESS", f"🎉 Published post to group [{code}]!")
+                                    # Wait briefly for dialog close confirmation
+                                    for _ in range(8):
+                                        await asyncio.sleep(0.5)
+                                        try:
+                                            if await self.page.locator('div[role="dialog"] div[role="textbox"]').count() == 0:
+                                                break
+                                        except Exception:
+                                            break
+                                    break
+                        except Exception:
+                            continue
 
-            if idx < total and not self._cancel_requested:
-                jitter = random.uniform(-2.0, 3.0)
-                actual_delay = max(4.0, delay_seconds + jitter)
-                self.log("INFO", f"⏳ Waiting {actual_delay:.1f}s before next group post...")
-                await asyncio.sleep(actual_delay)
+                    if not posted:
+                        self.log("WARNING", f"⚠️ Could not submit 'Post' button for group [{code}].")
 
-        self.log("SUCCESS", f"🏁 Direct Group Posting finished! {posts_published}/{total} posts published.")
+                except Exception as e:
+                    self.log("ERROR", f"Error posting to group [{code}]: {str(e)[:100]}")
+
+                self.set_progress(50 + int((completed_ops / max(total_ops, 1)) * 50))
+
+                if completed_ops < total_ops and not self._cancel_requested:
+                    actual_delay = max(4.0, delay_seconds + random.uniform(-2.0, 4.0))
+                    self.log("INFO", f"⏳ Human pause: waiting {actual_delay:.1f}s before next group post...")
+                    await asyncio.sleep(actual_delay)
+
+        self.log("SUCCESS", f"🏁 Group Posting finished! {posts_published}/{total_ops} post(s) published.")
         return posts_published
 
-    # --------------------------------------------------------------------------
-    # Fallback Direct Facebook DOM Group Posting Workflow
-    # --------------------------------------------------------------------------
     async def run_group_posting(
         self,
         group_codes: List[str],
@@ -2072,30 +2463,18 @@ class FacebookGroupBot:
         delay_seconds: int = 15,
         post_cycles: int = 1
     ):
-        """Posts links and descriptions across target Facebook Groups via FewFeed, with seamless direct fallback."""
-        fewfeed_res = await self.run_fewfeed_group_posting(
-            group_codes=group_codes,
-            links=links,
-            descriptions=descriptions,
-            posting_mode=posting_mode,
-            thread_val=thread_val,
-            delay_seconds=delay_seconds,
-            post_cycles=post_cycles
-        )
-        if fewfeed_res and fewfeed_res > 0:
-            return fewfeed_res
-
-        self.log("INFO", "⚡ FewFeed Auto Post was inactive or produced 0 posts. Switching directly to Native Group Posting Engine...")
+        """Posts links and descriptions across target Facebook Groups cleanly in Chrome with METUS profile active."""
         return await self.run_direct_facebook_group_posting(
             group_codes=group_codes or [],
             links=links or [],
             descriptions=descriptions or [],
             posting_mode=posting_mode,
-            delay_seconds=delay_seconds
+            delay_seconds=delay_seconds,
+            post_cycles=post_cycles
         )
 
     # --------------------------------------------------------------------------
-    # Unified Single-Click Start Workflow Engine
+    # Unified Single-Click Start Workflow Engine (METUS + Human-Like Direct FB)
     # --------------------------------------------------------------------------
     async def run_workflow(
         self,
@@ -2114,11 +2493,12 @@ class FacebookGroupBot:
         post_cycles: int = 1
     ) -> Dict[str, Any]:
         """
-        Master-level unified single-click execution flow:
-        1. Initialize Original Desktop Chrome & load FEWFEED extension.
-        2. Authenticate Facebook session with injected session cookies.
-        3. If unified or joining requested: Automate FewFeed Auto Join tool (skipped if already_joined=True).
-        4. If unified or posting requested: Automate FewFeed Auto Post tool.
+        Master unified execution flow:
+        1. Launches Desktop Chrome with synced METUS Chrome Extension profile.
+        2. Injects cookies and authenticates Facebook session in Tab 1.
+        3. Activates METUS extension context if present (without hanging on dead third-party URLs).
+        4. Executes Group Joining (when target join groups are provided and not skipped).
+        5. Executes Group Posting with human-like cadence across requested cycles.
         """
         results: Dict[str, Any] = {
             "task_type": task_type,
@@ -2127,71 +2507,62 @@ class FacebookGroupBot:
             "error": None
         }
 
-        self.log("INFO", f"🚀 [Unified Start] Triggering {task_type.upper()} workflow with FEWFEED auto-integration...")
+        self.log("INFO", f"🚀 [METUS Group Engine] Starting {task_type.upper()} workflow...")
 
-        # Resolve joining & posting codes
         j_codes = join_group_codes if join_group_codes is not None else (group_codes if task_type.lower() in ("joining", "join") else [])
         p_codes = post_group_codes if post_group_codes is not None else (group_codes if task_type.lower() in ("posting", "post") else [])
         j_delay = join_delay_seconds if (join_delay_seconds is not None and join_delay_seconds > 0) else delay_seconds
 
         try:
-            # 1. Step 1: Initialization & Extension Loading (Cloned from Master QFit profile, Facebook in Tab 1)
             await self.initialize_browser()
-
-            # Step 1 (Cont): Authenticate Facebook Session
             await self.authenticate_session()
+            await self.open_metus_extension_if_available()
 
-            # Step 2: Open FewFeed strictly by clicking the FewFeed extension action icon on Chrome toolbar
-            await self.open_fewfeed_via_extension_click()
-
-            # Step 3: Verify that active Facebook ID is connected and BLUE buttons are showing in FewFeed
-            await self.verify_facebook_id_blue_buttons()
-
-            # 3. Automated Target Processing
             if task_type.lower() in ("unified", "both", "all"):
-                # Phase 1: Auto Join Groups in FewFeed (Card #2) if target group codes provided
-                if j_codes:
-                    self.log("INFO", f"⚡ [Unified Phase 1/2] Launching FewFeed Auto Join (Card #2) for {len(j_codes)} groups (THREAD={join_thread}, DELAY={j_delay}s)...")
-                    await self.run_fewfeed_group_joining(
+                joined_items = 0
+                if j_codes and not already_joined:
+                    self.log("INFO", f"⚡ [Phase 1/2] Joining {len(j_codes)} target group(s) (delay={j_delay}s)...")
+                    joined_items = await self.run_direct_facebook_group_joining(
                         group_codes=j_codes,
-                        thread_val=join_thread,
                         delay_seconds=j_delay
                     )
                 elif already_joined:
-                    self.log("INFO", "ℹ️ ['Skip Group Joining' selected & no join codes provided] Proceeding directly to FewFeed Auto Post...")
+                    self.log("INFO", "ℹ️ ['Skip Group Joining' checked] Proceeding directly to Group Posting...")
                 else:
-                    self.log("INFO", "ℹ️ [Unified Phase 1/2] No join group codes provided. Proceeding to Auto Post...")
+                    self.log("INFO", "ℹ️ No target join groups entered. Proceeding to Group Posting...")
 
-                # Phase 2: Auto Post to Groups in FewFeed (Card #1)
-                self.log("INFO", f"⚡ [Unified Phase 2/2] Launching FewFeed Auto Post (Card #1) (THREAD={post_thread}, DELAY={delay_seconds}s, CYCLES={post_cycles})...")
-                posted_items = await self.run_group_posting(
-                    group_codes=p_codes,
-                    links=links or [],
-                    descriptions=descriptions or [],
-                    posting_mode=posting_mode,
-                    thread_val=post_thread,
-                    delay_seconds=delay_seconds,
-                    post_cycles=post_cycles
-                )
+                posted_items = 0
+                if links or descriptions or p_codes:
+                    post_targets = p_codes if p_codes else j_codes
+                    self.log("INFO", f"⚡ [Phase 2/2] Publishing group posts (delay={delay_seconds}s, cycles={post_cycles})...")
+                    posted_items = await self.run_direct_facebook_group_posting(
+                        group_codes=post_targets or [],
+                        links=links or [],
+                        descriptions=descriptions or [],
+                        posting_mode=posting_mode,
+                        delay_seconds=delay_seconds,
+                        post_cycles=post_cycles
+                    )
+                else:
+                    self.log("INFO", "ℹ️ No post links or descriptions provided. Joining phase completed cleanly.")
+
                 results["status"] = "completed"
-                results["items_processed"] = (0 if already_joined else len(j_codes)) + (posted_items or len(p_codes) or 1)
+                results["items_processed"] = joined_items + posted_items
 
             elif task_type.lower() in ("joining", "join"):
-                joined_count = await self.run_group_joining(
+                joined_count = await self.run_direct_facebook_group_joining(
                     group_codes=j_codes or group_codes or [],
-                    thread_val=join_thread,
                     delay_seconds=j_delay
                 )
                 results["items_processed"] = joined_count
                 results["status"] = "completed"
 
             elif task_type.lower() in ("posting", "post"):
-                posted_count = await self.run_group_posting(
+                posted_count = await self.run_direct_facebook_group_posting(
                     group_codes=p_codes or group_codes or [],
                     links=links or [],
                     descriptions=descriptions or [],
                     posting_mode=posting_mode,
-                    thread_val=post_thread,
                     delay_seconds=delay_seconds,
                     post_cycles=post_cycles
                 )
@@ -2201,37 +2572,48 @@ class FacebookGroupBot:
             else:
                 raise ValueError(f"Unknown task type: {task_type}")
 
-            # Step 7: Completed - close browser cleanly upon finishing posting
-            self.log("SUCCESS", "🏁 [Step 7] All group automation tasks completed successfully! Closing browser...")
+            self.log("SUCCESS", "🏁 All FB Group automation tasks completed! Closing browser...")
             results["status"] = "completed"
-            await asyncio.sleep(2.0)
-            await self.close()
+            await asyncio.sleep(1.5)
 
         except Exception as e:
             results["status"] = "failed"
             results["error"] = str(e)
             self.log("ERROR", f"❌ Group workflow notice: {str(e)}")
-            # Do NOT immediately kill browser on recoverable notices
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(1.5)
         finally:
-            self.log("INFO", f"✨ Group workflow sequence ended with status: {results['status']}.")
+            await self.close()
+            self.log("INFO", f"✨ Group workflow ended with status: {results['status']}.")
 
         return results
 
     async def close(self):
         """Closes browser context and Playwright instance cleanly."""
         try:
-            if hasattr(self, 'profile_dir') and self.profile_dir and os.path.isdir(self.profile_dir):
+            is_custom_profile = bool(self.account_data.get("is_custom_chrome_profile", False))
+            if (
+                not is_custom_profile
+                and hasattr(self, 'profile_dir')
+                and self.profile_dir
+                and os.path.isdir(self.profile_dir)
+            ):
                 try:
-                    save_as_master_fewfeed_template(self.profile_dir)
+                    save_as_master_metus_template(self.profile_dir)
                 except Exception:
                     pass
             if self.page and not self.page.is_closed():
                 await self.page.close()
             if self.context:
                 await self.context.close()
+            if getattr(self, "browser", None):
+                await self.browser.close()
             if self.playwright:
                 await self.playwright.stop()
-            self.log("INFO", "Group Bot browser closed cleanly.")
+            if self.page or self.context or self.playwright:
+                self.log("INFO", "Group Bot browser closed cleanly.")
         except Exception as e:
             self.log("WARNING", f"Cleanup notice: {str(e)}")
+        self.page = None
+        self.context = None
+        self.browser = None
+        self.playwright = None
