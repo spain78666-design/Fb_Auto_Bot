@@ -1167,11 +1167,11 @@ export default function App() {
             <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/80 border border-slate-800 p-4 rounded-2xl shadow-xl">
               <div className="space-y-1">
                 <div className="flex items-center space-x-2">
-                  <h2 className="text-lg font-bold text-white tracking-tight">FB Auto Bot - Cyberpunk Sales Landing Page</h2>
-                  <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">Cyberpunk Live Mascot + 12-Page Guide</span>
+                  <h2 className="text-lg font-bold text-white tracking-tight">FB Auto Bot - Product Landing Page</h2>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">Live Navbar Emblem + 12-Page Guide</span>
                 </div>
                 <p className="text-xs text-slate-400">
-                  Cyberpunk UI/UX edition featuring the shield background + live working laptop avatar emblem, interactive 12-page blueprint, desktop simulator, comparison matrix, pricing, and WhatsApp activation.
+                  Interactive product landing page featuring the animated navbar emblem, 12-page workflow blueprint, desktop simulator, comparison matrix, pricing, and WhatsApp activation.
                 </p>
               </div>
 
