@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>FB Auto Bot – Complete Facebook Automation Suite by ABM CodeSpace</title>
+  <title>FB Auto Bot – Cyberpunk Facebook Automation Suite by ABM CodeSpace</title>
   <meta name="title" content="FB Auto Bot – Complete Facebook Automation Suite by ABM CodeSpace">
   <meta name="google-site-verification" content="googlefc3e3cef9d8c86fb" />
   <meta name="google-site-verification" content="-DFNIxK3mS0PQhWs4Rms0DHO3JiCnpPRY1q5GHLJFPk" />
@@ -118,10 +118,10 @@
   </script>
   <link rel="icon" type="image/png" href="assets/logo.png">
 
-  <!-- Fonts: Outfit (Display), DM Sans (Body), JetBrains Mono (Technical Labels) -->
+  <!-- Fonts: Chakra Petch (Cyberpunk Display), Plus Jakarta Sans (Body), JetBrains Mono (Telemetry) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -130,8 +130,8 @@
       theme: {
         extend: {
           fontFamily: {
-            display: ['"Outfit"', 'sans-serif'],
-            sans: ['"DM Sans"', 'system-ui', 'sans-serif'],
+            display: ['"Chakra Petch"', 'sans-serif'],
+            sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
             mono: ['"JetBrains Mono"', 'monospace']
           }
         }
@@ -140,14 +140,25 @@
   </script>
 
   <style>
+    :root {
+      --cyber-bg: #050713;
+      --cyber-surface: #0b1024;
+      --cyber-surface-2: #070a18;
+      --cyber-cyan: #22d3ee;
+      --cyber-magenta: #f43f8e;
+      --cyber-emerald: #10b981;
+      --cyber-violet: #8b5cf6;
+      --cyber-amber: #f59e0b;
+    }
+
     *, *::before, *::after {
       box-sizing: border-box;
     }
 
     html, body {
-      background-color: #05080f;
+      background-color: var(--cyber-bg);
       color: #e2e8f0;
-      font-family: 'DM Sans', system-ui, sans-serif;
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
       overflow-x: hidden;
       margin: 0;
       padding: 0;
@@ -155,7 +166,7 @@
     }
 
     .font-display {
-      font-family: 'Outfit', sans-serif;
+      font-family: 'Chakra Petch', sans-serif;
       text-wrap: balance;
     }
 
@@ -163,39 +174,80 @@
       font-variant-numeric: tabular-nums;
     }
 
+    /* Subtle Cyberpunk Ambient Grid & Dual-Spectrum Aurora */
+    .cyber-backdrop {
+      background-color: #050713;
+      background-image:
+        radial-gradient(ellipse 65% 45% at 15% 0%, rgba(34, 211, 238, 0.14), transparent 70%),
+        radial-gradient(ellipse 55% 42% at 85% 8%, rgba(244, 63, 142, 0.12), transparent 68%),
+        radial-gradient(ellipse 50% 38% at 50% 60%, rgba(139, 92, 246, 0.08), transparent 70%),
+        linear-gradient(to right, rgba(34, 211, 238, 0.035) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(34, 211, 238, 0.035) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 100% 100%, 44px 44px, 44px 44px;
+    }
+
     .top-nav {
-      background: rgba(5, 8, 15, 0.88);
+      background: rgba(5, 7, 19, 0.86);
       backdrop-filter: blur(18px);
       -webkit-backdrop-filter: blur(18px);
-      border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+      border-bottom: 1px solid rgba(34, 211, 238, 0.16);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
     }
 
-    .hero-surface {
-      background:
-        radial-gradient(ellipse 68% 48% at 50% -12%, rgba(99, 102, 241, 0.17), transparent 72%),
-        radial-gradient(ellipse 42% 34% at 85% 22%, rgba(16, 185, 129, 0.08), transparent 70%);
+    /* Cyber Obsidian Glass Card */
+    .cyber-card {
+      background: linear-gradient(160deg, rgba(14, 20, 44, 0.92), rgba(8, 12, 26, 0.96));
+      border: 1px solid rgba(56, 189, 248, 0.16);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 40px -18px rgba(0, 0, 0, 0.75);
+      transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
-    .surface-card {
-      background: #0b1120;
-      border: 1px solid rgba(148, 163, 184, 0.12);
-      transition: border-color 0.2s ease, background-color 0.2s ease;
+    .cyber-card-interactive:hover {
+      transform: translateY(-2px);
+      border-color: rgba(34, 211, 238, 0.42);
+      box-shadow: inset 0 1px 0 rgba(34, 211, 238, 0.16), 0 20px 44px -16px rgba(34, 211, 238, 0.18);
     }
 
-    .surface-card-interactive:hover {
-      background: #0e1629;
-      border-color: rgba(99, 102, 241, 0.38);
+    .cyber-subpanel {
+      background: rgba(6, 9, 22, 0.88);
+      border: 1px solid rgba(148, 163, 184, 0.14);
     }
 
-    .sub-panel {
-      background: #070b14;
-      border: 1px solid rgba(148, 163, 184, 0.1);
+    /* Primary Neon Gradient Text */
+    .cyber-gradient-text {
+      background: linear-gradient(95deg, #67e8f9 0%, #34d399 48%, #f472b6 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
     }
 
+    /* Nav Link Hover Underline */
+    .cyber-nav-link {
+      position: relative;
+    }
+    .cyber-nav-link::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -4px;
+      height: 2px;
+      background: linear-gradient(90deg, #22d3ee, #ec4899);
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+      border-radius: 2px;
+    }
+    .cyber-nav-link:hover::after {
+      transform: scaleX(1);
+    }
+
+    /* Guide Sidebar Buttons */
     .nav-rail-btn[data-active="true"] {
-      background: #4f46e5;
+      background: linear-gradient(90deg, rgba(34, 211, 238, 0.18), rgba(139, 92, 246, 0.18));
       color: #ffffff;
-      border-color: rgba(129, 140, 248, 0.5);
+      border-color: rgba(34, 211, 238, 0.55);
+      box-shadow: 0 0 18px rgba(34, 211, 238, 0.16);
     }
 
     .nav-rail-btn[data-active="false"] {
@@ -205,62 +257,317 @@
     }
 
     .nav-rail-btn[data-active="false"]:hover {
-      background: rgba(148, 163, 184, 0.08);
+      background: rgba(34, 211, 238, 0.06);
       color: #f8fafc;
+      border-color: rgba(34, 211, 238, 0.2);
+    }
+
+    /* Live AI Cyberpunk Human Operator + Laptop Typing & Scrolling Screen Animations */
+    @keyframes avatarBreathe {
+      0%, 100% {
+        transform: scale(1.01) translateY(0px);
+      }
+      50% {
+        transform: scale(1.028) translateY(-1.2px);
+      }
+    }
+
+    @keyframes handClickFront {
+      0%, 100% {
+        transform: translateY(0%) rotate(0deg);
+      }
+      22% {
+        transform: translateY(-4.2%) rotate(-6.5deg);
+      }
+      45% {
+        transform: translateY(2.2%) rotate(3.8deg);
+      }
+      68% {
+        transform: translateY(-3.2%) rotate(-4.5deg);
+      }
+      86% {
+        transform: translateY(1.8%) rotate(3.2deg);
+      }
+    }
+
+    @keyframes handClickBack {
+      0%, 100% {
+        transform: translateY(-3.4%) rotate(-5.5deg);
+      }
+      25% {
+        transform: translateY(2.2%) rotate(4.2deg);
+      }
+      52% {
+        transform: translateY(-4.0%) rotate(-6.0deg);
+      }
+      76% {
+        transform: translateY(2.4%) rotate(4.5deg);
+      }
+    }
+
+    @keyframes keySparkBurst {
+      0%, 100% {
+        opacity: 0.25;
+        transform: scale(0.85) translateY(0px);
+      }
+      30% {
+        opacity: 1;
+        transform: scale(1.18) translateY(-1.5px);
+      }
+      60% {
+        opacity: 0.4;
+        transform: scale(0.92) translateY(0.5px);
+      }
+      85% {
+        opacity: 0.95;
+        transform: scale(1.12) translateY(-1px);
+      }
+    }
+
+    @keyframes screenScrollUpDown {
+      0%, 100% {
+        transform: translateY(2px);
+      }
+      45% {
+        transform: translateY(-11px);
+      }
+      55% {
+        transform: translateY(-11px);
+      }
+      90% {
+        transform: translateY(2px);
+      }
+    }
+
+    @keyframes holoScrollUpDown {
+      0%, 100% {
+        opacity: 0.68;
+        transform: translateY(3px);
+      }
+      50% {
+        opacity: 0.98;
+        transform: translateY(-8px);
+      }
+    }
+
+    @keyframes screenGlowPulse {
+      0%, 100% {
+        opacity: 0.42;
+        transform: scale(0.98);
+      }
+      50% {
+        opacity: 0.88;
+        transform: scale(1.04);
+      }
+    }
+
+    @keyframes screenScanSweep {
+      0% {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      25% {
+        opacity: 0.75;
+      }
+      85% {
+        opacity: 0.55;
+      }
+      100% {
+        opacity: 0;
+        transform: translateY(26px);
+      }
+    }
+
+    @keyframes visorGlint {
+      0%, 72%, 100% {
+        opacity: 0.15;
+        transform: translateX(-3px);
+      }
+      84% {
+        opacity: 0.95;
+        transform: translateX(4px);
+      }
+    }
+
+    @keyframes cyberRimAura {
+      0%, 100% {
+        box-shadow: 0 0 22px rgba(34, 211, 238, 0.36), 0 0 12px rgba(244, 63, 142, 0.16);
+      }
+      50% {
+        box-shadow: 0 0 34px rgba(34, 211, 238, 0.58), 0 0 24px rgba(244, 63, 142, 0.34);
+      }
+    }
+
+    .anim-avatar-breathe {
+      animation: avatarBreathe 3.2s ease-in-out infinite;
+    }
+    .anim-hand-front {
+      transform-origin: 62% 81%;
+      animation: handClickFront 0.68s ease-in-out infinite;
+      will-change: transform;
+    }
+    .anim-hand-back {
+      transform-origin: 48% 76%;
+      animation: handClickBack 0.62s ease-in-out infinite;
+      will-change: transform;
+    }
+    .anim-key-spark-1 {
+      animation: keySparkBurst 0.54s ease-out infinite;
+    }
+    .anim-key-spark-2 {
+      animation: keySparkBurst 0.54s ease-out 0.18s infinite;
+    }
+    .anim-key-spark-3 {
+      animation: keySparkBurst 0.54s ease-out 0.36s infinite;
+    }
+    .anim-screen-scroll {
+      animation: screenScrollUpDown 2.6s ease-in-out infinite;
+      will-change: transform;
+    }
+    .anim-holo-scroll {
+      animation: holoScrollUpDown 2.2s ease-in-out infinite;
+      will-change: transform, opacity;
+    }
+    .anim-screen-glow {
+      animation: screenGlowPulse 1.3s ease-in-out infinite;
+    }
+    .anim-screen-scan {
+      animation: screenScanSweep 1.8s linear infinite;
+    }
+    .anim-visor-glint {
+      animation: visorGlint 3.6s ease-in-out infinite;
+    }
+    .anim-cyber-rim {
+      animation: cyberRimAura 3.4s ease-in-out infinite;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .anim-avatar-breathe,
+      .anim-hand-front,
+      .anim-hand-back,
+      .anim-key-spark-1,
+      .anim-key-spark-2,
+      .anim-key-spark-3,
+      .anim-screen-scroll,
+      .anim-holo-scroll,
+      .anim-screen-glow,
+      .anim-screen-scan,
+      .anim-visor-glint,
+      .anim-cyber-rim {
+        animation: none !important;
+      }
+    }
+
+    /* Cyber Corner Brackets */
+    .hud-frame {
+      position: relative;
+    }
+    .hud-frame::before,
+    .hud-frame::after {
+      content: "";
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      pointer-events: none;
+    }
+    .hud-frame::before {
+      top: -1px;
+      left: -1px;
+      border-top: 2px solid #22d3ee;
+      border-left: 2px solid #22d3ee;
+      border-top-left-radius: 12px;
+    }
+    .hud-frame::after {
+      bottom: -1px;
+      right: -1px;
+      border-bottom: 2px solid #f43f8e;
+      border-right: 2px solid #f43f8e;
+      border-bottom-right-radius: 12px;
     }
 
     ::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
+      width: 7px;
+      height: 7px;
     }
     ::-webkit-scrollbar-track {
-      background: #05080f;
+      background: #050713;
     }
     ::-webkit-scrollbar-thumb {
-      background: #1e293b;
-      border-radius: 3px;
+      background: linear-gradient(180deg, #0891b2, #7c3aed);
+      border-radius: 4px;
     }
   </style>
 </head>
-<body class="min-h-screen antialiased selection:bg-indigo-600 selection:text-white pb-20 md:pb-0">
+<body class="cyber-backdrop min-h-screen antialiased selection:bg-cyan-500 selection:text-slate-950 pb-20 md:pb-0">
 
-  <!-- Sticky Single-Row Header (3-Zone Architecture) -->
+  <!-- Sticky Single-Row Header (Strict 3-Zone Architecture) -->
   <header class="sticky top-0 z-40 top-nav">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-      <!-- Brand Zone -->
-      <a href="#top" class="flex items-center space-x-2.5 shrink-0 focus:outline-none">
-        <img src="assets/logo.png" alt="FB Auto Bot" class="w-8 h-8 rounded-lg object-contain">
-        <div class="leading-tight">
-          <span class="font-display text-lg font-bold tracking-tight text-white block whitespace-nowrap">FB Auto Bot</span>
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
+      <!-- Zone 1: Brand Emblem (AI 3D Side-Profile Human Cyberpunk Operator + Live Hands & Screen + Shield) + Wordmark -->
+      <a href="#top" class="flex items-center gap-3 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 rounded-lg">
+        <div class="relative w-12 h-12 shrink-0 rounded-xl bg-[#040714] border border-cyan-400/55 overflow-hidden anim-cyber-rim flex items-center justify-center">
+          <img src="assets/cyber-avatar-logo.jpg" alt="FB Auto Bot Cyberpunk Operator Avatar" referrerPolicy="no-referrer" class="w-full h-full object-cover anim-avatar-breathe">
+          <!-- Shadow recess behind moving hands so clicks read cleanly -->
+          <div class="absolute inset-0 bg-[#04111f]/75 pointer-events-none" style="clip-path: polygon(32% 72%, 52% 70%, 54% 87%, 32% 86%);"></div>
+          <!-- Live Scrolling Laptop Screen + Hologram -->
+          <svg viewBox="0 0 100 100" class="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true">
+            <defs>
+              <clipPath id="nav-screen-clip">
+                <polygon points="6.5,52.5 25.2,62.2 24.8,85.8 9.2,84.0" />
+              </clipPath>
+              <clipPath id="nav-holo-clip">
+                <polygon points="19,50 37,50 36,81 23,84" />
+              </clipPath>
+            </defs>
+            <g clip-path="url(#nav-screen-clip)">
+              <g class="anim-screen-scroll">
+                <line x1="8" y1="53" x2="21" y2="59.5" stroke="#22d3ee" stroke-width="1.4" stroke-linecap="round" />
+                <line x1="8.5" y1="58" x2="23" y2="65.2" stroke="#34d399" stroke-width="1.5" stroke-linecap="round" />
+                <line x1="9" y1="63" x2="19" y2="68.2" stroke="#f472b6" stroke-width="1.3" stroke-linecap="round" />
+                <line x1="9" y1="68" x2="23.5" y2="75.2" stroke="#38bdf8" stroke-width="1.5" stroke-linecap="round" />
+                <line x1="9.5" y1="73" x2="20" y2="78.4" stroke="#34d399" stroke-width="1.4" stroke-linecap="round" />
+                <line x1="9.5" y1="78" x2="23" y2="84.5" stroke="#22d3ee" stroke-width="1.4" stroke-linecap="round" />
+                <line x1="9.5" y1="83" x2="21" y2="88.8" stroke="#f472b6" stroke-width="1.3" stroke-linecap="round" />
+              </g>
+            </g>
+            <g clip-path="url(#nav-holo-clip)" opacity="0.85">
+              <g class="anim-holo-scroll">
+                <line x1="21" y1="55" x2="34" y2="55" stroke="#67e8f9" stroke-width="1.2" stroke-linecap="round" />
+                <line x1="22" y1="62" x2="32" y2="62" stroke="#34d399" stroke-width="1.2" stroke-linecap="round" />
+                <line x1="23" y1="69" x2="35" y2="69" stroke="#f472b6" stroke-width="1.2" stroke-linecap="round" />
+                <line x1="24" y1="76" x2="33" y2="76" stroke="#22d3ee" stroke-width="1.2" stroke-linecap="round" />
+              </g>
+            </g>
+          </svg>
+          <!-- Animated Back & Front Typing Hands -->
+          <img src="assets/cyber-avatar-logo.jpg" alt="" aria-hidden="true" referrerPolicy="no-referrer" class="absolute inset-0 w-full h-full object-cover pointer-events-none anim-hand-back" style="clip-path: polygon(34% 72%, 49% 70%, 51% 81%, 33% 83%);">
+          <img src="assets/cyber-avatar-logo.jpg" alt="" aria-hidden="true" referrerPolicy="no-referrer" class="absolute inset-0 w-full h-full object-cover pointer-events-none anim-hand-front" style="clip-path: polygon(38% 75%, 64% 72%, 66% 90%, 40% 89%);">
+          <!-- RGB Keystroke Sparks -->
+          <div class="absolute left-[31%] bottom-[8%] w-2 h-2 rounded-full bg-cyan-300/80 blur-[2px] mix-blend-screen pointer-events-none anim-key-spark-1"></div>
+          <div class="absolute left-[40%] bottom-[6%] w-2 h-2 rounded-full bg-emerald-300/85 blur-[2px] mix-blend-screen pointer-events-none anim-key-spark-2"></div>
         </div>
+        <span class="font-display text-lg sm:text-xl font-bold tracking-tight text-white whitespace-nowrap shrink-0">
+          FB Auto Bot
+        </span>
       </a>
 
-      <!-- Navigation Links -->
-      <nav class="hidden lg:flex items-center space-x-7 text-sm font-medium text-slate-400">
-        <a href="#page-guide" class="hover:text-white transition-colors whitespace-nowrap">12-Page Guide</a>
-        <a href="#capabilities" class="hover:text-white transition-colors whitespace-nowrap">Core Engines</a>
-        <a href="#comparison" class="hover:text-white transition-colors whitespace-nowrap">Comparison</a>
-        <a href="#pricing" class="hover:text-white transition-colors whitespace-nowrap">Pricing</a>
-        <a href="#install" class="hover:text-white transition-colors whitespace-nowrap">Setup Steps</a>
+      <!-- Zone 2: Clean Single-Line Navigation Links -->
+      <nav class="hidden lg:flex items-center gap-7 text-sm font-medium text-slate-300">
+        <a href="#page-guide" class="cyber-nav-link hover:text-cyan-300 transition-colors whitespace-nowrap shrink-0">12-Page Guide</a>
+        <a href="#capabilities" class="cyber-nav-link hover:text-cyan-300 transition-colors whitespace-nowrap shrink-0">Core Engines</a>
+        <a href="#comparison" class="cyber-nav-link hover:text-cyan-300 transition-colors whitespace-nowrap shrink-0">Comparison</a>
+        <a href="#pricing" class="cyber-nav-link hover:text-cyan-300 transition-colors whitespace-nowrap shrink-0">Pricing</a>
+        <a href="#install" class="cyber-nav-link hover:text-cyan-300 transition-colors whitespace-nowrap shrink-0">Setup Steps</a>
       </nav>
 
-      <!-- Action Zone -->
-      <div class="hidden md:flex items-center space-x-2.5 shrink-0">
-        <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="inline-flex items-center px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-200 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 transition-colors whitespace-nowrap shrink-0 cursor-pointer">
-          <span>Order License Key</span>
-        </a>
-        <a href="https://drive.google.com/file/d/1BJJpRR4W-5v7RkwIHDEpKqEGQ7XyfAzB/view?usp=sharing" target="_blank" rel="noopener noreferrer" class="inline-flex items-center space-x-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors whitespace-nowrap shrink-0">
-          <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+      <!-- Zone 3: Single Primary Action + Mobile Drawer Button -->
+      <div class="flex items-center gap-2.5 shrink-0">
+        <a href="https://drive.google.com/file/d/1MNX27_FwzmFcMImhpQTMzUA0Ms0XhBm9/view?usp=sharing" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-950 bg-gradient-to-r from-cyan-400 via-emerald-400 to-teal-300 hover:brightness-110 shadow-[0_0_24px_rgba(16,185,129,0.35)] transition-all whitespace-nowrap shrink-0">
+          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
           <span>Download Setup (.exe)</span>
         </a>
-      </div>
 
-      <!-- Mobile Menu & Quick Download -->
-      <div class="flex md:hidden items-center space-x-2 shrink-0">
-        <a href="https://drive.google.com/file/d/1BJJpRR4W-5v7RkwIHDEpKqEGQ7XyfAzB/view?usp=sharing" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 whitespace-nowrap">
-          Download .exe
-        </a>
-        <button id="mobile-menu-btn" onclick="toggleMobileMenu()" class="p-2 rounded-lg text-slate-300 hover:text-white bg-slate-900 border border-slate-800" aria-label="Toggle Menu">
+        <button id="mobile-menu-btn" onclick="toggleMobileMenu()" class="lg:hidden p-2 rounded-xl text-cyan-300 hover:text-white bg-slate-900/90 border border-cyan-500/30 min-w-[40px] min-h-[40px] flex items-center justify-center cursor-pointer" aria-label="Toggle Menu">
           <svg id="hamburger-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
           <svg id="close-icon" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
@@ -268,179 +575,254 @@
     </div>
 
     <!-- Mobile Navigation Drawer -->
-    <div id="mobile-drawer" class="hidden md:hidden bg-[#080c17] border-b border-slate-800 px-4 py-4 space-y-3">
-      <div class="grid grid-cols-2 gap-2 text-xs font-medium text-slate-300">
-        <a href="#page-guide" onclick="toggleMobileMenu()" class="px-3 py-2 rounded-lg bg-slate-900 border border-slate-800">12-Page Guide</a>
-        <a href="#capabilities" onclick="toggleMobileMenu()" class="px-3 py-2 rounded-lg bg-slate-900 border border-slate-800">Core Engines</a>
-        <a href="#comparison" onclick="toggleMobileMenu()" class="px-3 py-2 rounded-lg bg-slate-900 border border-slate-800">Comparison</a>
-        <a href="#pricing" onclick="toggleMobileMenu()" class="px-3 py-2 rounded-lg bg-slate-900 border border-slate-800">Pricing</a>
+    <div id="mobile-drawer" class="hidden lg:hidden bg-[#070b1d]/95 backdrop-blur-xl border-b border-cyan-500/20 px-4 py-4 space-y-3">
+      <div class="grid grid-cols-2 gap-2 text-xs font-semibold text-slate-200">
+        <a href="#page-guide" onclick="toggleMobileMenu()" class="px-3 py-2.5 rounded-xl bg-slate-900/90 border border-cyan-500/20 hover:border-cyan-400/60">12-Page Guide</a>
+        <a href="#capabilities" onclick="toggleMobileMenu()" class="px-3 py-2.5 rounded-xl bg-slate-900/90 border border-fuchsia-500/20 hover:border-fuchsia-400/60">Core Engines</a>
+        <a href="#comparison" onclick="toggleMobileMenu()" class="px-3 py-2.5 rounded-xl bg-slate-900/90 border border-violet-500/20 hover:border-violet-400/60">Comparison</a>
+        <a href="#pricing" onclick="toggleMobileMenu()" class="px-3 py-2.5 rounded-xl bg-slate-900/90 border border-emerald-500/20 hover:border-emerald-400/60">Pricing</a>
       </div>
-      <div class="flex flex-col space-y-2 pt-2 border-t border-slate-800">
-        <a href="https://drive.google.com/file/d/1BJJpRR4W-5v7RkwIHDEpKqEGQ7XyfAzB/view?usp=sharing" target="_blank" rel="noopener noreferrer" class="w-full py-2.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 text-center">Download Windows Setup (.exe)</a>
-        <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="w-full py-2.5 rounded-lg text-xs font-semibold text-white bg-indigo-600 text-center">Order Key via WhatsApp</a>
+      <div class="flex flex-col gap-2 pt-2 border-t border-slate-800/80">
+        <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="w-full py-2.5 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-fuchsia-600 to-violet-600 text-center">Order License Key via WhatsApp</a>
       </div>
     </div>
   </header>
 
   <main id="top">
     <!-- Hero Section -->
-    <section class="hero-surface border-b border-slate-800/70 pt-10 pb-14 lg:pt-16 lg:pb-20">
-      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
+    <section class="relative overflow-hidden border-b border-cyan-500/15 pt-10 pb-14 lg:pt-16 lg:pb-20">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-stretch">
 
-          <!-- Hero Copy -->
-          <div class="lg:col-span-6 space-y-6">
-            <p class="font-mono text-xs font-semibold tracking-widest uppercase text-indigo-400">
-              Windows Desktop Automation Suite · By ABM CodeSpace
-            </p>
+          <!-- Left: Live Cyberpunk Emblem + Proposition + Actions -->
+          <div class="lg:col-span-6 flex flex-col justify-between space-y-6">
+            <div class="space-y-6">
+              <!-- Live 3D AI Cyberpunk Operator Mascot Showcase (Original Shield in Back + Live Typing Hands & Scrolling Laptop Screen) -->
+              <div class="flex items-center gap-4 sm:gap-5">
+                <div class="relative w-32 h-32 sm:w-36 sm:h-36 shrink-0 rounded-2xl bg-[#040714] border border-cyan-400/60 anim-cyber-rim overflow-hidden flex items-center justify-center">
+                  <img src="assets/cyber-avatar-logo.jpg" alt="AI 3D Cyberpunk human operator typing live on laptop in front of FB Auto Bot shield" referrerPolicy="no-referrer" class="w-full h-full object-cover anim-avatar-breathe">
 
-            <h1 class="font-display text-4xl sm:text-5xl font-extrabold tracking-tight text-white leading-[1.08]">
-              Run every Facebook workflow from one native desktop workspace.
-            </h1>
+                  <!-- Soft dark recess behind moving hands so finger motion pops cleanly -->
+                  <div class="absolute inset-0 bg-[#04111f]/75 pointer-events-none" style="clip-path: polygon(32% 72%, 53% 70%, 54% 87%, 32% 86%);"></div>
 
-            <p class="text-base sm:text-lg text-slate-300 leading-relaxed max-w-xl">
-              Twelve dedicated modules engineered for operators: simultaneous sub-millisecond Marketplace tab publishing, reusable Product campaigns, bulk Listing Renew &amp; Delete, Group auto-posting with METUS / FewFeed sync, Page creation, Reels, Friend Requests, Profile photos, and Cookie extraction.
-            </p>
+                  <!-- Tilted Laptop Screen & Hologram Live Up/Down Scroll Layer -->
+                  <svg viewBox="0 0 100 100" class="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true">
+                    <defs>
+                      <clipPath id="hero-screen-clip">
+                        <polygon points="6.2,52.5 25.4,62.3 25.0,86.0 9.0,84.2" />
+                      </clipPath>
+                      <clipPath id="hero-holo-clip">
+                        <polygon points="19,50 37,50 36,81 23,84" />
+                      </clipPath>
+                    </defs>
 
-            <!-- Hero CTAs -->
-            <div class="flex flex-wrap items-center gap-3 pt-1">
-              <a href="https://drive.google.com/file/d/1BJJpRR4W-5v7RkwIHDEpKqEGQ7XyfAzB/view?usp=sharing" target="_blank" rel="noopener noreferrer" class="inline-flex items-center space-x-2 px-5 py-3 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors whitespace-nowrap">
-                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                <span>Download Setup (.exe)</span>
-              </a>
+                    <!-- Tilted Screen Background Glow + Scrolling Live Automation Code -->
+                    <g clip-path="url(#hero-screen-clip)">
+                      <polygon points="6.2,52.5 25.4,62.3 25.0,86.0 9.0,84.2" fill="#031a2b" fill-opacity="0.62" />
+                      <g class="anim-screen-scroll">
+                        <line x1="8" y1="53" x2="20" y2="59" stroke="#22d3ee" stroke-width="1.3" stroke-linecap="round" />
+                        <line x1="8" y1="57" x2="23.5" y2="64.8" stroke="#34d399" stroke-width="1.35" stroke-linecap="round" />
+                        <line x1="8.5" y1="61" x2="18.5" y2="66" stroke="#f472b6" stroke-width="1.2" stroke-linecap="round" />
+                        <line x1="8.5" y1="65" x2="23" y2="72.3" stroke="#67e8f9" stroke-width="1.35" stroke-linecap="round" />
+                        <line x1="9" y1="69" x2="20.5" y2="74.8" stroke="#34d399" stroke-width="1.25" stroke-linecap="round" />
+                        <line x1="9" y1="73" x2="24" y2="80.5" stroke="#22d3ee" stroke-width="1.35" stroke-linecap="round" />
+                        <line x1="9.5" y1="77" x2="19.5" y2="82" stroke="#f472b6" stroke-width="1.2" stroke-linecap="round" />
+                        <line x1="9.5" y1="81" x2="23.5" y2="88" stroke="#38bdf8" stroke-width="1.35" stroke-linecap="round" />
+                        <line x1="9.5" y1="85" x2="21.5" y2="91" stroke="#34d399" stroke-width="1.25" stroke-linecap="round" />
+                        <line x1="9.5" y1="89" x2="24" y2="96.2" stroke="#22d3ee" stroke-width="1.3" stroke-linecap="round" />
+                      </g>
+                      <!-- Sweeping Cyber Scan Bar across Laptop Monitor -->
+                      <line x1="7" y1="58" x2="25" y2="67" stroke="#a5f3fc" stroke-width="1.5" opacity="0.7" class="anim-screen-scan" />
+                    </g>
 
-              <a href="#page-guide" class="inline-flex items-center space-x-2 px-5 py-3 rounded-xl text-sm font-semibold text-slate-100 bg-slate-900 hover:bg-slate-800 border border-slate-700 transition-colors whitespace-nowrap">
-                <span>Explore All 12 Pages</span>
-                <svg class="w-4 h-4 text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-              </a>
+                    <!-- Floating Holographic Output Scrolling Up & Down -->
+                    <g clip-path="url(#hero-holo-clip)" opacity="0.88">
+                      <g class="anim-holo-scroll">
+                        <line x1="20" y1="54" x2="34" y2="54" stroke="#67e8f9" stroke-width="1.1" stroke-linecap="round" />
+                        <line x1="21" y1="60" x2="31" y2="60" stroke="#34d399" stroke-width="1.15" stroke-linecap="round" />
+                        <line x1="22" y1="66" x2="35" y2="66" stroke="#f472b6" stroke-width="1.15" stroke-linecap="round" />
+                        <line x1="22" y1="72" x2="33" y2="72" stroke="#22d3ee" stroke-width="1.1" stroke-linecap="round" />
+                        <line x1="23" y1="78" x2="34" y2="78" stroke="#34d399" stroke-width="1.1" stroke-linecap="round" />
+                      </g>
+                    </g>
+                  </svg>
 
-              <button onclick="openDownloadModal()" class="text-xs font-semibold text-indigo-300 hover:text-indigo-200 underline underline-offset-4 px-2 py-2 cursor-pointer whitespace-nowrap">
-                How Setup &amp; HWID Works
-              </button>
+                  <!-- Dual Clipped Hands Clicking Up & Down Alternatingly -->
+                  <img src="assets/cyber-avatar-logo.jpg" alt="" aria-hidden="true" referrerPolicy="no-referrer" class="absolute inset-0 w-full h-full object-cover pointer-events-none anim-hand-back" style="clip-path: polygon(34% 72%, 49% 70%, 51% 81%, 33% 83%);">
+                  <img src="assets/cyber-avatar-logo.jpg" alt="" aria-hidden="true" referrerPolicy="no-referrer" class="absolute inset-0 w-full h-full object-cover pointer-events-none anim-hand-front" style="clip-path: polygon(38% 75%, 64% 72%, 66% 90%, 40% 89%);">
+
+                  <!-- Ambient Screen Rim Glow + RGB Keystroke Sparks Under Fingertips -->
+                  <div class="absolute left-[7%] top-[48%] w-[24%] h-[38%] rounded-full bg-cyan-400/25 blur-[8px] mix-blend-screen pointer-events-none anim-screen-glow"></div>
+                  <div class="absolute left-[29%] bottom-[8%] w-3.5 h-3.5 rounded-full bg-cyan-300/85 blur-[3px] mix-blend-screen pointer-events-none anim-key-spark-1"></div>
+                  <div class="absolute left-[37%] bottom-[6%] w-3.5 h-3.5 rounded-full bg-emerald-300/85 blur-[3px] mix-blend-screen pointer-events-none anim-key-spark-2"></div>
+                  <div class="absolute left-[44%] bottom-[7%] w-3 h-3 rounded-full bg-pink-400/85 blur-[3px] mix-blend-screen pointer-events-none anim-key-spark-3"></div>
+                  <!-- Subtle Neon Visor Glint -->
+                  <div class="absolute left-[54%] top-[43%] w-5 h-1.5 rounded-full bg-cyan-200/70 blur-[2px] mix-blend-screen pointer-events-none anim-visor-glint"></div>
+                </div>
+
+                <div class="space-y-1.5">
+                  <div class="font-mono text-xs font-semibold tracking-wider text-cyan-300">
+                    Windows Desktop Suite · By ABM CodeSpace
+                  </div>
+                  <div class="text-xs sm:text-sm text-slate-300 leading-snug">
+                    Live Cyber Operator Engine · Local Chrome + Accounts Vault
+                  </div>
+                </div>
+              </div>
+
+              <h1 class="font-display text-4xl sm:text-5xl lg:text-[3.35rem] font-bold tracking-tight text-white leading-[1.06]">
+                Run every Facebook workflow from one <span class="cyber-gradient-text">cyberpunk workspace.</span>
+              </h1>
+
+              <p class="text-base sm:text-lg text-slate-300 leading-relaxed max-w-xl">
+                Twelve native Windows modules built for high-speed execution: sub-millisecond Marketplace tab publishing, reusable Product campaigns, bulk Listing Renew &amp; Delete, Group auto-posting with METUS / FewFeed sync, Page creation, Reels, Friend Requests, Profile photos, and Cookie extraction.
+              </p>
+
+              <!-- Hero CTAs (Single Dominant Primary + Clean Secondary) -->
+              <div class="flex flex-wrap items-center gap-3.5 pt-1">
+                <a href="https://drive.google.com/file/d/1MNX27_FwzmFcMImhpQTMzUA0Ms0XhBm9/view?usp=sharing" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2.5 px-6 py-3.5 rounded-xl text-sm font-bold text-slate-950 bg-gradient-to-r from-cyan-400 via-emerald-400 to-teal-300 hover:brightness-110 shadow-[0_0_30px_rgba(34,211,238,0.38)] transition-all whitespace-nowrap">
+                  <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                  <span>Download Setup (.exe)</span>
+                </a>
+
+                <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="inline-flex items-center gap-2 px-5 py-3.5 rounded-xl text-sm font-semibold text-white bg-slate-900/90 hover:bg-slate-800 border border-fuchsia-500/45 hover:border-fuchsia-400 shadow-[0_0_20px_rgba(244,63,142,0.18)] transition-all cursor-pointer whitespace-nowrap">
+                  <span>Order Key via WhatsApp</span>
+                </a>
+
+                <button type="button" onclick="openDownloadModal()" class="text-xs font-semibold text-cyan-300 hover:text-cyan-200 underline underline-offset-4 px-2 py-2 cursor-pointer whitespace-nowrap">
+                  How Setup &amp; HWID Works
+                </button>
+              </div>
             </div>
 
-            <!-- Concrete Engineering Metrics -->
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-5 pt-5 border-t border-slate-800/80 tabular-nums">
-              <div>
-                <div class="font-display text-2xl font-bold text-white">12</div>
+            <!-- Concrete Engineering Metrics Strip -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-5 border-t border-cyan-500/20 tabular-nums">
+              <div class="cyber-subpanel rounded-xl p-3 border-cyan-500/25">
+                <div class="font-display text-2xl font-bold text-cyan-300">12</div>
                 <div class="text-xs text-slate-400">Workspace Pages</div>
               </div>
-              <div>
+              <div class="cyber-subpanel rounded-xl p-3 border-emerald-500/25">
                 <div class="font-display text-2xl font-bold text-emerald-400">&lt;1ms</div>
                 <div class="text-xs text-slate-400">Multi-Tab Publish</div>
               </div>
-              <div>
-                <div class="font-display text-2xl font-bold text-white">6</div>
+              <div class="cyber-subpanel rounded-xl p-3 border-fuchsia-500/25">
+                <div class="font-display text-2xl font-bold text-pink-400">6</div>
                 <div class="text-xs text-slate-400">Chrome Path Pages</div>
               </div>
-              <div>
-                <div class="font-display text-2xl font-bold text-white">HWID</div>
+              <div class="cyber-subpanel rounded-xl p-3 border-violet-500/25">
+                <div class="font-display text-2xl font-bold text-violet-300">HWID</div>
                 <div class="text-xs text-slate-400">RSA Key Security</div>
               </div>
             </div>
           </div>
 
-          <!-- Interactive Desktop Workspace Replica -->
-          <div class="lg:col-span-6">
-            <div class="rounded-2xl border border-slate-800 bg-[#080d19] shadow-2xl overflow-hidden">
-              <!-- Desktop Titlebar -->
-              <div class="px-4 py-2.5 bg-[#05080f] border-b border-slate-800 flex items-center justify-between gap-2">
-                <div class="flex items-center space-x-2 min-w-0">
-                  <img src="assets/logo.png" alt="Logo" class="w-4 h-4 rounded object-contain shrink-0">
-                  <span class="font-mono text-[11px] font-medium text-slate-300 truncate">FB Auto Bot — Desktop Workspace</span>
-                </div>
-                <div class="flex items-center space-x-2 shrink-0">
-                  <button onclick="cyclePreviewZoom()" class="text-[11px] font-mono text-slate-300 hover:text-white px-2 py-0.5 rounded bg-slate-900 border border-slate-800 cursor-pointer" title="Click to preview built-in UI Zoom">
-                    Zoom: <span id="preview-zoom-val">100%</span>
-                  </button>
-                  <button onclick="togglePreviewSidebar()" class="text-[11px] font-mono text-sky-400 hover:text-sky-300 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 cursor-pointer" title="Click to collapse/expand sidebar">
-                    Sidebar: <span id="preview-sidebar-state">Expanded</span>
-                  </button>
+          <!-- Right: Cyberpunk Interactive Desktop Workspace Replica -->
+          <div class="lg:col-span-6 flex flex-col">
+            <div class="cyber-card hud-frame rounded-2xl overflow-hidden flex-1 flex flex-col justify-between relative">
+              <!-- Subtle Top Cyberpunk Image Backdrop Banner Inside Shell Header -->
+              <div class="relative h-24 overflow-hidden border-b border-cyan-500/20">
+                <img src="assets/cyberpunk-hero.jpg" alt="Cyberpunk desktop command architecture" referrerPolicy="no-referrer" class="w-full h-full object-cover opacity-55">
+                <div class="absolute inset-0 bg-gradient-to-r from-[#050713]/95 via-[#070d24]/75 to-[#050713]/85"></div>
+                <div class="absolute inset-0 px-4 flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-2.5 min-w-0">
+                    <img src="assets/logo.png" alt="Logo" referrerPolicy="no-referrer" class="w-6 h-6 rounded-md object-contain shrink-0">
+                    <div class="min-w-0">
+                      <div class="font-display text-sm font-bold text-white truncate">FB Auto Bot Workspace</div>
+                      <div class="font-mono text-[11px] text-cyan-300 truncate">Interactive Desktop Simulator</div>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2 shrink-0">
+                    <button type="button" onclick="cyclePreviewZoom()" class="text-[11px] font-mono text-cyan-200 hover:text-white px-2.5 py-1 rounded-lg bg-slate-950/85 border border-cyan-500/35 cursor-pointer whitespace-nowrap" title="Click to preview built-in UI Zoom">
+                      Zoom: <span id="preview-zoom-val">100%</span>
+                    </button>
+                    <button type="button" onclick="togglePreviewSidebar()" class="text-[11px] font-mono text-pink-300 hover:text-white px-2.5 py-1 rounded-lg bg-slate-950/85 border border-fuchsia-500/35 cursor-pointer whitespace-nowrap" title="Click to collapse/expand sidebar">
+                      Sidebar: <span id="preview-sidebar-state">Expanded</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
               <!-- Interactive Inner App Shell -->
-              <div class="flex min-h-[395px]">
+              <div class="flex flex-1 min-h-[380px]">
                 <!-- Collapsible Left Sidebar -->
-                <aside id="preview-sidebar" class="w-48 bg-[#0b101d] border-r border-slate-800/80 p-2.5 flex flex-col justify-between transition-all duration-200 shrink-0">
+                <aside id="preview-sidebar" class="w-48 bg-[#070b1c] border-r border-cyan-500/15 p-2.5 flex flex-col justify-between transition-all duration-200 shrink-0">
                   <div>
-                    <button onclick="togglePreviewSidebar()" class="w-full flex items-center justify-between p-2 rounded-lg bg-white/[0.03] hover:bg-indigo-500/15 border border-white/[0.06] mb-3 text-left transition-colors cursor-pointer" title="Click logo header to collapse into icon rail">
-                      <div class="flex items-center space-x-2 min-w-0">
-                        <img src="assets/logo.png" alt="FB Auto Bot" class="w-5 h-5 rounded shrink-0">
-                        <span class="preview-nav-label font-display text-xs font-bold text-white truncate">FB Auto Bot</span>
+                    <button type="button" onclick="togglePreviewSidebar()" class="w-full flex items-center justify-between p-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-400/25 mb-3 text-left transition-colors cursor-pointer" title="Click to collapse into icon rail">
+                      <div class="flex items-center gap-2 min-w-0">
+                        <img src="assets/logo.png" alt="FB Auto Bot" referrerPolicy="no-referrer" class="w-5 h-5 rounded shrink-0">
+                        <span class="preview-nav-label font-display text-xs font-bold text-white truncate">Navigation</span>
                       </div>
-                      <span class="preview-nav-label text-[10px] text-slate-500 font-mono">‹</span>
+                      <span class="preview-nav-label text-[10px] text-cyan-300 font-mono">‹</span>
                     </button>
 
                     <div class="space-y-1 text-xs">
-                      <button onclick="switchPreviewTab('marketplace', this)" class="preview-tab-btn w-full flex items-center space-x-2 px-2.5 py-2 rounded-lg bg-indigo-600 text-white font-semibold text-left cursor-pointer">
+                      <button type="button" onclick="switchPreviewTab('marketplace', this)" class="preview-tab-btn w-full flex items-center gap-2 px-2.5 py-2 rounded-lg bg-gradient-to-r from-cyan-500/25 to-violet-500/25 border border-cyan-400/45 text-white font-semibold text-left cursor-pointer">
                         <span class="shrink-0">⚡</span>
                         <span class="preview-nav-label truncate">Standard &amp; Product</span>
                       </button>
-                      <button onclick="switchPreviewTab('renew', this)" class="preview-tab-btn w-full flex items-center space-x-2 px-2.5 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 font-medium text-left cursor-pointer">
+                      <button type="button" onclick="switchPreviewTab('renew', this)" class="preview-tab-btn w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border border-transparent text-slate-300 hover:text-white hover:bg-slate-800/60 font-medium text-left cursor-pointer">
                         <span class="shrink-0">🔄</span>
                         <span class="preview-nav-label truncate">Renew / Delete</span>
                       </button>
-                      <button onclick="switchPreviewTab('groups', this)" class="preview-tab-btn w-full flex items-center space-x-2 px-2.5 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 font-medium text-left cursor-pointer">
+                      <button type="button" onclick="switchPreviewTab('groups', this)" class="preview-tab-btn w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border border-transparent text-slate-300 hover:text-white hover:bg-slate-800/60 font-medium text-left cursor-pointer">
                         <span class="shrink-0">📢</span>
                         <span class="preview-nav-label truncate">FB Group &amp; METUS</span>
                       </button>
-                      <button onclick="switchPreviewTab('growth', this)" class="preview-tab-btn w-full flex items-center space-x-2 px-2.5 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 font-medium text-left cursor-pointer">
+                      <button type="button" onclick="switchPreviewTab('growth', this)" class="preview-tab-btn w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border border-transparent text-slate-300 hover:text-white hover:bg-slate-800/60 font-medium text-left cursor-pointer">
                         <span class="shrink-0">📄</span>
                         <span class="preview-nav-label truncate">Pages, Reels &amp; Friends</span>
                       </button>
-                      <button onclick="switchPreviewTab('cookies', this)" class="preview-tab-btn w-full flex items-center space-x-2 px-2.5 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 font-medium text-left cursor-pointer">
+                      <button type="button" onclick="switchPreviewTab('cookies', this)" class="preview-tab-btn w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border border-transparent text-slate-300 hover:text-white hover:bg-slate-800/60 font-medium text-left cursor-pointer">
                         <span class="shrink-0">🍪</span>
                         <span class="preview-nav-label truncate">Cookies &amp; Accounts</span>
                       </button>
                     </div>
                   </div>
 
-                  <!-- Bottom Status Box -->
-                  <div class="p-2 rounded-lg bg-slate-900/90 border border-slate-800 space-y-1.5">
+                  <!-- Bottom Attribution Box -->
+                  <div class="p-2.5 rounded-lg bg-[#050815] border border-cyan-500/20 space-y-1">
                     <div class="preview-nav-label text-[10px] font-bold text-emerald-400">READY FOR TASKS</div>
-                    <div class="preview-nav-label h-px bg-slate-800"></div>
-                    <div class="preview-nav-label text-[9px] font-semibold text-sky-400 tracking-wide">Developed by ABM CodeSpace</div>
-                    <div class="preview-dot-only hidden text-center text-emerald-400 text-xs font-bold" title="Ready for tasks • ABM CodeSpace">●</div>
+                    <div class="preview-nav-label text-[10px] text-slate-400">Developed by ABM CodeSpace</div>
+                    <div class="preview-dot-only hidden text-center text-cyan-300 text-xs font-bold" title="ABM CodeSpace">ABM</div>
                   </div>
                 </aside>
 
                 <!-- Preview Main Content Area -->
-                <div id="preview-scale-canvas" class="flex-1 p-4 flex flex-col justify-between bg-[#060a13] transition-transform duration-150 origin-top-left">
+                <div id="preview-scale-canvas" class="flex-1 p-4 flex flex-col justify-between bg-[#060a19] transition-transform duration-150 origin-top-left">
                   <!-- Panel 1: Standard & Product Multi-Tab -->
                   <div id="panel-marketplace" class="preview-panel space-y-3">
                     <div class="flex items-center justify-between gap-2">
                       <div>
-                        <div class="text-xs font-bold text-white">Standard &amp; Product Listing Engine</div>
-                        <div class="text-[11px] text-slate-400">Items • Vehicles • Properties • Multi-Tab Campaigns</div>
+                        <div class="text-xs sm:text-sm font-bold text-white">Standard &amp; Product Listing Engine</div>
+                        <div class="text-[11px] text-slate-400">Items · Vehicles · Properties · Multi-Tab Campaigns</div>
                       </div>
-                      <span class="font-mono text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded shrink-0">1ms Sync Barrier</span>
+                      <span class="font-mono text-[10px] text-emerald-300 shrink-0">1ms Sync Barrier</span>
                     </div>
 
-                    <div class="p-2.5 rounded-lg bg-[#0d1424] border border-slate-800 space-y-2 text-[11px]">
+                    <div class="p-3 rounded-xl bg-[#0c142c] border border-cyan-500/25 space-y-2 text-[11px]">
                       <div class="flex items-center justify-between">
-                        <span class="text-slate-400">Tabs / Posts per ID</span>
-                        <span class="font-mono text-indigo-300 font-semibold">3 Simultaneous Tabs Ready</span>
+                        <span class="text-slate-300">Tabs / Posts per ID</span>
+                        <span class="font-mono text-cyan-300 font-semibold">3 Simultaneous Tabs Ready</span>
                       </div>
-                      <div class="grid grid-cols-3 gap-1.5 font-mono text-[10px]">
-                        <div class="p-1.5 rounded bg-[#070b14] border border-slate-800 text-slate-300">Tab #1<br><span class="text-emerald-400">Armed: Publish</span></div>
-                        <div class="p-1.5 rounded bg-[#070b14] border border-slate-800 text-slate-300">Tab #2<br><span class="text-emerald-400">Armed: Publish</span></div>
-                        <div class="p-1.5 rounded bg-[#070b14] border border-slate-800 text-slate-300">Tab #3<br><span class="text-emerald-400">Armed: Publish</span></div>
+                      <div class="grid grid-cols-3 gap-2 font-mono text-[10px]">
+                        <div class="p-2 rounded-lg bg-[#070b1a] border border-emerald-500/35 text-slate-200">Tab #1<br><span class="text-emerald-400">Armed: Publish</span></div>
+                        <div class="p-2 rounded-lg bg-[#070b1a] border border-cyan-500/35 text-slate-200">Tab #2<br><span class="text-cyan-300">Armed: Publish</span></div>
+                        <div class="p-2 rounded-lg bg-[#070b1a] border border-fuchsia-500/35 text-slate-200">Tab #3<br><span class="text-pink-400">Armed: Publish</span></div>
                       </div>
                     </div>
 
-                    <div class="grid grid-cols-2 gap-2 text-[11px]">
-                      <div class="p-2.5 rounded-lg bg-[#0d1424] border border-slate-800">
+                    <div class="grid grid-cols-2 gap-2.5 text-[11px]">
+                      <div class="p-2.5 rounded-xl bg-[#0c142c] border border-slate-800">
                         <div class="text-slate-400">Media Protection</div>
-                        <div class="font-semibold text-sky-400 mt-0.5">EXIF Wipe + ±0.5° Rotate</div>
+                        <div class="font-semibold text-cyan-300 mt-0.5">EXIF Wipe + ±0.5° Rotate</div>
                       </div>
-                      <div class="p-2.5 rounded-lg bg-[#0d1424] border border-slate-800">
+                      <div class="p-2.5 rounded-xl bg-[#0c142c] border border-slate-800">
                         <div class="text-slate-400">Typing Cadence</div>
-                        <div class="font-semibold text-white mt-0.5">Human Behavior Delays</div>
+                        <div class="font-semibold text-pink-300 mt-0.5">Human Behavior Delays</div>
                       </div>
                     </div>
 
-                    <div class="p-2 rounded-lg bg-[#05080f] border border-slate-800 font-mono text-[10px] text-emerald-400">
+                    <div class="p-2.5 rounded-xl bg-[#050815] border border-emerald-500/25 font-mono text-[10px] text-emerald-300">
                       [PUBLISH] Broadcast barrier fired across 3 tabs in 0.1ms → Verified live.
                     </div>
                   </div>
@@ -449,27 +831,27 @@
                   <div id="panel-renew" class="preview-panel hidden space-y-3">
                     <div class="flex items-center justify-between gap-2">
                       <div>
-                        <div class="text-xs font-bold text-white">Renew / Delete Marketplace Listings</div>
+                        <div class="text-xs sm:text-sm font-bold text-white">Renew / Delete Marketplace Listings</div>
                         <div class="text-[11px] text-slate-400">Accounts Manager or Local Chrome Path Profiles</div>
                       </div>
-                      <span class="font-mono text-[10px] text-sky-400 bg-sky-500/10 border border-sky-500/20 px-2 py-0.5 rounded shrink-0">Dual Action</span>
+                      <span class="font-mono text-[10px] text-cyan-300 shrink-0">Dual Action Engine</span>
                     </div>
 
                     <div class="grid grid-cols-2 gap-2.5 text-[11px]">
-                      <div class="p-3 rounded-lg bg-[#0d1424] border border-emerald-500/30 space-y-1.5">
-                        <div class="font-bold text-emerald-400">Renew All Listings</div>
-                        <p class="text-slate-400 leading-snug">Seller dashboard → To renew modal → clicks all eligible items with auto-scroll.</p>
-                        <div class="font-mono text-[10px] text-slate-300 pt-1">Max Renews/ID: 0 (All)</div>
+                      <div class="p-3 rounded-xl bg-[#0c142c] border border-emerald-500/35 space-y-1.5">
+                        <div class="font-bold text-emerald-300">Renew All Listings</div>
+                        <p class="text-slate-300 leading-snug">Seller dashboard → To renew modal → clicks all eligible items with auto-scroll.</p>
+                        <div class="font-mono text-[10px] text-slate-400 pt-1">Max Renews/ID: 0 (All)</div>
                       </div>
-                      <div class="p-3 rounded-lg bg-[#0d1424] border border-rose-500/30 space-y-1.5">
-                        <div class="font-bold text-rose-400">Delete All Listings</div>
-                        <p class="text-slate-400 leading-snug">Your listings → "..." menu → Delete listing → confirm &amp; refresh verification.</p>
-                        <div class="font-mono text-[10px] text-slate-300 pt-1">Max Deletes/ID: 0 (All)</div>
+                      <div class="p-3 rounded-xl bg-[#0c142c] border border-rose-500/35 space-y-1.5">
+                        <div class="font-bold text-rose-300">Delete All Listings</div>
+                        <p class="text-slate-300 leading-snug">Your listings → "..." menu → Delete listing → confirm &amp; refresh verification.</p>
+                        <div class="font-mono text-[10px] text-slate-400 pt-1">Max Deletes/ID: 0 (All)</div>
                       </div>
                     </div>
 
-                    <div class="p-2.5 rounded-lg bg-[#05080f] border border-slate-800 font-mono text-[10px] text-slate-300">
-                      Source: <span class="text-sky-400">Chrome Path</span> • Folder scanned: Profile 1, Profile 2, Person 9 → Tiled 2×1 grid
+                    <div class="p-2.5 rounded-xl bg-[#050815] border border-cyan-500/25 font-mono text-[10px] text-slate-300">
+                      Source: <span class="text-cyan-300">Chrome Path</span> · Scanned: Profile 1, Profile 2, Person 9 → Tiled 2×1 grid
                     </div>
                   </div>
 
@@ -477,22 +859,22 @@
                   <div id="panel-groups" class="preview-panel hidden space-y-3">
                     <div class="flex items-center justify-between gap-2">
                       <div>
-                        <div class="text-xs font-bold text-white">FB Group Posting &amp; Joiner</div>
+                        <div class="text-xs sm:text-sm font-bold text-white">FB Group Posting &amp; Joiner</div>
                         <div class="text-[11px] text-slate-400">METUS &amp; FewFeed Chrome Extension Sync</div>
                       </div>
-                      <span class="font-mono text-[10px] text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded shrink-0">Chrome Path Ready</span>
+                      <span class="font-mono text-[10px] text-pink-300 shrink-0">Chrome Path Ready</span>
                     </div>
-                    <div class="p-3 rounded-lg bg-[#0d1424] border border-slate-800 space-y-2 text-[11px]">
-                      <div class="flex justify-between text-slate-300"><span>1. Auto Group Joiner</span><span class="text-emerald-400 font-mono">URL / Group Code Queue</span></div>
-                      <div class="flex justify-between text-slate-300"><span>2. Skip Joining Option</span><span class="text-sky-400 font-mono">Post to Joined Groups</span></div>
-                      <div class="flex justify-between text-slate-300"><span>3. METUS / FewFeed Bridge</span><span class="text-emerald-400 font-mono">Auto-Loaded Folder</span></div>
-                      <div class="flex justify-between text-slate-300"><span>4. Rotating Links &amp; Copy</span><span class="text-indigo-400 font-mono">Random / Sequential</span></div>
+                    <div class="p-3 rounded-xl bg-[#0c142c] border border-slate-800 space-y-2 text-[11px]">
+                      <div class="flex justify-between text-slate-200"><span>1. Auto Group Joiner</span><span class="text-emerald-300 font-mono">URL / Group Code Queue</span></div>
+                      <div class="flex justify-between text-slate-200"><span>2. Skip Joining Option</span><span class="text-cyan-300 font-mono">Post to Joined Groups</span></div>
+                      <div class="flex justify-between text-slate-200"><span>3. METUS / FewFeed Bridge</span><span class="text-pink-300 font-mono">Auto-Loaded Folder</span></div>
+                      <div class="flex justify-between text-slate-200"><span>4. Rotating Links &amp; Copy</span><span class="text-violet-300 font-mono">Random / Sequential</span></div>
                     </div>
                     <div class="grid grid-cols-4 gap-1.5 font-mono text-[10px] text-center">
-                      <div class="p-2 rounded bg-indigo-950/60 border border-indigo-500/30 text-indigo-200">Slot #1<br>[0, 0]</div>
-                      <div class="p-2 rounded bg-indigo-950/60 border border-indigo-500/30 text-indigo-200">Slot #2<br>[1, 0]</div>
-                      <div class="p-2 rounded bg-indigo-950/60 border border-indigo-500/30 text-indigo-200">Slot #3<br>[0, 1]</div>
-                      <div class="p-2 rounded bg-indigo-950/60 border border-indigo-500/30 text-indigo-200">Slot #4<br>[1, 1]</div>
+                      <div class="p-2 rounded-lg bg-cyan-950/60 border border-cyan-400/35 text-cyan-200">Slot #1<br>[0, 0]</div>
+                      <div class="p-2 rounded-lg bg-violet-950/60 border border-violet-400/35 text-violet-200">Slot #2<br>[1, 0]</div>
+                      <div class="p-2 rounded-lg bg-fuchsia-950/60 border border-fuchsia-400/35 text-pink-200">Slot #3<br>[0, 1]</div>
+                      <div class="p-2 rounded-lg bg-emerald-950/60 border border-emerald-400/35 text-emerald-200">Slot #4<br>[1, 1]</div>
                     </div>
                   </div>
 
@@ -500,32 +882,32 @@
                   <div id="panel-growth" class="preview-panel hidden space-y-3">
                     <div class="flex items-center justify-between gap-2">
                       <div>
-                        <div class="text-xs font-bold text-white">Create Pages, Upload Reels &amp; Friends</div>
+                        <div class="text-xs sm:text-sm font-bold text-white">Create Pages, Upload Reels &amp; Friends</div>
                         <div class="text-[11px] text-slate-400">Multi-tab creation + concurrent Chrome tiling</div>
                       </div>
-                      <span class="font-mono text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded shrink-0">Human Behavior</span>
+                      <span class="font-mono text-[10px] text-emerald-300 shrink-0">Human Behavior</span>
                     </div>
                     <div class="space-y-2 text-[11px]">
-                      <div class="p-2.5 rounded-lg bg-[#0d1424] border border-slate-800 flex items-center justify-between gap-2">
+                      <div class="p-2.5 rounded-xl bg-[#0c142c] border border-cyan-500/25 flex items-center justify-between gap-2">
                         <div>
                           <div class="font-semibold text-white">Create FB Pages (Up to 5 Tabs/ID)</div>
-                          <div class="text-slate-400">Bulk Page Names, Category, Bio, Contact, Sequential Profile &amp; Cover Art</div>
+                          <div class="text-slate-400">Bulk Names, Category, Bio, Sequential Profile &amp; Cover Art</div>
                         </div>
-                        <span class="font-mono text-emerald-400 shrink-0">CSV Report</span>
+                        <span class="font-mono text-emerald-300 shrink-0">CSV Report</span>
                       </div>
-                      <div class="p-2.5 rounded-lg bg-[#0d1424] border border-slate-800 flex items-center justify-between gap-2">
+                      <div class="p-2.5 rounded-xl bg-[#0c142c] border border-fuchsia-500/25 flex items-center justify-between gap-2">
                         <div>
                           <div class="font-semibold text-white">Upload FB Reels</div>
-                          <div class="text-slate-400">MP4 Folder Pool + Spintax Hashtags + Delay Between Reels</div>
+                          <div class="text-slate-400">MP4 Folder Pool + Spintax Hashtags + Delay Control</div>
                         </div>
-                        <span class="font-mono text-sky-400 shrink-0">No-Dup Pool</span>
+                        <span class="font-mono text-pink-300 shrink-0">No-Dup Pool</span>
                       </div>
-                      <div class="p-2.5 rounded-lg bg-[#0d1424] border border-slate-800 flex items-center justify-between gap-2">
+                      <div class="p-2.5 rounded-xl bg-[#0c142c] border border-violet-500/25 flex items-center justify-between gap-2">
                         <div>
-                          <div class="font-semibold text-white">Friend Accept / Reject &amp; Profile Pictures</div>
-                          <div class="text-slate-400">Confirm Accept, Reject All, Send Requests + Avatar/Cover pools</div>
+                          <div class="font-semibold text-white">Friend Accept / Reject / Page Follow &amp; Photos</div>
+                          <div class="text-slate-400">Accept, Reject, Outbound Requests &amp; Page Follow + Avatars</div>
                         </div>
-                        <span class="font-mono text-indigo-400 shrink-0">Chrome Path</span>
+                        <span class="font-mono text-cyan-300 shrink-0">Chrome Path</span>
                       </div>
                     </div>
                   </div>
@@ -534,26 +916,26 @@
                   <div id="panel-cookies" class="preview-panel hidden space-y-3">
                     <div class="flex items-center justify-between gap-2">
                       <div>
-                        <div class="text-xs font-bold text-white">Accounts Vault &amp; Cookie Extractor</div>
+                        <div class="text-xs sm:text-sm font-bold text-white">Accounts Vault &amp; Cookie Extractor</div>
                         <div class="text-[11px] text-slate-400">TOTP 2FA auto-login, Proxies &amp; Live/Checkpoint split</div>
                       </div>
-                      <span class="font-mono text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded shrink-0">2FA Built-In</span>
+                      <span class="font-mono text-[10px] text-amber-300 shrink-0">2FA Built-In</span>
                     </div>
-                    <div class="p-3 rounded-lg bg-[#0d1424] border border-slate-800 space-y-2 text-[11px]">
-                      <div class="flex justify-between text-slate-300"><span>Cookie Parsing</span><span class="text-emerald-400 font-mono">JSON &amp; Semicolon</span></div>
-                      <div class="flex justify-between text-slate-300"><span>UID / Pass / 2FA TOTP</span><span class="text-emerald-400 font-mono">Batch Extractor</span></div>
-                      <div class="flex justify-between text-slate-300"><span>Proxy Binding Per ID</span><span class="text-sky-400 font-mono">HTTP / SOCKS5</span></div>
-                      <div class="flex justify-between text-slate-300"><span>Health Quarantine</span><span class="text-indigo-400 font-mono">Live vs Checkpoint</span></div>
+                    <div class="p-3 rounded-xl bg-[#0c142c] border border-slate-800 space-y-2 text-[11px]">
+                      <div class="flex justify-between text-slate-200"><span>Cookie Parsing</span><span class="text-emerald-300 font-mono">JSON &amp; Semicolon</span></div>
+                      <div class="flex justify-between text-slate-200"><span>UID / Pass / 2FA TOTP</span><span class="text-cyan-300 font-mono">Visible Fallback</span></div>
+                      <div class="flex justify-between text-slate-200"><span>Proxy Binding Per ID</span><span class="text-pink-300 font-mono">HTTP / SOCKS5</span></div>
+                      <div class="flex justify-between text-slate-200"><span>Health Quarantine</span><span class="text-violet-300 font-mono">Live vs Checkpoint</span></div>
                     </div>
-                    <div class="p-2.5 rounded-lg bg-[#05080f] border border-slate-800 font-mono text-[10px] text-emerald-400">
+                    <div class="p-2.5 rounded-xl bg-[#050815] border border-emerald-500/25 font-mono text-[10px] text-emerald-300">
                       [VAULT] Live session tokens (c_user + xs) extracted → Synced to Vault.
                     </div>
                   </div>
 
                   <!-- Interactive Shell Footer -->
-                  <div class="pt-3 mt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                    <span>Click sidebar items above to switch view</span>
-                    <span class="text-slate-500">PyQt5 + Playwright</span>
+                  <div class="pt-3 mt-3 border-t border-cyan-500/15 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                    <span>Click sidebar tabs above to inspect live panels</span>
+                    <span class="text-cyan-300">PyQt5 + Playwright</span>
                   </div>
                 </div>
               </div>
@@ -565,154 +947,173 @@
     </section>
 
     <!-- Interactive 12-Page Complete Guide & Exact Input Map -->
-    <section id="page-guide" class="py-16 lg:py-24 border-b border-slate-800/70">
+    <section id="page-guide" class="py-16 lg:py-24 border-b border-cyan-500/15">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="max-w-3xl mb-10">
-          <p class="font-mono text-xs font-semibold uppercase tracking-widest text-indigo-400 mb-2">Complete Desktop Documentation</p>
-          <h2 class="font-display text-3xl sm:text-4xl font-bold text-white tracking-tight">Every page explained: what it does and where every input goes.</h2>
-          <p class="text-sm sm:text-base text-slate-400 mt-3">
-            Select any of the 12 sidebar pages below to inspect its exact workflow, browser source mode, step-by-step execution, and input field guide before running a campaign.
+          <div class="font-mono text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-2">Complete Desktop Blueprint</div>
+          <h2 class="font-display text-3xl sm:text-4xl font-bold text-white tracking-tight">
+            Every module explained: <span class="cyber-gradient-text">what it runs and where every setting goes.</span>
+          </h2>
+          <p class="text-sm sm:text-base text-slate-300 mt-3 leading-relaxed">
+            Pick any of the 12 desktop pages from the neon command rail below to view its browser source mode, step-by-step execution pipeline, and complete input mapping.
           </p>
         </div>
 
-        <!-- Mobile Page Selector Dropdown (Clean for small screens) -->
+        <!-- Mobile Page Selector Dropdown -->
         <div class="lg:hidden mb-4">
-          <label for="mobile-page-select" class="block font-mono text-xs uppercase tracking-wider text-slate-400 mb-1.5">Select Desktop Bot Page</label>
-          <select id="mobile-page-select" onchange="selectGuidePage(this.value)" class="w-full bg-[#0b1120] border border-slate-700 rounded-xl px-4 py-3 text-sm font-semibold text-white focus:outline-none focus:border-indigo-500">
+          <label for="mobile-page-select" class="block font-mono text-xs uppercase tracking-wider text-cyan-300 mb-1.5">Select Desktop Bot Page</label>
+          <select id="mobile-page-select" onchange="selectGuidePage(this.value)" class="w-full bg-[#0b1024] border border-cyan-500/35 rounded-xl px-4 py-3 text-sm font-semibold text-white focus:outline-none focus:border-cyan-400">
           </select>
         </div>
 
         <!-- Desktop Master-Detail Explorer -->
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          <!-- Left Sidebar Navigation List (Mirrors real desktop sidebar order) -->
-          <div class="hidden lg:block lg:col-span-4 surface-card rounded-2xl p-3">
-            <div class="px-3 py-2 mb-1 flex items-center justify-between border-b border-slate-800/80">
-              <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-slate-400">Software Sidebar (12 Pages)</span>
-              <span class="font-mono text-[11px] text-indigo-400">Click to Inspect</span>
+          <!-- Left Sidebar Navigation List -->
+          <div class="hidden lg:block lg:col-span-4 cyber-card rounded-2xl p-3">
+            <div class="px-3 py-2.5 mb-1.5 flex items-center justify-between border-b border-cyan-500/20">
+              <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-slate-300">Sidebar Modules (12)</span>
+              <span class="font-mono text-[11px] text-cyan-300">Select to Inspect</span>
             </div>
             <div id="guide-nav-list" class="space-y-1 pt-1"></div>
           </div>
 
           <!-- Right Detail Blueprint Card -->
-          <div class="lg:col-span-8 surface-card rounded-2xl p-6 sm:p-8" id="guide-detail-card">
-            <!-- Dynamically populated by JavaScript for crisp, zero-bloat DOM updates -->
+          <div class="lg:col-span-8 cyber-card hud-frame rounded-2xl p-6 sm:p-8" id="guide-detail-card">
+            <!-- Dynamically populated by JavaScript -->
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Core Engineering Engines -->
-    <section id="capabilities" class="py-16 lg:py-20 bg-[#080d19] border-b border-slate-800/70">
+    <!-- Core Engineering Engines (Asymmetric Bento Grid with Custom Cyberpunk Renders) -->
+    <section id="capabilities" class="py-16 lg:py-24 border-b border-cyan-500/15 bg-[#060919]/75">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="max-w-2xl mb-12">
-          <p class="font-mono text-xs font-semibold uppercase tracking-widest text-emerald-400 mb-2">Core Architecture</p>
-          <h2 class="font-display text-3xl sm:text-4xl font-bold text-white tracking-tight">Built around real Chrome behavior and zero-overlap scale.</h2>
-          <p class="text-sm sm:text-base text-slate-400 mt-3">
-            Six foundational systems operate across every automation page so accounts remain healthy while parallel workers run cleanly side-by-side.
+          <div class="font-mono text-xs font-semibold uppercase tracking-widest text-pink-400 mb-2">Core Engineering Architecture</div>
+          <h2 class="font-display text-3xl sm:text-4xl font-bold text-white tracking-tight">
+            Built around real Chrome sessions and <span class="cyber-gradient-text">zero-overlap scale.</span>
+          </h2>
+          <p class="text-sm sm:text-base text-slate-300 mt-3 leading-relaxed">
+            Six foundational engines coordinate across all 12 automation screens so profiles stay resilient while parallel browser workers operate in crystal-clear view.
           </p>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          <div class="surface-card surface-card-interactive rounded-2xl p-6 space-y-3">
-            <div class="font-mono text-xs font-semibold text-emerald-400">01 · PUBLISH BARRIER</div>
-            <h3 class="font-display text-lg font-bold text-white">&lt;1ms Simultaneous Multi-Tab Publish</h3>
-            <p class="text-sm text-slate-400 leading-relaxed">
-              Standard &amp; Bulk Listing and Product Listing pre-fill every tab first, pre-scroll to Publish, and trigger all open tabs together in a sub-millisecond synchronized burst before confirming redirect completion.
-            </p>
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+          <!-- Feature 01 (Featured Bento with Visual) -->
+          <div class="md:col-span-7 cyber-card cyber-card-interactive rounded-2xl overflow-hidden flex flex-col">
+            <div class="relative h-56 sm:h-64 bg-[#070b1d] overflow-hidden border-b border-cyan-500/20">
+              <img src="assets/cyberpunk-multitab.jpg" alt="Synchronized multi-tab browser hologram grid" referrerPolicy="no-referrer" class="w-full h-full object-cover">
+              <div class="absolute inset-0 bg-gradient-to-t from-[#0b1024] via-transparent to-transparent"></div>
+            </div>
+            <div class="p-6 space-y-2.5 flex-1">
+              <div class="font-mono text-xs font-semibold text-emerald-400">01. Publish Barrier</div>
+              <h3 class="font-display text-xl font-bold text-white">&lt;1ms Simultaneous Multi-Tab Publish</h3>
+              <p class="text-sm text-slate-300 leading-relaxed">
+                Standard &amp; Bulk Listing and Product Listing prepare all open tabs first, pre-scroll to Publish, and fire every tab simultaneously in a sub-millisecond synchronized burst before verifying redirect confirmation.
+              </p>
+            </div>
           </div>
 
-          <div class="surface-card surface-card-interactive rounded-2xl p-6 space-y-3">
-            <div class="font-mono text-xs font-semibold text-sky-400">02 · CHROME PATH BRIDGE</div>
+          <!-- Feature 04 (Featured Bento with Visual) -->
+          <div class="md:col-span-5 cyber-card cyber-card-interactive rounded-2xl overflow-hidden flex flex-col">
+            <div class="relative h-56 sm:h-64 bg-[#070b1d] overflow-hidden border-b border-fuchsia-500/20">
+              <img src="assets/cyberpunk-shield.jpg" alt="Cyberpunk anti-duplicate security vault cube" referrerPolicy="no-referrer" class="w-full h-full object-cover">
+              <div class="absolute inset-0 bg-gradient-to-t from-[#0b1024] via-transparent to-transparent"></div>
+            </div>
+            <div class="p-6 space-y-2.5 flex-1">
+              <div class="font-mono text-xs font-semibold text-pink-400">02. Media &amp; Hardware Shield</div>
+              <h3 class="font-display text-xl font-bold text-white">OpenCV Anti-Duplicate &amp; EXIF Wipe</h3>
+              <p class="text-sm text-slate-300 leading-relaxed">
+                Strip camera EXIF metadata, rotate/crop frames by ±0.5°, and apply subtle pixel hash mutation per tab so Facebook sees distinct media uploads every batch.
+              </p>
+            </div>
+          </div>
+
+          <!-- Remaining 4 Core Modules -->
+          <div class="md:col-span-6 lg:col-span-3 cyber-card cyber-card-interactive rounded-2xl p-6 space-y-3">
+            <div class="font-mono text-xs font-semibold text-cyan-300">03. Chrome Path Bridge</div>
             <h3 class="font-display text-lg font-bold text-white">Accounts Vault OR Local Chrome Folder</h3>
-            <p class="text-sm text-slate-400 leading-relaxed">
-              Use imported cookie profiles from Accounts Manager—or click <code class="text-slate-200 font-mono">Chrome Path</code> on 6 workflow pages to scan any local Chrome User Data folder (<code class="text-slate-300 font-mono">Default</code>, <code class="text-slate-300 font-mono">Profile N</code>) directly.
+            <p class="text-sm text-slate-300 leading-relaxed">
+              Use Accounts Manager cookies—or click <code class="text-cyan-200 font-mono">Chrome Path</code> on 6 workflow pages to scan local User Data profiles directly.
             </p>
           </div>
 
-          <div class="surface-card surface-card-interactive rounded-2xl p-6 space-y-3">
-            <div class="font-mono text-xs font-semibold text-indigo-400">03 · WINDOW TILING</div>
+          <div class="md:col-span-6 lg:col-span-3 cyber-card cyber-card-interactive rounded-2xl p-6 space-y-3">
+            <div class="font-mono text-xs font-semibold text-violet-300">04. Window Tiling</div>
             <h3 class="font-display text-lg font-bold text-white">Auto-Tiled Multi-Browser Grid</h3>
-            <p class="text-sm text-slate-400 leading-relaxed">
-              When launching 2 to 8 concurrent Chrome workers, screen geometry is divided evenly into non-overlapping side-by-side slots so you can monitor every active account live without windows hiding each other.
+            <p class="text-sm text-slate-300 leading-relaxed">
+              Launch 2 to 8 concurrent Chrome workers tiled evenly across your screen without overlapping windows hiding progress.
             </p>
           </div>
 
-          <div class="surface-card surface-card-interactive rounded-2xl p-6 space-y-3">
-            <div class="font-mono text-xs font-semibold text-amber-400">04 · MEDIA SHIELD</div>
-            <h3 class="font-display text-lg font-bold text-white">OpenCV Anti-Duplicate &amp; EXIF Wipe</h3>
-            <p class="text-sm text-slate-400 leading-relaxed">
-              Optional toggles strip EXIF camera metadata, rotate/crop frames by ±0.5°, and inject imperceptible pixel/noise mutation per tab so Facebook receives unique image signatures every upload.
+          <div class="md:col-span-6 lg:col-span-3 cyber-card cyber-card-interactive rounded-2xl p-6 space-y-3">
+            <div class="font-mono text-xs font-semibold text-amber-300">05. Account Safety</div>
+            <h3 class="font-display text-lg font-bold text-white">Human Pacing &amp; Visible Fallback</h3>
+            <p class="text-sm text-slate-300 leading-relaxed">
+              Realistic typing jitter, HTTP/SOCKS5 proxies, TOTP 2FA solving, and automatic visible Chrome fallback prevent headless login stalls.
             </p>
           </div>
 
-          <div class="surface-card surface-card-interactive rounded-2xl p-6 space-y-3">
-            <div class="font-mono text-xs font-semibold text-rose-400">05 · ACCOUNT SAFETY</div>
-            <h3 class="font-display text-lg font-bold text-white">Human Behavior Pacing &amp; Proxy Binding</h3>
-            <p class="text-sm text-slate-400 leading-relaxed">
-              Realistic typing cadence, configurable Speed/Action delays, Spintax copy variation, HTTP/SOCKS5 proxy isolation per profile, and strict Live vs Checkpoint separation protect session longevity.
-            </p>
-          </div>
-
-          <div class="surface-card surface-card-interactive rounded-2xl p-6 space-y-3">
-            <div class="font-mono text-xs font-semibold text-purple-400">06 · DESKTOP ERGONOMICS</div>
-            <h3 class="font-display text-lg font-bold text-white">Collapsible Sidebar &amp; Workspace Zoom</h3>
-            <p class="text-sm text-slate-400 leading-relaxed">
-              Click the top-left logo header to fold the sidebar into a compact icon rail, adjust interface zoom anytime with <code class="text-slate-200 font-mono">Ctrl+Scroll</code> or header controls, and track every click with brand load feedback.
+          <div class="md:col-span-6 lg:col-span-3 cyber-card cyber-card-interactive rounded-2xl p-6 space-y-3">
+            <div class="font-mono text-xs font-semibold text-emerald-300">06. Desktop Ergonomics</div>
+            <h3 class="font-display text-lg font-bold text-white">Collapsible Rail &amp; UI Scaling</h3>
+            <p class="text-sm text-slate-300 leading-relaxed">
+              Fold the sidebar into a compact icon rail anytime, zoom cleanly with <code class="text-cyan-200 font-mono">Ctrl+Scroll</code>, and export support ZIP diagnostics in one click.
             </p>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Honest Comparison Matrix -->
-    <section id="comparison" class="py-16 lg:py-20 border-b border-slate-800/70">
+    <!-- Comparison Matrix -->
+    <section id="comparison" class="py-16 lg:py-20 border-b border-cyan-500/15">
       <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-10">
-          <p class="font-mono text-xs font-semibold uppercase tracking-widest text-indigo-400 mb-2">Workflow Comparison</p>
-          <h2 class="font-display text-3xl font-bold text-white">Manual workflow vs. single-purpose tools vs. FB Auto Bot</h2>
+          <div class="font-mono text-xs font-semibold uppercase tracking-widest text-cyan-300 mb-2">Workflow Comparison</div>
+          <h2 class="font-display text-3xl font-bold text-white">Manual workflow vs. single extensions vs. <span class="cyber-gradient-text">FB Auto Bot</span></h2>
         </div>
 
-        <div class="surface-card rounded-2xl overflow-hidden">
+        <div class="cyber-card rounded-2xl overflow-hidden">
           <div class="overflow-x-auto">
             <table class="w-full text-left text-sm">
               <thead>
-                <tr class="border-b border-slate-800 bg-[#080d19] text-xs uppercase tracking-wider text-slate-400">
-                  <th class="py-3.5 px-5 font-semibold">Operational Capability</th>
-                  <th class="py-3.5 px-5 font-semibold">Manual Work</th>
-                  <th class="py-3.5 px-5 font-semibold">Chrome Extensions</th>
-                  <th class="py-3.5 px-5 font-bold text-indigo-400">FB Auto Bot Desktop</th>
+                <tr class="border-b border-cyan-500/20 bg-[#070b1c] text-xs uppercase tracking-wider text-slate-400">
+                  <th class="py-4 px-5 font-semibold">Operational Capability</th>
+                  <th class="py-4 px-5 font-semibold">Manual Work</th>
+                  <th class="py-4 px-5 font-semibold">Chrome Extensions</th>
+                  <th class="py-4 px-5 font-bold text-cyan-300 bg-cyan-500/10">FB Auto Bot Desktop</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-800/80 text-slate-300">
                 <tr>
-                  <td class="py-3.5 px-5 font-medium text-white">Simultaneous Multi-Tab Listing Publish</td>
-                  <td class="py-3.5 px-5 text-slate-500">1 tab manually</td>
-                  <td class="py-3.5 px-5 text-slate-500">Single-tab form fill</td>
-                  <td class="py-3.5 px-5 text-emerald-400 font-semibold">&lt;1ms Barrier Across Up to 100 Tabs</td>
+                  <td class="py-4 px-5 font-medium text-white">Simultaneous Multi-Tab Listing Publish</td>
+                  <td class="py-4 px-5 text-slate-500">1 tab manually</td>
+                  <td class="py-4 px-5 text-slate-500">Single-tab form fill</td>
+                  <td class="py-4 px-5 text-emerald-300 font-semibold bg-cyan-500/[0.04]">&lt;1ms Barrier Across Up to 100 Tabs</td>
                 </tr>
                 <tr>
-                  <td class="py-3.5 px-5 font-medium text-white">Saved Multi-Tab Product Campaigns</td>
-                  <td class="py-3.5 px-5 text-slate-500">Spreadsheets &amp; copy-paste</td>
-                  <td class="py-3.5 px-5 text-slate-500">Not supported</td>
-                  <td class="py-3.5 px-5 text-emerald-400 font-semibold">Project Folders + Per-Tab Config + JSON</td>
+                  <td class="py-4 px-5 font-medium text-white">Saved Multi-Tab Product Campaigns</td>
+                  <td class="py-4 px-5 text-slate-500">Spreadsheets &amp; copy-paste</td>
+                  <td class="py-4 px-5 text-slate-500">Not supported</td>
+                  <td class="py-4 px-5 text-cyan-300 font-semibold bg-cyan-500/[0.04]">Project Folders + Per-Tab Config + JSON</td>
                 </tr>
                 <tr>
-                  <td class="py-3.5 px-5 font-medium text-white">Bulk Renew &amp; Delete Old Listings</td>
-                  <td class="py-3.5 px-5 text-slate-500">Click every listing one by one</td>
-                  <td class="py-3.5 px-5 text-slate-500">No verification loop</td>
-                  <td class="py-3.5 px-5 text-emerald-400 font-semibold">Automated Renew &amp; Delete + Refresh Verify</td>
+                  <td class="py-4 px-5 font-medium text-white">Bulk Renew &amp; Delete Old Listings</td>
+                  <td class="py-4 px-5 text-slate-500">Click every listing one by one</td>
+                  <td class="py-4 px-5 text-slate-500">No verification loop</td>
+                  <td class="py-4 px-5 text-emerald-300 font-semibold bg-cyan-500/[0.04]">Automated Renew &amp; Delete + Refresh Verify</td>
                 </tr>
                 <tr>
-                  <td class="py-3.5 px-5 font-medium text-white">Local Chrome Path + METUS / FewFeed</td>
-                  <td class="py-3.5 px-5 text-slate-500">Open folders manually</td>
-                  <td class="py-3.5 px-5 text-slate-400">1 profile window at a time</td>
-                  <td class="py-3.5 px-5 text-emerald-400 font-semibold">Auto-Scan Chrome Folder + Tiled Grid</td>
+                  <td class="py-4 px-5 font-medium text-white">Local Chrome Path + METUS / FewFeed</td>
+                  <td class="py-4 px-5 text-slate-500">Open folders manually</td>
+                  <td class="py-4 px-5 text-slate-400">1 profile window at a time</td>
+                  <td class="py-4 px-5 text-pink-300 font-semibold bg-cyan-500/[0.04]">Auto-Scan Chrome Folder + Tiled Grid</td>
                 </tr>
                 <tr>
-                  <td class="py-3.5 px-5 font-medium text-white">Pages, Reels, Friends, Profile Pic &amp; Cookies</td>
-                  <td class="py-3.5 px-5 text-slate-500">Hours of repetitive setup</td>
-                  <td class="py-3.5 px-5 text-slate-500">Disconnected tools</td>
-                  <td class="py-3.5 px-5 text-emerald-400 font-semibold">All 12 Unified Pages + TOTP 2FA</td>
+                  <td class="py-4 px-5 font-medium text-white">Pages, Reels, Friends, Profile Pic &amp; Cookies</td>
+                  <td class="py-4 px-5 text-slate-500">Hours of repetitive setup</td>
+                  <td class="py-4 px-5 text-slate-500">Disconnected tools</td>
+                  <td class="py-4 px-5 text-violet-300 font-semibold bg-cyan-500/[0.04]">All 12 Unified Pages + TOTP 2FA</td>
                 </tr>
               </tbody>
             </table>
@@ -722,63 +1123,63 @@
     </section>
 
     <!-- Transparent Hardware-Locked Licensing -->
-    <section id="pricing" class="py-16 lg:py-20 bg-[#080d19] border-b border-slate-800/70">
+    <section id="pricing" class="py-16 lg:py-20 bg-[#060919]/75 border-b border-cyan-500/15">
       <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-12">
-          <p class="font-mono text-xs font-semibold uppercase tracking-widest text-indigo-400 mb-2">Licensing Plans</p>
+          <div class="font-mono text-xs font-semibold uppercase tracking-widest text-pink-400 mb-2">Licensing Plans</div>
           <h2 class="font-display text-3xl sm:text-4xl font-bold text-white">Simple hardware-locked Windows licensing</h2>
-          <p class="text-sm text-slate-400 mt-2">Every plan unlocks all 12 automation pages on your Windows machine via direct WhatsApp key delivery.</p>
+          <p class="text-sm text-slate-300 mt-2">Every plan unlocks all 12 automation pages on your Windows machine via direct WhatsApp key delivery.</p>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto tabular-nums">
           <!-- Monthly Plan -->
-          <div class="surface-card rounded-2xl p-7 flex flex-col justify-between">
+          <div class="cyber-card rounded-2xl p-7 flex flex-col justify-between">
             <div>
               <div class="flex items-center justify-between mb-4">
-                <span class="text-sm font-bold text-white">Monthly Pass</span>
-                <span class="font-mono text-xs text-slate-400">30 DAYS</span>
+                <span class="font-display text-base font-bold text-white">Monthly Pass</span>
+                <span class="font-mono text-xs text-cyan-300">30 DAYS</span>
               </div>
-              <div class="flex items-baseline space-x-1.5 mb-2">
-                <span class="font-display text-4xl font-extrabold text-white">$10</span>
+              <div class="flex items-baseline gap-1.5 mb-2">
+                <span class="font-display text-4xl font-bold text-white">$10</span>
                 <span class="text-sm text-slate-400">/ month</span>
               </div>
               <p class="text-xs text-slate-400 mb-6">Complete suite access locked to your Windows Machine HWID.</p>
 
-              <ul class="space-y-2.5 text-sm text-slate-300 mb-8">
-                <li class="flex items-center space-x-2.5"><span class="text-emerald-400 font-bold">✓</span><span>All 12 Desktop Automation Pages</span></li>
-                <li class="flex items-center space-x-2.5"><span class="text-emerald-400 font-bold">✓</span><span>Unlimited Accounts, Chrome Paths &amp; Proxies</span></li>
-                <li class="flex items-center space-x-2.5"><span class="text-emerald-400 font-bold">✓</span><span>&lt;1ms Multi-Tab Publish &amp; OpenCV Image Shield</span></li>
-                <li class="flex items-center space-x-2.5"><span class="text-emerald-400 font-bold">✓</span><span>WhatsApp Support &amp; Software Updates</span></li>
+              <ul class="space-y-3 text-sm text-slate-200 mb-8">
+                <li class="flex items-center gap-2.5"><span class="text-emerald-400 font-bold">✓</span><span>All 12 Desktop Automation Pages</span></li>
+                <li class="flex items-center gap-2.5"><span class="text-emerald-400 font-bold">✓</span><span>Unlimited Accounts, Chrome Paths &amp; Proxies</span></li>
+                <li class="flex items-center gap-2.5"><span class="text-emerald-400 font-bold">✓</span><span>&lt;1ms Multi-Tab Publish &amp; OpenCV Image Shield</span></li>
+                <li class="flex items-center gap-2.5"><span class="text-emerald-400 font-bold">✓</span><span>WhatsApp Support &amp; Software Updates</span></li>
               </ul>
             </div>
 
-            <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20Monthly%20Pass%20%28%2410%29%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a Monthly Pass ($10) for FB Auto Bot.')" class="w-full py-3 rounded-xl text-sm font-semibold text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 text-center transition-colors cursor-pointer">
+            <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20Monthly%20Pass%20%28%2410%29%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a Monthly Pass ($10) for FB Auto Bot.')" class="w-full py-3 rounded-xl text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 border border-cyan-400/45 text-center transition-colors cursor-pointer">
               Get Monthly Key ($10)
             </a>
           </div>
 
           <!-- Yearly Plan -->
-          <div class="rounded-2xl p-7 bg-[#0d1428] border-2 border-indigo-500/60 flex flex-col justify-between shadow-xl shadow-indigo-950/30">
+          <div class="cyber-card hud-frame rounded-2xl p-7 border-fuchsia-500/45 flex flex-col justify-between shadow-[0_0_40px_rgba(244,63,142,0.14)]">
             <div>
               <div class="flex items-center justify-between mb-4">
-                <span class="text-sm font-bold text-white">Yearly Pass</span>
-                <span class="font-mono text-xs text-indigo-300 font-semibold">SAVE $20 · 365 DAYS</span>
+                <span class="font-display text-base font-bold text-white">Yearly Pass</span>
+                <span class="font-mono text-xs text-pink-300 font-semibold">SAVE $20 · 365 DAYS</span>
               </div>
-              <div class="flex items-baseline space-x-1.5 mb-2">
-                <span class="font-display text-4xl font-extrabold text-white">$100</span>
+              <div class="flex items-baseline gap-1.5 mb-2">
+                <span class="font-display text-4xl font-bold cyber-gradient-text">$100</span>
                 <span class="text-sm text-slate-400">/ year</span>
               </div>
               <p class="text-xs text-slate-400 mb-6">Built for daily Marketplace sellers, teams, and agencies.</p>
 
-              <ul class="space-y-2.5 text-sm text-slate-200 mb-8">
-                <li class="flex items-center space-x-2.5"><span class="text-emerald-400 font-bold">✓</span><span>Everything in Monthly Pass for 12 Months</span></li>
-                <li class="flex items-center space-x-2.5"><span class="text-emerald-400 font-bold">✓</span><span>Priority Facebook Layout &amp; Selector Updates</span></li>
-                <li class="flex items-center space-x-2.5"><span class="text-emerald-400 font-bold">✓</span><span>METUS / FewFeed &amp; Custom Chrome Profile Ready</span></li>
-                <li class="flex items-center space-x-2.5"><span class="text-emerald-400 font-bold">✓</span><span>Direct Priority WhatsApp Onboarding</span></li>
+              <ul class="space-y-3 text-sm text-slate-100 mb-8">
+                <li class="flex items-center gap-2.5"><span class="text-cyan-300 font-bold">✓</span><span>Everything in Monthly Pass for 12 Months</span></li>
+                <li class="flex items-center gap-2.5"><span class="text-cyan-300 font-bold">✓</span><span>Priority Facebook Layout &amp; Selector Updates</span></li>
+                <li class="flex items-center gap-2.5"><span class="text-cyan-300 font-bold">✓</span><span>METUS / FewFeed &amp; Custom Chrome Profile Ready</span></li>
+                <li class="flex items-center gap-2.5"><span class="text-cyan-300 font-bold">✓</span><span>Direct Priority WhatsApp Onboarding</span></li>
               </ul>
             </div>
 
-            <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20Yearly%20Pass%20%28%24100%29%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a Yearly Pass ($100) for FB Auto Bot.')" class="w-full py-3 rounded-xl text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 text-center transition-colors cursor-pointer">
+            <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20Yearly%20Pass%20%28%24100%29%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a Yearly Pass ($100) for FB Auto Bot.')" class="w-full py-3 rounded-xl text-sm font-bold text-slate-950 bg-gradient-to-r from-cyan-400 via-emerald-400 to-teal-300 hover:brightness-110 text-center transition-all cursor-pointer">
               Get Yearly Key ($100)
             </a>
           </div>
@@ -787,42 +1188,42 @@
     </section>
 
     <!-- 4-Step Installation & Setup Guide -->
-    <section id="install" class="py-16 lg:py-20 border-b border-slate-800/70">
+    <section id="install" class="py-16 lg:py-20 border-b border-cyan-500/15">
       <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center max-w-2xl mx-auto mb-12">
-          <p class="font-mono text-xs font-semibold uppercase tracking-widest text-emerald-400 mb-2">Quick Start</p>
+          <div class="font-mono text-xs font-semibold uppercase tracking-widest text-emerald-400 mb-2">Quick Start</div>
           <h2 class="font-display text-3xl font-bold text-white">Download, install, and unlock in 4 steps</h2>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
-          <div class="surface-card rounded-xl p-5 space-y-2">
+          <div class="cyber-card rounded-xl p-5 space-y-2 border-emerald-500/30">
             <div class="font-mono text-xs font-bold text-emerald-400">STEP 01</div>
-            <h3 class="text-sm font-bold text-white">Download Setup</h3>
-            <p class="text-xs text-slate-400 leading-relaxed">Grab the verified latest Windows installer from the Google Drive button below.</p>
+            <h3 class="font-display text-base font-bold text-white">Download Setup</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">Grab the verified latest Windows installer from the Google Drive button below.</p>
           </div>
-          <div class="surface-card rounded-xl p-5 space-y-2">
-            <div class="font-mono text-xs font-bold text-indigo-400">STEP 02</div>
-            <h3 class="text-sm font-bold text-white">Install on Windows</h3>
-            <p class="text-xs text-slate-400 leading-relaxed">Run the setup wizard on Windows 10 or 11. Preserves existing accounts and projects on updates.</p>
+          <div class="cyber-card rounded-xl p-5 space-y-2 border-cyan-500/30">
+            <div class="font-mono text-xs font-bold text-cyan-300">STEP 02</div>
+            <h3 class="font-display text-base font-bold text-white">Install on Windows</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">Run the setup wizard on Windows 10 or 11. Preserves existing accounts and projects on updates.</p>
           </div>
-          <div class="surface-card rounded-xl p-5 space-y-2">
-            <div class="font-mono text-xs font-bold text-sky-400">STEP 03</div>
-            <h3 class="text-sm font-bold text-white">Copy Machine HWID</h3>
-            <p class="text-xs text-slate-400 leading-relaxed">Open FB Auto Bot and copy your Machine Hardware ID (HWID) from the activation prompt or Profile page.</p>
+          <div class="cyber-card rounded-xl p-5 space-y-2 border-fuchsia-500/30">
+            <div class="font-mono text-xs font-bold text-pink-400">STEP 03</div>
+            <h3 class="font-display text-base font-bold text-white">Copy Machine HWID</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">Open FB Auto Bot and copy your Machine Hardware ID (HWID) from the activation prompt or Profile page.</p>
           </div>
-          <div class="surface-card rounded-xl p-5 space-y-2">
-            <div class="font-mono text-xs font-bold text-amber-400">STEP 04</div>
-            <h3 class="text-sm font-bold text-white">Activate Key</h3>
-            <p class="text-xs text-slate-400 leading-relaxed">Send your HWID on WhatsApp (+1 401-572-1696), paste your signed key, and start automating.</p>
+          <div class="cyber-card rounded-xl p-5 space-y-2 border-amber-500/30">
+            <div class="font-mono text-xs font-bold text-amber-300">STEP 04</div>
+            <h3 class="font-display text-base font-bold text-white">Activate Key</h3>
+            <p class="text-xs text-slate-300 leading-relaxed">Send your HWID on WhatsApp (+1 401-572-1696), paste your signed key, and start automating.</p>
           </div>
         </div>
 
-        <div class="flex flex-wrap items-center justify-center gap-3">
-          <a href="https://drive.google.com/file/d/1BJJpRR4W-5v7RkwIHDEpKqEGQ7XyfAzB/view?usp=sharing" target="_blank" rel="noopener noreferrer" class="inline-flex items-center space-x-2 px-6 py-3 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 transition-colors whitespace-nowrap">
-            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+        <div class="flex flex-wrap items-center justify-center gap-3.5">
+          <a href="https://drive.google.com/file/d/1MNX27_FwzmFcMImhpQTMzUA0Ms0XhBm9/view?usp=sharing" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl text-sm font-bold text-slate-950 bg-gradient-to-r from-cyan-400 via-emerald-400 to-teal-300 hover:brightness-110 transition-all whitespace-nowrap">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
             <span>Download Setup (.exe)</span>
           </a>
-          <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="inline-flex items-center space-x-2 px-6 py-3 rounded-xl text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 transition-colors cursor-pointer whitespace-nowrap">
+          <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 border border-fuchsia-500/45 transition-colors cursor-pointer whitespace-nowrap">
             <span>Chat on WhatsApp (+1 401-572-1696)</span>
           </a>
         </div>
@@ -830,48 +1231,48 @@
     </section>
 
     <!-- FAQ Accordion -->
-    <section id="faq" class="py-16 lg:py-20 bg-[#080d19]">
+    <section id="faq" class="py-16 lg:py-20 bg-[#060919]/75">
       <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
         <h2 class="font-display text-2xl sm:text-3xl font-bold text-white text-center mb-8">Frequently Asked Questions</h2>
 
         <div class="space-y-3">
-          <div class="surface-card rounded-xl overflow-hidden">
+          <div class="cyber-card rounded-xl overflow-hidden">
             <button type="button" class="faq-toggle w-full px-5 py-4 flex items-center justify-between text-left text-sm font-semibold text-white cursor-pointer">
               <span>When using Chrome Path, why should I close that profile window first?</span>
-              <svg class="faq-icon w-4 h-4 text-slate-400 transition-transform duration-200 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              <svg class="faq-icon w-4 h-4 text-cyan-300 transition-transform duration-200 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </button>
-            <div class="faq-content hidden px-5 pb-4 text-xs sm:text-sm text-slate-400 leading-relaxed">
+            <div class="faq-content hidden px-5 pb-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
               Google Chrome locks a profile directory while another Chrome window has that same profile open. Closing it manually first allows the bot to launch that exact logged-in session cleanly without touching any of your other open browser windows.
             </div>
           </div>
 
-          <div class="surface-card rounded-xl overflow-hidden">
+          <div class="cyber-card rounded-xl overflow-hidden">
             <button type="button" class="faq-toggle w-full px-5 py-4 flex items-center justify-between text-left text-sm font-semibold text-white cursor-pointer">
               <span>What is the difference between Standard &amp; Bulk Listing and Product Listing?</span>
-              <svg class="faq-icon w-4 h-4 text-slate-400 transition-transform duration-200 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              <svg class="faq-icon w-4 h-4 text-cyan-300 transition-transform duration-200 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </button>
-            <div class="faq-content hidden px-5 pb-4 text-xs sm:text-sm text-slate-400 leading-relaxed">
+            <div class="faq-content hidden px-5 pb-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
               Standard &amp; Bulk Listing runs one shared product configuration across N tabs and multiple accounts (with location rotation and image shuffling). Product Listing lets you save entire multi-tab campaign folders where Tab 1, Tab 2, and Tab N each store completely different items, vehicles, properties, photos, and cities—then publishes all tabs at once in &lt;1ms.
             </div>
           </div>
 
-          <div class="surface-card rounded-xl overflow-hidden">
+          <div class="cyber-card rounded-xl overflow-hidden">
             <button type="button" class="faq-toggle w-full px-5 py-4 flex items-center justify-between text-left text-sm font-semibold text-white cursor-pointer">
               <span>Does updating to a newer installer overwrite my accounts or projects?</span>
-              <svg class="faq-icon w-4 h-4 text-slate-400 transition-transform duration-200 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              <svg class="faq-icon w-4 h-4 text-cyan-300 transition-transform duration-200 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </button>
-            <div class="faq-content hidden px-5 pb-4 text-xs sm:text-sm text-slate-400 leading-relaxed">
+            <div class="faq-content hidden px-5 pb-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
               No. Your Accounts database, Product Listing projects, activity history, and machine license remain intact across installer upgrades.
             </div>
           </div>
 
-          <div class="surface-card rounded-xl overflow-hidden">
+          <div class="cyber-card rounded-xl overflow-hidden">
             <button type="button" class="faq-toggle w-full px-5 py-4 flex items-center justify-between text-left text-sm font-semibold text-white cursor-pointer">
               <span>How does Extract ID Cookie protect healthy accounts from checkpoints?</span>
-              <svg class="faq-icon w-4 h-4 text-slate-400 transition-transform duration-200 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              <svg class="faq-icon w-4 h-4 text-cyan-300 transition-transform duration-200 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </button>
-            <div class="faq-content hidden px-5 pb-4 text-xs sm:text-sm text-slate-400 leading-relaxed">
-              It signs in using your UID/Email, Password, and optional TOTP 2FA secret, separates verified Live sessions (<code class="text-slate-300 font-mono">c_user</code> + <code class="text-slate-300 font-mono">xs</code>) into one list and Checkpoint accounts into another, and syncs only Live sessions into your Accounts Vault.
+            <div class="faq-content hidden px-5 pb-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
+              It signs in using your UID/Email, Password, and optional TOTP 2FA secret, automatically falls back to visible Chrome if background mode hits a timeout, separates verified Live sessions (<code class="text-cyan-200 font-mono">c_user</code> + <code class="text-cyan-200 font-mono">xs</code>) into one list and Checkpoint accounts into another, and syncs only Live sessions into your Accounts Vault.
             </div>
           </div>
         </div>
@@ -879,32 +1280,38 @@
     </section>
   </main>
 
-  <!-- Footer -->
-  <footer class="border-t border-slate-800/80 bg-[#04070d] py-8">
+  <!-- Quiet Footer -->
+  <footer class="border-t border-cyan-500/15 bg-[#040611] py-8">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-400">
-      <div class="flex items-center space-x-2.5">
-        <img src="assets/logo.png" alt="FB Auto Bot" class="w-5 h-5 rounded object-contain">
-        <span class="font-semibold text-slate-200">FB Auto Bot</span>
-        <span class="text-slate-600">•</span>
-        <span>Developed by <strong class="text-sky-400">ABM CodeSpace</strong></span>
+      <div class="flex items-center gap-3">
+        <div class="relative w-10 h-10 rounded-lg bg-[#040714] border border-cyan-400/45 overflow-hidden flex items-center justify-center shrink-0">
+          <img src="assets/cyber-avatar-logo.jpg" alt="FB Auto Bot" referrerPolicy="no-referrer" class="w-full h-full object-cover anim-avatar-breathe">
+          <div class="absolute inset-0 bg-[#04111f]/70 pointer-events-none" style="clip-path: polygon(32% 72%, 52% 70%, 54% 87%, 32% 86%);"></div>
+          <img src="assets/cyber-avatar-logo.jpg" alt="" aria-hidden="true" referrerPolicy="no-referrer" class="absolute inset-0 w-full h-full object-cover pointer-events-none anim-hand-back" style="clip-path: polygon(34% 72%, 49% 70%, 51% 81%, 33% 83%);">
+          <img src="assets/cyber-avatar-logo.jpg" alt="" aria-hidden="true" referrerPolicy="no-referrer" class="absolute inset-0 w-full h-full object-cover pointer-events-none anim-hand-front" style="clip-path: polygon(38% 75%, 64% 72%, 66% 90%, 40% 89%);">
+          <div class="absolute left-[6%] top-[44%] w-[26%] h-[42%] rounded-full bg-cyan-400/30 blur-[4px] mix-blend-screen pointer-events-none anim-screen-glow"></div>
+        </div>
+        <span class="font-display font-bold text-slate-100">FB Auto Bot</span>
+        <span aria-hidden="true">·</span>
+        <span>Developed by <strong class="text-cyan-300">ABM CodeSpace</strong></span>
       </div>
-      <div class="flex flex-wrap items-center gap-5">
-        <a href="https://drive.google.com/file/d/1BJJpRR4W-5v7RkwIHDEpKqEGQ7XyfAzB/view?usp=sharing" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">Download Setup</a>
-        <a href="#page-guide" class="hover:text-white transition-colors">12-Page Guide</a>
-        <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="hover:text-white transition-colors cursor-pointer">WhatsApp Support</a>
-        <a href="#faq" class="hover:text-white transition-colors">FAQ</a>
+      <div class="flex flex-wrap items-center gap-6">
+        <a href="https://drive.google.com/file/d/1MNX27_FwzmFcMImhpQTMzUA0Ms0XhBm9/view?usp=sharing" target="_blank" rel="noopener noreferrer" class="hover:text-cyan-300 transition-colors">Download Setup</a>
+        <a href="#page-guide" class="hover:text-cyan-300 transition-colors">12-Page Guide</a>
+        <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="hover:text-pink-300 transition-colors cursor-pointer">WhatsApp Support</a>
+        <a href="#faq" class="hover:text-cyan-300 transition-colors">FAQ</a>
       </div>
     </div>
   </footer>
 
-  <!-- Mobile Bottom Sticky CTA Bar -->
-  <div class="fixed bottom-0 inset-x-0 z-40 md:hidden border-t border-slate-800 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] bg-[#05080f]/95 backdrop-blur-xl">
+  <!-- Mobile Bottom Sticky CTA Bar (Compact <= 15% Viewport Height) -->
+  <div class="fixed bottom-0 inset-x-0 z-40 md:hidden border-t border-cyan-500/25 p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] bg-[#050713]/95 backdrop-blur-xl">
     <div class="max-w-md mx-auto flex items-center gap-2">
-      <a href="https://drive.google.com/file/d/1BJJpRR4W-5v7RkwIHDEpKqEGQ7XyfAzB/view?usp=sharing" target="_blank" rel="noopener noreferrer" class="flex-1 h-10 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center space-x-1.5 whitespace-nowrap">
-        <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+      <a href="https://drive.google.com/file/d/1MNX27_FwzmFcMImhpQTMzUA0Ms0XhBm9/view?usp=sharing" target="_blank" rel="noopener noreferrer" class="flex-1 h-11 px-3 rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 text-slate-950 text-xs font-bold flex items-center justify-center gap-1.5 whitespace-nowrap">
+        <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
         <span>Download Setup (.exe)</span>
       </a>
-      <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="flex-1 h-10 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center justify-center space-x-1.5 whitespace-nowrap cursor-pointer">
+      <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="flex-1 h-11 px-3 rounded-xl bg-slate-900 border border-fuchsia-500/50 text-white text-xs font-semibold flex items-center justify-center whitespace-nowrap cursor-pointer">
         <span>WhatsApp Key</span>
       </a>
     </div>
@@ -912,36 +1319,42 @@
 
   <!-- Download & HWID Activation Modal -->
   <div id="download-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 hidden">
-    <div class="surface-card w-full max-w-lg rounded-2xl p-6 border border-indigo-500/40 shadow-2xl relative">
-      <button onclick="closeDownloadModal()" class="absolute top-4 right-4 w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center cursor-pointer" aria-label="Close modal">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+    <div class="cyber-card hud-frame w-full max-w-lg rounded-2xl p-6 shadow-2xl relative">
+      <button type="button" onclick="closeDownloadModal()" class="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-900 hover:bg-slate-800 border border-cyan-500/30 text-slate-300 hover:text-white flex items-center justify-center cursor-pointer" aria-label="Close modal">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
       </button>
 
-      <div class="flex items-center space-x-3 mb-4">
-        <img src="assets/logo.png" alt="FB Auto Bot" class="w-9 h-9 rounded-lg object-contain">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="relative w-12 h-12 rounded-xl bg-[#040714] border border-cyan-400/50 overflow-hidden shrink-0">
+          <img src="assets/cyber-avatar-logo.jpg" alt="FB Auto Bot" referrerPolicy="no-referrer" class="w-full h-full object-cover anim-avatar-breathe">
+          <div class="absolute inset-0 bg-[#04111f]/70 pointer-events-none" style="clip-path: polygon(32% 72%, 52% 70%, 54% 87%, 32% 86%);"></div>
+          <img src="assets/cyber-avatar-logo.jpg" alt="" aria-hidden="true" referrerPolicy="no-referrer" class="absolute inset-0 w-full h-full object-cover pointer-events-none anim-hand-back" style="clip-path: polygon(34% 72%, 49% 70%, 51% 81%, 33% 83%);">
+          <img src="assets/cyber-avatar-logo.jpg" alt="" aria-hidden="true" referrerPolicy="no-referrer" class="absolute inset-0 w-full h-full object-cover pointer-events-none anim-hand-front" style="clip-path: polygon(38% 75%, 64% 72%, 66% 90%, 40% 89%);">
+          <div class="absolute left-[6%] top-[44%] w-[26%] h-[42%] rounded-full bg-cyan-400/25 blur-[4px] mix-blend-screen pointer-events-none anim-screen-glow"></div>
+        </div>
         <div>
           <h3 class="font-display text-lg font-bold text-white">Download &amp; Activate FB Auto Bot</h3>
-          <p class="text-xs text-slate-400">Windows 10 / 11 64-Bit • By ABM CodeSpace</p>
+          <p class="text-xs text-slate-400">Windows 10 / 11 64-Bit · By ABM CodeSpace</p>
         </div>
       </div>
 
-      <div class="space-y-2.5 mb-5 text-xs text-slate-300">
-        <div class="p-3 rounded-xl bg-[#070b14] border border-slate-800">
-          <strong class="text-white">1. Download &amp; Run Setup:</strong> Get the latest Windows installer package directly from our Google Drive link below.
+      <div class="space-y-2.5 mb-5 text-xs text-slate-200">
+        <div class="p-3 rounded-xl cyber-subpanel border-cyan-500/20">
+          <strong class="text-cyan-300">1. Download &amp; Run Setup:</strong> Get the latest Windows installer package directly from Google Drive.
         </div>
-        <div class="p-3 rounded-xl bg-[#070b14] border border-slate-800">
-          <strong class="text-white">2. Copy Machine HWID:</strong> Open FB Auto Bot and copy the unique Hardware ID shown on your license card.
+        <div class="p-3 rounded-xl cyber-subpanel border-emerald-500/20">
+          <strong class="text-emerald-300">2. Copy Machine HWID:</strong> Open FB Auto Bot and copy the unique Hardware ID shown on your license card.
         </div>
-        <div class="p-3 rounded-xl bg-[#070b14] border border-slate-800">
-          <strong class="text-white">3. Unlock Instantly:</strong> Send your HWID to WhatsApp <code class="text-indigo-300 font-mono">+14015721696</code> and paste your signed key into the app.
+        <div class="p-3 rounded-xl cyber-subpanel border-fuchsia-500/20">
+          <strong class="text-pink-300">3. Unlock Instantly:</strong> Send your HWID to WhatsApp <code class="text-cyan-200 font-mono">+14015721696</code> and paste your signed key into the app.
         </div>
       </div>
 
       <div class="flex flex-col sm:flex-row gap-2.5">
-        <a href="https://drive.google.com/file/d/1BJJpRR4W-5v7RkwIHDEpKqEGQ7XyfAzB/view?usp=sharing" target="_blank" rel="noopener noreferrer" onclick="handleDriveDownload()" class="flex-1 py-2.5 px-4 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 flex items-center justify-center space-x-1.5 whitespace-nowrap">
+        <a href="https://drive.google.com/file/d/1MNX27_FwzmFcMImhpQTMzUA0Ms0XhBm9/view?usp=sharing" target="_blank" rel="noopener noreferrer" onclick="handleDriveDownload()" class="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-slate-950 bg-gradient-to-r from-cyan-400 to-emerald-400 hover:brightness-110 flex items-center justify-center whitespace-nowrap">
           <span id="dl-btn-text">Download Setup (.exe)</span>
         </a>
-        <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="flex-1 py-2.5 px-4 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 flex items-center justify-center cursor-pointer whitespace-nowrap">
+        <a href="whatsapp://send?phone=14015721696&text=Hi%2C%20I%20want%20to%20buy%20a%20License%20Key%20for%20FB%20Auto%20Bot." onclick="openWhatsApp(event, 'Hi, I want to buy a License Key for FB Auto Bot.')" class="flex-1 py-2.5 px-4 rounded-xl text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 border border-fuchsia-500/45 flex items-center justify-center cursor-pointer whitespace-nowrap">
           <span>Chat on WhatsApp</span>
         </a>
       </div>
@@ -954,7 +1367,7 @@
       {
         id: 'dashboard',
         num: '01',
-        icon: '📊',
+        accent: 'text-cyan-300',
         name: 'Dashboard',
         sourceMode: 'Workspace Command Hub',
         summary: 'Central home screen displaying your live license tier, expiration countdown, active accounts overview, and fast shortcuts into every automation page.',
@@ -973,28 +1386,28 @@
       {
         id: 'accounts',
         num: '02',
-        icon: '👥',
+        accent: 'text-emerald-300',
         name: 'Accounts Manager',
         sourceMode: 'Central Session Vault',
-        summary: 'Store, verify, log in, and organize unlimited Facebook accounts using either imported session cookies or UID / Password / 2FA credentials with per-account proxies.',
+        summary: 'Store, verify, log in, and organize unlimited Facebook accounts using either imported session cookies or UID / Password / 2FA credentials with persistent profile storage and per-account proxies.',
         steps: [
           'Paste Facebook Cookies (JSON array or semicolon format) OR UID|Password|2FA lines into the Bulk Import box, or click Upload .TXT / .JSON File.',
           'Choose Cookie Extraction Target Mode: Personal Profile or Facebook Page if logging in via credentials.',
           'Optionally enter Proxy Host:Port (HTTP or SOCKS5) plus Proxy User/Pass and click Import / Add Account(s) or Capture via Browser.',
-          'Run Test Health or Audit / Login All to confirm active Live status before running listings, groups, or pages.'
+          'Run Test Health or Auto-Login Selected to confirm active Live status—automatically falling back to visible Chrome if background login ever stalls.'
         ],
         inputs: [
           { field: 'Cookies / Credentials Box', goes: 'Add / Import Account(s) Left Panel', desc: 'Supports single or 100+ lines: JSON cookies, c_user=..; xs=.. strings, or UID|Pass|2FASecret.' },
           { field: 'Profile Alias / Name', goes: 'Optional Label Input', desc: 'Custom display label; leave blank to auto-detect name from the Facebook session.' },
           { field: 'Proxy Host + Protocol', goes: 'Proxy Configuration Row', desc: 'Bind HTTP or SOCKS5 residential proxy per profile, or leave Direct.' },
-          { field: 'Audit / Login & METUS Setup', goes: 'Configured Profiles Vault Toolbar', desc: 'Auto-login selected IDs, open Chrome manually, test cookie health, or pre-configure METUS.' }
+          { field: 'Auto-Login & METUS Setup', goes: 'Configured Profiles Vault Toolbar', desc: 'Auto-login selected IDs with persistent profile fallback, open Chrome manually, test cookie health, or pre-configure METUS.' }
         ],
         tip: 'Accounts stored here automatically populate the Target Facebook Accounts checklist across every automation page.'
       },
       {
         id: 'standard_listing',
         num: '03',
-        icon: '⚡',
+        accent: 'text-cyan-300',
         name: 'Standard & Bulk Listing',
         sourceMode: 'Accounts Manager (Multi-Account + Multi-Tab)',
         summary: 'Publish Marketplace listings in bulk across one or multiple accounts simultaneously. Opens N tabs per account, fills every tab cleanly with rotated locations and protected images, then fires Publish across all tabs in under 1 millisecond.',
@@ -1015,7 +1428,7 @@
       {
         id: 'product_listing',
         num: '04',
-        icon: '📁',
+        accent: 'text-violet-300',
         name: 'Product Listing',
         sourceMode: 'Accounts Manager (Saved Multi-Tab Projects)',
         summary: 'Build reusable Project Folders where every tab holds a completely different product, vehicle, or rental listing. Save your multi-tab setup once and launch all tabs together in <1ms anytime.',
@@ -1036,18 +1449,18 @@
       {
         id: 'renew_delete',
         num: '05',
-        icon: '🔄',
+        accent: 'text-pink-300',
         name: 'Renew / Delete Listing',
-        sourceMode: 'Accounts Manager OR 📁 Chrome Path',
+        sourceMode: 'Accounts Manager OR Chrome Path',
         summary: 'Clean out expired/stale Marketplace inventory or renew eligible listings across multiple accounts or local Chrome profiles using two dedicated action engines.',
         steps: [
-          'Choose target accounts from Accounts Manager—OR click 📁 Chrome Path, pick your local Chrome User Data folder, and select scanned profiles.',
+          'Choose target accounts from Accounts Manager—OR click Chrome Path, pick your local Chrome User Data folder, and select scanned profiles.',
           'Set How Many Open Chrome Browsers (concurrent grid slots), Action Delay (Sec), and Network mode (Direct or Assigned Proxy).',
           'For Renewals: set Max Renews / ID (0 = All) and click Renew All Listings—opens Seller dashboard → To renew modal and clicks every eligible Renew button.',
           'For Cleanup: set Max Deletes / ID (0 = All), optionally enable Re-verify & Refresh Page Before Closing Chrome, and click Delete All Listings.'
         ],
         inputs: [
-          { field: '📁 Chrome Path + Refresh', goes: 'Target Accounts Header', desc: 'Scans local Chrome directories (Default, Profile 1, named folders) when not using Accounts Manager cookies.' },
+          { field: 'Chrome Path + Refresh', goes: 'Target Accounts Header', desc: 'Scans local Chrome directories (Default, Profile 1, named folders) when not using Accounts Manager cookies.' },
           { field: 'Concurrent Browsers & Delay', goes: 'Worker Grid Row', desc: 'Controls side-by-side Chrome window slots and human pause duration (seconds) between actions.' },
           { field: 'Max Renews / ID (Green Panel)', goes: 'Left Renew All Listings Card', desc: 'Enter 0 to renew every eligible listing inside Seller Dashboard → To renew, or set a numeric cap per ID.' },
           { field: 'Max Deletes / ID & Re-verify (Red Panel)', goes: 'Right Delete All Listings Card', desc: 'Caps deletions per profile and optionally refreshes Your Listings before closing Chrome to confirm 0 remain.' }
@@ -1057,12 +1470,12 @@
       {
         id: 'groups',
         num: '06',
-        icon: '📢',
+        accent: 'text-emerald-300',
         name: 'FB Group Posting',
-        sourceMode: 'Accounts Manager OR 📁 Chrome Path',
+        sourceMode: 'Accounts Manager OR Chrome Path',
         summary: 'Automate niche Facebook Group joining and batch group wall posting across multiple accounts or Chrome profiles—with direct METUS & FewFeed Chrome extension support.',
         steps: [
-          'Select accounts from Accounts Manager or load local profiles via 📁 Chrome Path, and set How Many Open Chrome Browsers.',
+          'Select accounts from Accounts Manager or load local profiles via Chrome Path, and set How Many Open Chrome Browsers.',
           'Optionally click Select METUS Folder and Open Chrome For Metus Setup if using your pre-configured METUS / FewFeed Chrome extension workflow.',
           'In the Joining Panel (right): paste Target Group Codes / URLs (1 per line) and set Groups to Join Per Account—or check Skip Group Joining to post immediately.',
           'In the Posting Panel (left): set Post Repetitions Per Account, Multiple Links (1 per line), Distribution (Random / Sequential), Post Descriptions, and Delay Interval, then Start.'
@@ -1078,12 +1491,12 @@
       {
         id: 'pages',
         num: '07',
-        icon: '📄',
+        accent: 'text-cyan-300',
         name: 'Create FB Pages',
-        sourceMode: 'Accounts Manager OR 📁 Chrome Path',
+        sourceMode: 'Accounts Manager OR Chrome Path',
         summary: 'Create multiple public Facebook Business/Community Pages across selected profiles using up to 5 concurrent creation tabs per account plus sequential profile and cover art.',
         steps: [
-          'Select target accounts (Accounts Manager or 📁 Chrome Path), set Concurrent Browsers, Pages to Create Per Account, and Action Delay.',
+          'Select target accounts (Accounts Manager or Chrome Path), set Concurrent Browsers, Pages to Create Per Account, and Action Delay.',
           'Enter bulk Page Names (1 per line) or click Load Sample Names, then pick a Category (or click Popular Quick Categories).',
           'Add Page Bio / Intro copy and optionally attach sequential Page Profile Pictures and Cover Photos.',
           'Click Start Creating FB Pages and export a clean summary using Export Pages Report once finished.'
@@ -1099,12 +1512,12 @@
       {
         id: 'reels',
         num: '08',
-        icon: '🎥',
+        accent: 'text-pink-300',
         name: 'Upload FB Reels',
-        sourceMode: 'Accounts Manager OR 📁 Chrome Path',
+        sourceMode: 'Accounts Manager OR Chrome Path',
         summary: 'Batch publish local MP4 short videos to Facebook Reels across concurrent browser profiles with Spintax captions, hashtags, and smart duplicate-free distribution.',
         steps: [
-          'Select target accounts (Accounts Manager or 📁 Chrome Path) and set Concurrent Browsers plus Account Delay (Sec).',
+          'Select target accounts (Accounts Manager or Chrome Path) and set Concurrent Browsers plus Account Delay (Sec).',
           'Load videos using Add Reels Files or Add Folder into the Reels Media Pool.',
           'Configure Reels per Account, Delay Between Reels (Sec), and Selection Mode (Random Pool No Dup, Sequential, or Loop All Videos).',
           'Write your Reel Caption with Spintax ({Great|Best} deal!) and hashtags—verify with Test Spin—then click Start Auto Reels Upload.'
@@ -1120,36 +1533,36 @@
       {
         id: 'friends',
         num: '09',
-        icon: '🤝',
-        name: 'Auto FB Friend Accept',
-        sourceMode: 'Accounts Manager OR 📁 Chrome Path',
-        summary: 'Manage friend network activity at scale with three dedicated modes: Confirm incoming requests, Delete/Reject incoming requests, or Send outbound requests to target profile URLs.',
+        accent: 'text-violet-300',
+        name: 'Auto FB Friend Accept & Follow',
+        sourceMode: 'Accounts Manager OR Chrome Path',
+        summary: 'Manage network growth at scale with three dedicated modes: Confirm incoming friend requests, safely Delete/Reject incoming requests without touching People You May Know, or Send Friend Requests & Follow Facebook Pages.',
         steps: [
-          'Select accounts (Accounts Manager or 📁 Chrome Path), choose Concurrent Browsers, Speed Delay (Sec), and Max Limit (0 = All).',
-          'Choose Action Mode 1 (Confirm Accept All) or Action Mode 2 (Delete Reject All) to clean pending friend queues automatically.',
-          'Or use Action Mode 3 (Send Friend Requests): import a .txt list of Target Profile URLs and set Requests Per Account.',
-          'Launch cleanly—human scrolling and randomized speed delays pace each click safely.'
+          'Select accounts (Accounts Manager or Chrome Path), choose Concurrent Browsers, Speed Delay (Sec), and Max Limit (0 = All).',
+          'Choose Confirm Accept All or Delete Reject All to clear only real pending Friend Requests automatically.',
+          'Or choose Send Friend Requests & Follow Pages: paste target profile or Facebook Page URLs (or import .txt) and set Requests Per Account.',
+          'Launch cleanly—profiles click Add Friend while Facebook Pages automatically click Follow (or More → Follow).'
         ],
         inputs: [
           { field: 'Speed Delay & Max Limit', goes: 'Top Execution Controls', desc: 'Human pacing delay between clicks in seconds plus max actions per account (0 processes all).' },
-          { field: 'Confirm Accept / Reject All', goes: 'Action Selection Buttons', desc: 'Scrolls incoming friend requests page and confirms or deletes requests automatically.' },
-          { field: 'Target Profile URLs Box', goes: 'Outbound Requests Panel', desc: 'Paste Facebook profile links (1 per line) or click Import .txt for outbound friend requests.' },
-          { field: 'Requests Per Account', goes: 'Outbound Requests Settings', desc: 'Caps how many outbound friend requests each selected account sends in one session.' }
+          { field: 'Confirm Accept / Reject All', goes: 'Action Selection Buttons', desc: 'Scoped strictly to incoming friend request cards so People You May Know suggestions remain untouched.' },
+          { field: 'Target Profile / Page URLs', goes: 'Outbound Requests Panel', desc: 'Paste Facebook profile OR Page links (1 per line) or click Import .txt to send requests or follow pages.' },
+          { field: 'Requests / Follows Per Account', goes: 'Outbound Requests Settings', desc: 'Caps how many outbound friend requests or page follows each selected account performs.' }
         ],
-        tip: 'Keep Speed Delay at 2–5 seconds and Max Limit reasonable when accepting or sending requests on fresh accounts.'
+        tip: 'You can mix Facebook profile URLs and Facebook Page URLs in Outbound mode—the engine detects each page type automatically.'
       },
       {
         id: 'profile_pic',
         num: '10',
-        icon: '🖼️',
+        accent: 'text-amber-300',
         name: 'Add Profile Picture',
-        sourceMode: 'Accounts Manager OR 📁 Chrome Path',
-        summary: 'Warm up or rebrand Facebook profiles cleanly by uploading new Profile Pictures and Cover Photos across multiple accounts in Random or Sequential order.',
+        sourceMode: 'Accounts Manager OR Chrome Path',
+        summary: 'Warm up or rebrand Facebook profiles cleanly by uploading new Profile Pictures and Cover Photos across multiple accounts in Random or Sequential order—waiting until Facebook fully finishes saving.',
         steps: [
-          'Select Target Facebook Accounts (Accounts Manager or 📁 Chrome Path) and configure Concurrent Browsers, Action Delay, and Delay Between Accounts.',
+          'Select Target Facebook Accounts (Accounts Manager or Chrome Path) and configure Concurrent Browsers, Action Delay, and Delay Between Accounts.',
           'Select Photo Assignment Mode: Random Selection (each ID picks randomly) or Sequential (top-to-bottom 1-to-1 matching).',
           'Load avatar images into Update Profile Picture (Add Files / Add Folder) and/or banners into Update Cover Photo.',
-          'Run either updater independently or sequentially—each upload waits for Facebook crop/save confirmation before finishing.'
+          'Run either updater independently or sequentially—upload guards wait until Facebook finishes saving and closes crop/save banners before completing.'
         ],
         inputs: [
           { field: 'Mode (Random vs Sequential)', goes: 'Top Configuration Bar', desc: 'Random assigns each account any image from the pool; Sequential pairs accounts and images in order.' },
@@ -1162,28 +1575,28 @@
       {
         id: 'extract_cookie',
         num: '11',
-        icon: '🍪',
+        accent: 'text-cyan-300',
         name: 'Extract ID Cookie',
-        sourceMode: 'Credential Batch Extractor (Headless or Visible)',
-        summary: 'Convert raw Facebook login credentials (UID/Email | Password | optional 2FA Secret) into clean session cookies—while strictly isolating Live accounts from Checkpoint accounts.',
+        sourceMode: 'Credential Batch Extractor (Headless + Visible Fallback)',
+        summary: 'Convert raw Facebook login credentials (UID/Email | Password | optional 2FA Secret) into clean session cookies—featuring 45s default timeout, automatic Visible Browser fallback, and strict Live vs Checkpoint isolation.',
         steps: [
           'Paste UIDs/Emails/Phones one per line in the left box (or full UID|Pass|2FA format and click Auto-Parse & Load into Columns).',
           'Tick Use Single Default Password if all IDs share the same password—or paste matching passwords one per line.',
-          'Choose Execution Mode (Silent Background Headless OR Visible Browser), Concurrent Login Threads, Delay, and Timeout.',
-          'Click Start Cookie Extraction: solved Live accounts (c_user + xs) appear cleanly in the Live output list ready to sync to Accounts Vault, separated from Checkpoint IDs.'
+          'Choose Execution Mode (Silent Background Headless OR Visible Browser), Concurrent Login Threads, Delay, and Timeout (default 45s).',
+          'Click Start Cookie Extraction: if silent background hits a timeout, it automatically retries once in Visible Browser and saves verified Live sessions (c_user + xs) into Accounts Vault.'
         ],
         inputs: [
           { field: 'UIDs / Emails + Auto-Parse', goes: 'Step 1 Credentials Panel', desc: 'Paste raw IDs or UID|Pass|2FA blocks; Auto-Parse splits UIDs, passwords, and TOTP secrets automatically.' },
           { field: 'Single vs Multi Password', goes: 'Password Configuration Panel', desc: 'Toggle one shared password for quick batches or line-by-line individual passwords.' },
-          { field: 'Execution Mode & Threads', goes: 'Step 2 Execution Settings', desc: 'Pick Silent Headless or Visible Chrome plus parallel thread count, Delay (Sec), and Timeout (Sec).' },
-          { field: 'Live vs Checkpoint Outputs', goes: 'Bottom Results Tables', desc: 'Strictly separates verified Live cookies from Checkpoint/failed logins for zero vault contamination.' }
+          { field: 'Execution Mode & Timeout', goes: 'Step 2 Execution Settings', desc: 'Pick Silent Headless (with auto visible fallback) or Visible Chrome, plus threads, Delay, and Timeout (45s default).' },
+          { field: 'Live vs Checkpoint Outputs', goes: 'Bottom Results Tables', desc: 'Strictly separates verified Live cookies from Checkpoint/Timeout accounts for clean session tracking.' }
         ],
-        tip: 'Include TOTP 2FA secrets in your pasted lines so the built-in authenticator automatically approves 2FA prompts without manual intervention.'
+        tip: 'Include TOTP 2FA secrets in your pasted lines so the built-in authenticator approves 2FA screens automatically.'
       },
       {
         id: 'profile_logs',
         num: '12',
-        icon: '👤',
+        accent: 'text-emerald-300',
         name: 'User Profile & Logs',
         sourceMode: 'License Diagnostics & Audit Trail',
         summary: 'Inspect your bound license identity, masked/revealable license key, Machine HWID, public IP diagnostics, and searchable execution audit logs with 1-click ZIP diagnostics export.',
@@ -1216,11 +1629,11 @@
             data-active="${p.id === current.id ? 'true' : 'false'}"
             class="nav-rail-btn w-full flex items-center justify-between px-3 py-2.5 rounded-xl border text-left text-xs font-semibold transition-colors cursor-pointer"
           >
-            <span class="flex items-center space-x-2.5 min-w-0">
-              <span class="shrink-0">${p.icon}</span>
+            <span class="flex items-center gap-2.5 min-w-0">
+              <span class="font-mono text-[11px] ${p.id === current.id ? 'text-cyan-300' : 'text-slate-500'} shrink-0">${p.num}</span>
               <span class="truncate">${p.name}</span>
             </span>
-            <span class="font-mono text-[10px] opacity-70 shrink-0">${p.num}</span>
+            <span class="font-mono text-[10px] opacity-70 shrink-0">${p.id === current.id ? 'ACTIVE' : 'VIEW'}</span>
           </button>
         `).join('');
       }
@@ -1234,39 +1647,38 @@
 
       if (detailCard) {
         const stepsHtml = current.steps.map((s, idx) => `
-          <div class="flex items-start space-x-3">
-            <span class="font-mono text-xs font-bold text-indigo-400 pt-0.5 shrink-0">0${idx + 1}</span>
-            <p class="text-xs sm:text-sm text-slate-300 leading-relaxed">${s}</p>
+          <div class="flex items-start gap-3">
+            <span class="font-mono text-xs font-bold text-cyan-300 pt-0.5 shrink-0">0${idx + 1}</span>
+            <p class="text-xs sm:text-sm text-slate-200 leading-relaxed">${s}</p>
           </div>
         `).join('');
 
         const inputsHtml = current.inputs.map(item => `
           <tr class="border-t border-slate-800/80">
             <td class="py-3 pr-4 align-top font-semibold text-white whitespace-nowrap text-xs sm:text-sm">${item.field}</td>
-            <td class="py-3 px-4 align-top font-mono text-xs text-sky-400 whitespace-nowrap">${item.goes}</td>
-            <td class="py-3 pl-4 align-top text-xs sm:text-sm text-slate-400 leading-relaxed">${item.desc}</td>
+            <td class="py-3 px-4 align-top font-mono text-xs text-cyan-300 whitespace-nowrap">${item.goes}</td>
+            <td class="py-3 pl-4 align-top text-xs sm:text-sm text-slate-300 leading-relaxed">${item.desc}</td>
           </tr>
         `).join('');
 
         detailCard.innerHTML = `
-          <div class="flex flex-wrap items-start justify-between gap-3 pb-5 border-b border-slate-800">
+          <div class="flex flex-wrap items-start justify-between gap-3 pb-5 border-b border-cyan-500/20">
             <div class="space-y-1">
-              <div class="font-mono text-xs font-semibold text-indigo-400 uppercase tracking-wider">Page ${current.num} · ${current.sourceMode}</div>
-              <h3 class="font-display text-2xl sm:text-3xl font-bold text-white flex items-center space-x-2.5">
-                <span>${current.icon}</span>
-                <span>${current.name}</span>
+              <div class="font-mono text-xs font-semibold ${current.accent} tracking-wider">Page ${current.num} · ${current.sourceMode}</div>
+              <h3 class="font-display text-2xl sm:text-3xl font-bold text-white">
+                ${current.name}
               </h3>
             </div>
-            <span class="font-mono text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-lg">Included in All Plans</span>
+            <span class="font-mono text-xs text-emerald-300">Included in All Plans</span>
           </div>
 
-          <p class="text-sm sm:text-base text-slate-300 leading-relaxed mt-5">
+          <p class="text-sm sm:text-base text-slate-200 leading-relaxed mt-5">
             ${current.summary}
           </p>
 
           <!-- Step-by-Step Workflow -->
-          <div class="mt-6 sub-panel rounded-xl p-5 space-y-3">
-            <div class="font-mono text-xs font-semibold uppercase tracking-wider text-slate-400">How It Works Step-by-Step</div>
+          <div class="mt-6 cyber-subpanel rounded-xl p-5 space-y-3 border-cyan-500/20">
+            <div class="font-mono text-xs font-semibold uppercase tracking-wider text-cyan-300">How It Works Step-by-Step</div>
             <div class="space-y-2.5">
               ${stepsHtml}
             </div>
@@ -1274,11 +1686,11 @@
 
           <!-- Input Field Mapping Table -->
           <div class="mt-6">
-            <div class="font-mono text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Inputs &amp; Where Each Setting Goes</div>
-            <div class="sub-panel rounded-xl px-4 overflow-x-auto">
+            <div class="font-mono text-xs font-semibold uppercase tracking-wider text-pink-300 mb-3">Inputs &amp; Where Each Setting Goes</div>
+            <div class="cyber-subpanel rounded-xl px-4 overflow-x-auto border-fuchsia-500/20">
               <table class="w-full text-left">
                 <thead>
-                  <tr class="text-[11px] font-mono uppercase tracking-wider text-slate-500">
+                  <tr class="text-[11px] font-mono uppercase tracking-wider text-slate-400">
                     <th class="py-2.5 pr-4">Input / Control</th>
                     <th class="py-2.5 px-4">Location in Page</th>
                     <th class="py-2.5 pl-4">What to Enter / Purpose</th>
@@ -1292,9 +1704,9 @@
           </div>
 
           <!-- Operator Tip -->
-          <div class="mt-5 p-4 rounded-xl bg-indigo-950/35 border border-indigo-500/25 flex items-start space-x-3">
-            <span class="font-mono text-xs font-bold text-indigo-300 pt-0.5 shrink-0">TIP</span>
-            <p class="text-xs sm:text-sm text-slate-300 leading-relaxed">${current.tip}</p>
+          <div class="mt-5 p-4 rounded-xl bg-gradient-to-r from-cyan-950/45 to-fuchsia-950/35 border border-cyan-500/30 flex items-start gap-3">
+            <span class="font-mono text-xs font-bold text-cyan-300 pt-0.5 shrink-0">TIP</span>
+            <p class="text-xs sm:text-sm text-slate-200 leading-relaxed">${current.tip}</p>
           </div>
         `;
       }
@@ -1366,12 +1778,12 @@
       if (target) target.classList.remove('hidden');
 
       document.querySelectorAll('.preview-tab-btn').forEach(b => {
-        b.classList.remove('bg-indigo-600', 'text-white', 'font-semibold');
-        b.classList.add('text-slate-400', 'font-medium');
+        b.classList.remove('bg-gradient-to-r', 'from-cyan-500/25', 'to-violet-500/25', 'border-cyan-400/45', 'text-white', 'font-semibold');
+        b.classList.add('border-transparent', 'text-slate-300', 'font-medium');
       });
       if (btnEl) {
-        btnEl.classList.remove('text-slate-400', 'font-medium');
-        btnEl.classList.add('bg-indigo-600', 'text-white', 'font-semibold');
+        btnEl.classList.remove('border-transparent', 'text-slate-300', 'font-medium');
+        btnEl.classList.add('bg-gradient-to-r', 'from-cyan-500/25', 'to-violet-500/25', 'border-cyan-400/45', 'text-white', 'font-semibold');
       }
     }
 

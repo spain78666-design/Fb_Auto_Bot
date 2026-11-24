@@ -213,13 +213,15 @@ class FacebookCookieExtractorBot:
         two_factor_secret: str = "",
         proxy: str = "",
         headless: bool = True,
-        timeout_seconds: int = 25,
+        timeout_seconds: int = 45,
         switch_to_page: bool = True,
         page_target: str = "",
         log_callback: Optional[Callable[[str, str], None]] = None,
         window_slot: int = 0,
         total_window_slots: int = 1,
         tile_rect: Optional[Tuple[int, int, int, int]] = None,
+        persistent_profile_dir: Optional[str] = None,
+        auto_visible_fallback: bool = True,
     ):
         self.uid_or_email = str(uid_or_email).strip()
         self.password = str(password).strip()
@@ -234,10 +236,13 @@ class FacebookCookieExtractorBot:
         self.window_slot = int(window_slot or 0)
         self.total_window_slots = max(1, int(total_window_slots or 1))
         self.tile_rect = tile_rect
+        self.persistent_profile_dir = os.path.abspath(persistent_profile_dir) if persistent_profile_dir else None
+        self.auto_visible_fallback = bool(auto_visible_fallback)
 
         self.playwright: Optional[Playwright] = None
         self.context: Optional[BrowserContext] = None
         self.temp_profile_dir: Optional[str] = None
+        self._owns_temp_dir: bool = False
         self._cancelled = False
 
     def log(self, level: str, message: str):
@@ -253,7 +258,7 @@ class FacebookCookieExtractorBot:
         self._cancelled = True
 
     async def close(self):
-        """Cleanly releases browser context, Playwright instances, and temp files."""
+        """Cleanly releases browser context, Playwright instances, and only ephemeral temp files."""
         try:
             if self.context:
                 await self.context.close()
@@ -268,12 +273,13 @@ class FacebookCookieExtractorBot:
             pass
         self.playwright = None
 
-        if self.temp_profile_dir and os.path.exists(self.temp_profile_dir):
+        if self._owns_temp_dir and self.temp_profile_dir and os.path.exists(self.temp_profile_dir):
             try:
                 shutil.rmtree(self.temp_profile_dir, ignore_errors=True)
             except Exception:
                 pass
-            self.temp_profile_dir = None
+        self.temp_profile_dir = None
+        self._owns_temp_dir = False
 
         try:
             gc.collect()
@@ -286,16 +292,19 @@ class FacebookCookieExtractorBot:
             await page.evaluate("""() => {
                 const buttons = Array.from(document.querySelectorAll('button, [role="button"], a[role="button"], input[type="button"]'));
                 for (const b of buttons) {
+                    if (!b.offsetParent && b.offsetWidth === 0) continue;
                     const txt = (b.innerText || b.textContent || b.value || '').trim().toLowerCase();
+                    const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
                     const testId = (b.getAttribute('data-cookiebanner') || b.getAttribute('data-testid') || '').toLowerCase();
                     if (
                         testId.includes('accept') || testId.includes('agree') || testId.includes('allow') ||
-                        txt.includes('allow all') || txt.includes('accept all') || 
+                        aria.includes('allow all cookies') || aria.includes('decline optional cookies') ||
+                        txt.includes('allow all cookies') || txt.includes('accept all') ||
                         txt.includes('only allow essential') || txt.includes('accept cookies') ||
                         txt.includes('allow cookies') || txt.includes('decline optional') ||
-                        txt === 'allow' || txt === 'accept' || txt === 'ok' || txt === 'agree' ||
-                        txt === 'i agree' || txt === 'continuer' || txt === 'accepter' || txt === 'ha' ||
-                        txt.includes('permitir') || txt.includes('akzeptieren')
+                        txt === 'allow all' || txt === 'accept' || txt === 'agree' ||
+                        txt === 'i agree' || txt === 'continuer' || txt === 'accepter' ||
+                        txt.includes('permitir todas') || txt.includes('alle cookies gestatten')
                     ) {
                         try { b.click(); } catch(e) {}
                     }
@@ -306,8 +315,9 @@ class FacebookCookieExtractorBot:
 
     async def extract_cookie(self) -> Dict[str, Any]:
         """
-        Executes credential authentication and extracts fresh Facebook session cookies
-        within 5 to 10 seconds.
+        Executes credential authentication and extracts fresh Facebook session cookies.
+        If silent headless mode stalls with a Timeout and auto_visible_fallback is enabled,
+        automatically retries once in a real visible Chrome window to bypass headless stalls.
         """
         if not self.uid_or_email:
             return {"success": False, "uid": "", "name": "", "cookie": "", "status": "Error", "message": "UID/Email is empty."}
@@ -317,14 +327,49 @@ class FacebookCookieExtractorBot:
             self.log("ERROR", "Playwright is not available in the environment.")
             return {"success": False, "uid": self.uid_or_email, "name": "", "cookie": "", "status": "Error", "message": "Playwright is not installed."}
 
-        tag = f"[{self.uid_or_email}]"
-        mode_str = "Background" if self.headless else "Visible Browser"
-        self.log("INFO", f"{tag} 🚀 Initializing Speed Bot ({mode_str}, Max Wait: {self.timeout_seconds}s)...")
+        result = await self._extract_cookie_attempt(use_headless=self.headless, wait_seconds=self.timeout_seconds)
 
-        # Create isolated temporary profile directory
-        clean_uid = "".join(c for c in self.uid_or_email if c.isalnum()) or "temp"
-        self.temp_profile_dir = os.path.join(tempfile.gettempdir(), f"fb_ext_{clean_uid}_{uuid.uuid4().hex[:6]}")
-        os.makedirs(self.temp_profile_dir, exist_ok=True)
+        if (
+            not result.get("success")
+            and not result.get("is_checkpoint")
+            and result.get("status") == "Timeout"
+            and self.headless
+            and self.auto_visible_fallback
+            and not self._cancelled
+        ):
+            tag = f"[{self.uid_or_email}]"
+            retry_wait = max(45, self.timeout_seconds)
+            self.log("INFO", f"{tag} 🪟 Background mode timed out; retrying automatically in Visible Browser ({retry_wait}s max)...")
+            result = await self._extract_cookie_attempt(use_headless=False, wait_seconds=retry_wait)
+
+        return result
+
+    async def _extract_cookie_attempt(self, use_headless: bool, wait_seconds: int) -> Dict[str, Any]:
+        """Runs a single clean browser login & cookie extraction attempt."""
+        tag = f"[{self.uid_or_email}]"
+        mode_str = "Background" if use_headless else "Visible Browser"
+        effective_wait = max(15, min(180, int(wait_seconds)))
+        self.log("INFO", f"{tag} 🚀 Initializing Login Engine ({mode_str}, Max Wait: {effective_wait}s)...")
+
+        if self.persistent_profile_dir:
+            self.temp_profile_dir = self.persistent_profile_dir
+            self._owns_temp_dir = False
+            os.makedirs(self.temp_profile_dir, exist_ok=True)
+            for lf in ("SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"):
+                lp = os.path.join(self.temp_profile_dir, lf)
+                if os.path.exists(lp) or os.path.islink(lp):
+                    try:
+                        if os.path.islink(lp) or os.path.isfile(lp):
+                            os.unlink(lp)
+                        else:
+                            shutil.rmtree(lp, ignore_errors=True)
+                    except Exception:
+                        pass
+        else:
+            clean_uid = "".join(c for c in self.uid_or_email if c.isalnum()) or "temp"
+            self.temp_profile_dir = os.path.join(tempfile.gettempdir(), f"fb_ext_{clean_uid}_{uuid.uuid4().hex[:6]}")
+            self._owns_temp_dir = True
+            os.makedirs(self.temp_profile_dir, exist_ok=True)
 
         start_time = time.time()
 
@@ -342,6 +387,7 @@ class FacebookCookieExtractorBot:
                 "--disable-infobars",
                 "--disable-notifications",
                 "--no-first-run",
+                "--no-default-browser-check",
                 "--disable-default-apps",
                 "--disable-popup-blocking",
                 "--disable-background-timer-throttling",
@@ -352,9 +398,7 @@ class FacebookCookieExtractorBot:
                 "--lang=en-US",
                 "--accept-lang=en-US,en;q=0.9"
             ]
-            if self.headless:
-                launch_args.append("--headless=new")
-            else:
+            if not use_headless:
                 launch_args.extend(build_window_chrome_args(
                     tile_rect=resolved_tile,
                     total_slots=total_slots,
@@ -376,7 +420,7 @@ class FacebookCookieExtractorBot:
                 except Exception:
                     proxy_cfg = None
 
-            # Launch with real Chrome binary + channel fallback
+            # Launch with real Chrome binary + channel fallback (without spoofing mismatched UA)
             chrome_exe = None
             try:
                 from automation.extension_manager import get_system_chrome_executable
@@ -394,18 +438,15 @@ class FacebookCookieExtractorBot:
                 try:
                     kws: Dict[str, Any] = {
                         "user_data_dir": self.temp_profile_dir,
-                        "headless": self.headless,
+                        "headless": use_headless,
                         "args": launch_args,
                         "ignore_default_args": ["--enable-automation", "--disable-extensions"],
-                        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
                         "locale": "en-US",
-                        "timezone_id": "America/New_York",
                         "extra_http_headers": {
                             "Accept-Language": "en-US,en;q=0.9",
-                            "Upgrade-Insecure-Requests": "1"
                         }
                     }
-                    if self.headless:
+                    if use_headless:
                         kws["viewport"] = {"width": 1280, "height": 800}
                     else:
                         kws["no_viewport"] = True
@@ -426,7 +467,7 @@ class FacebookCookieExtractorBot:
                 raise Exception("Could not launch Google Chrome or MS Edge on this PC.")
 
             page = self.context.pages[0] if self.context.pages else await self.context.new_page()
-            if not self.headless:
+            if not use_headless:
                 await apply_cdp_window_bounds(
                     self.context,
                     page,
@@ -435,23 +476,18 @@ class FacebookCookieExtractorBot:
                     slot_index=slot_idx,
                 )
 
-            # Anti-Detection Stealth Script Injection
+            # Minimal clean stealth without clobbering native Chrome window.chrome or mismatching Client Hints
             try:
                 await page.add_init_script("""
                     try {
                         delete Object.getPrototypeOf(navigator).webdriver;
                     } catch (e) {}
                     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                    Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
-                    Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
-                    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
-                    window.chrome = { app: { isInstalled: false }, runtime: {} };
                 """)
             except Exception:
                 pass
 
-            if PLAYWRIGHT_STEALTH_AVAILABLE:
+            if PLAYWRIGHT_STEALTH_AVAILABLE and use_headless:
                 try:
                     await stealth_async(page)
                 except Exception:
@@ -470,7 +506,7 @@ class FacebookCookieExtractorBot:
                 if self._cancelled:
                     return {"success": False, "uid": self.uid_or_email, "name": "", "cookie": "", "status": "Cancelled", "message": "Cancelled."}
                 try:
-                    resp = await page.goto(u, wait_until="domcontentloaded", timeout=12000)
+                    resp = await page.goto(u, wait_until="domcontentloaded", timeout=15000)
                     if resp and resp.status >= 400:
                         self.log("WARNING", f"{tag} HTTP {resp.status} received from {u}; trying next fallback...")
                         continue
@@ -478,7 +514,7 @@ class FacebookCookieExtractorBot:
                     break
                 except Exception:
                     try:
-                        resp = await page.goto(u, timeout=10000)
+                        resp = await page.goto(u, timeout=12000)
                         if resp and resp.status >= 400:
                             continue
                         nav_ok = True
@@ -488,11 +524,11 @@ class FacebookCookieExtractorBot:
 
             if not nav_ok:
                 try:
-                    await page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=12000)
+                    await page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=15000)
                 except Exception:
                     pass
 
-            if not self.headless:
+            if not use_headless:
                 await apply_cdp_window_bounds(
                     self.context,
                     page,
@@ -501,11 +537,14 @@ class FacebookCookieExtractorBot:
                     slot_index=slot_idx,
                 )
 
-            # Check if session is already authenticated (e.g. cookie retained)
+            await asyncio.sleep(0.8)
+
+            # Check if session is already authenticated (c_user AND xs required for active login)
             try:
                 initial_cookies = await self.context.cookies()
                 init_c_user = next((c.get("value") for c in initial_cookies if c.get("name") == "c_user"), None)
-                if init_c_user:
+                init_xs = next((c.get("value") for c in initial_cookies if c.get("name") == "xs"), None)
+                if init_c_user and init_xs:
                     self.log("SUCCESS", f"{tag} ✅ Session already active for c_user={init_c_user}!")
                     has_authenticated = True
                 else:
@@ -515,8 +554,9 @@ class FacebookCookieExtractorBot:
 
             if not has_authenticated:
                 await self._dismiss_all_overlays(page)
+                await asyncio.sleep(0.4)
 
-                # Step 2: Locate and Fill Email and Password Inputs with Human-Like Typing
+                # Step 2: Locate and Fill Email and Password Inputs (with React-safe setter fallback)
                 self.log("INFO", f"{tag} ✍️ Entering Facebook UID & Password naturally...")
                 email_filled = False
                 pass_filled = False
@@ -525,8 +565,8 @@ class FacebookCookieExtractorBot:
                     email_loc = page.locator(
                         'input[name="email"], input#email, input#m_login_email, input[data-testid="royal_email"], input[type="text"][autocomplete="username"]'
                     ).first
-                    if await email_loc.count() > 0 and await email_loc.is_visible():
-                        email_filled = await human_type_text(page, email_loc, self.uid_or_email, clear_first=True)
+                    await email_loc.wait_for(state="visible", timeout=5000)
+                    email_filled = await human_type_text(page, email_loc, self.uid_or_email, clear_first=True)
                 except Exception:
                     pass
 
@@ -536,42 +576,48 @@ class FacebookCookieExtractorBot:
                     pass_loc = page.locator(
                         'input[name="pass"], input#pass, input#m_login_password, input[data-testid="royal_pass"], input[type="password"]'
                     ).first
-                    if await pass_loc.count() > 0 and await pass_loc.is_visible():
-                        pass_filled = await human_type_text(page, pass_loc, self.password, clear_first=True)
+                    await pass_loc.wait_for(state="visible", timeout=5000)
+                    pass_filled = await human_type_text(page, pass_loc, self.password, clear_first=True)
                 except Exception:
                     pass
 
                 if not email_filled or not pass_filled:
                     await page.evaluate("""(data) => {
+                        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                        function setReactVal(el, val) {
+                            if (!el) return;
+                            el.focus();
+                            if (nativeSetter) {
+                                nativeSetter.call(el, val);
+                            } else {
+                                el.value = val;
+                            }
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
                         const emailInput = document.querySelector('input[name="email"], input#email, input#m_login_email, input[data-testid="royal_email"], input[type="text"][autocomplete="username"], input[type="text"]');
                         const passInput = document.querySelector('input[name="pass"], input#pass, input#m_login_password, input[data-testid="royal_pass"], input[type="password"]');
-                        if (emailInput && !emailInput.value) {
-                            emailInput.focus();
-                            emailInput.value = data.u;
-                            emailInput.dispatchEvent(new Event('input', { bubbles: true }));
-                            emailInput.dispatchEvent(new Event('change', { bubbles: true }));
-                        }
-                        if (passInput && !passInput.value) {
-                            passInput.focus();
-                            passInput.value = data.p;
-                            passInput.dispatchEvent(new Event('input', { bubbles: true }));
-                            passInput.dispatchEvent(new Event('change', { bubbles: true }));
-                        }
+                        if (emailInput && !emailInput.value) setReactVal(emailInput, data.u);
+                        if (passInput && !passInput.value) setReactVal(passInput, data.p);
                     }""", {"u": self.uid_or_email, "p": self.password})
 
-                await asyncio.sleep(random.uniform(0.28, 0.6))
+                await asyncio.sleep(random.uniform(0.35, 0.65))
 
-                # Step 3: Natural Form Submission
+                # Step 3: Natural Form Submission (supports both classic button & modern React div[role="button"])
                 self.log("INFO", f"{tag} ⚡ Submitting Facebook login credentials...")
                 submitted = False
                 submit_selectors = [
                     'button[name="login"]',
                     'button#loginbutton',
                     'button[data-testid="royal_login_button"]',
+                    'div[aria-label="Log in"][role="button"]',
+                    'div[aria-label="Log In"][role="button"]',
                     'button[type="submit"]',
                     'input[type="submit"]',
                     'button:has-text("Log In")',
                     'button:has-text("Log in")',
+                    'div[role="button"]:has-text("Log in")',
+                    'div[role="button"]:has-text("Log In")',
                     'button:has-text("Login")'
                 ]
                 for ss in submit_selectors:
@@ -587,8 +633,10 @@ class FacebookCookieExtractorBot:
                 if not submitted:
                     try:
                         submitted = await page.evaluate("""() => {
-                            const b = document.querySelector('button[name="login"], button#loginbutton, button[data-testid="royal_login_button"], button[type="submit"], input[type="submit"]');
+                            const b = document.querySelector('button[name="login"], button#loginbutton, button[data-testid="royal_login_button"], div[aria-label="Log in"][role="button"], button[type="submit"], input[type="submit"]');
                             if (b) { b.click(); return true; }
+                            const form = document.querySelector('form');
+                            if (form) { form.submit(); return true; }
                             return false;
                         }""")
                     except Exception:
@@ -597,19 +645,19 @@ class FacebookCookieExtractorBot:
                 if not submitted:
                     await page.keyboard.press("Enter")
 
-                # Step 4: Rapid High-Frequency Authentication Polling (Every 0.25s)
-                self.log("INFO", f"{tag} ⏳ Awaiting Facebook tokens (Fast Mode)...")
+                # Step 4: High-Frequency Authentication Polling (Every 0.35s)
+                self.log("INFO", f"{tag} ⏳ Awaiting Facebook session tokens...")
                 error_status = "Timeout"
-                error_msg = f"Authentication timed out after {self.timeout_seconds} seconds."
+                error_msg = f"Login timed out after {effective_wait}s without live session cookie."
 
                 poll_start = time.time()
-                while time.time() - poll_start < self.timeout_seconds:
+                c_user_first_seen_at: Optional[float] = None
+                while time.time() - poll_start < effective_wait:
                     if self._cancelled:
                         return {"success": False, "uid": self.uid_or_email, "name": "", "cookie": "", "status": "Cancelled", "message": "Operation cancelled."}
 
-                    await asyncio.sleep(0.25)
+                    await asyncio.sleep(0.35)
 
-                    # Check ALL session cookies in context
                     curr_cookies: List[Dict[str, Any]] = []
                     try:
                         curr_cookies = await self.context.cookies()
@@ -619,22 +667,22 @@ class FacebookCookieExtractorBot:
                     c_user_val = next((c.get("value") for c in curr_cookies if c.get("name") == "c_user"), None)
                     xs_val = next((c.get("value") for c in curr_cookies if c.get("name") == "xs"), None)
 
-                    # -------------------------------------------------------------
-                    # GOLDEN CHECK: If c_user exists AND (xs exists or datr exists) -> LIVE!
-                    # -------------------------------------------------------------
-                    if c_user_val and (xs_val or any(c.get("name") == "datr" for c in curr_cookies)):
+                    if c_user_val and xs_val:
                         has_authenticated = True
                         self.log("SUCCESS", f"{tag} ✅ Live Facebook session active! c_user={c_user_val}")
                         break
 
-                    # Check Page Text for Instant Failure Detection
+                    if c_user_val and not xs_val:
+                        if c_user_first_seen_at is None:
+                            c_user_first_seen_at = time.time()
+
                     page_text = ""
                     try:
                         page_text = (await page.evaluate("() => (document.body ? document.body.innerText : '')")).lower()
                     except Exception:
                         pass
 
-                    # 1. Check for Wrong Password -> Instant Exit (1-2s)
+                    # 1. Check for Wrong Password -> Instant Exit
                     if any(w in page_text for w in [
                         "the password you entered is incorrect",
                         "incorrect password",
@@ -642,10 +690,11 @@ class FacebookCookieExtractorBot:
                         "wrong password",
                         "invalid username or password",
                         "galt password",
-                        "password you entered is wrong"
+                        "password you entered is wrong",
+                        "find your account and log in"
                     ]):
                         error_status = "Wrong Password"
-                        error_msg = "Incorrect Facebook Password."
+                        error_msg = "Incorrect Facebook Password or UID."
                         self.log("ERROR", f"{tag} ❌ Wrong password for account.")
                         break
 
@@ -661,11 +710,18 @@ class FacebookCookieExtractorBot:
                         self.log("ERROR", f"{tag} 🚫 Facebook account is disabled.")
                         break
 
-                    # 3. Check for 2FA / Approvals Code prompt
+                    # 3. Check for 2FA / Approvals Code prompt (classic + modern /two_step_verification/)
+                    curr_url = page.url.lower()
                     two_fa_input = page.locator(
-                        'input[name="approvals_code"], input[name="code"], input#approvals_code, input[data-testid="royal_code"]'
+                        'input[name="approvals_code"], input[name="code"], input#approvals_code, input[data-testid="royal_code"], input[autocomplete="one-time-code"], input[id^="_r_"]'
                     ).first
-                    if await two_fa_input.count() > 0 and await two_fa_input.is_visible():
+                    has_2fa_ui = (
+                        "/two_step_verification/" in curr_url
+                        or "enter the 6-digit code" in page_text
+                        or "authentication app" in page_text
+                        or "login code" in page_text
+                    )
+                    if (await two_fa_input.count() > 0 and await two_fa_input.is_visible()) or (has_2fa_ui and await two_fa_input.count() > 0):
                         if self.two_factor_secret:
                             totp_code = generate_totp(self.two_factor_secret)
                             if totp_code:
@@ -673,13 +729,13 @@ class FacebookCookieExtractorBot:
                                 await human_type_text(page, two_fa_input, totp_code, clear_first=True)
                                 await asyncio.sleep(random.uniform(0.25, 0.5))
                                 submit_2fa = page.locator(
-                                    'button#checkpointSubmitButton, button[type="submit"], button:has-text("Continue"), button:has-text("Submit")'
+                                    'button#checkpointSubmitButton, button[type="submit"], button:has-text("Continue"), div[role="button"]:has-text("Continue"), button:has-text("Submit")'
                                 ).first
                                 if await submit_2fa.count() > 0 and await submit_2fa.is_visible():
                                     await human_move_and_click(page, submit_2fa)
                                 else:
                                     await page.keyboard.press("Enter")
-                                await asyncio.sleep(1.8)
+                                await asyncio.sleep(2.0)
                                 continue
                         else:
                             error_status = "2FA Required"
@@ -687,8 +743,18 @@ class FacebookCookieExtractorBot:
                             self.log("WARNING", f"{tag} ⚠️ 2FA code required.")
                             break
 
-                    # 4. Check for True Checkpoint Screen
-                    curr_url = page.url.lower()
+                    # 4. Check for device/notification approval prompt ("Check your notifications")
+                    if any(ap in page_text for ap in [
+                        "check your notifications on another device",
+                        "waiting for approval",
+                        "approve your login"
+                    ]) and (time.time() - poll_start > 5.0):
+                        error_status = "2FA / Device Approval"
+                        error_msg = "Facebook requested device notification approval."
+                        self.log("WARNING", f"{tag} ⚠️ Facebook requested login approval on another device.")
+                        break
+
+                    # 5. Check for Genuine Checkpoint Screen
                     is_checkpoint_url = ("/checkpoint/" in curr_url or "/recover/" in curr_url)
                     is_checkpoint_text = any(cp in page_text for cp in [
                         "we suspended your account",
@@ -696,7 +762,8 @@ class FacebookCookieExtractorBot:
                         "account locked",
                         "confirm your identity",
                         "upload a photo of your id",
-                        "security check"
+                        "security check",
+                        "enter the characters you see"
                     ])
                     if (is_checkpoint_url or is_checkpoint_text) and (time.time() - poll_start > 4.0):
                         if await two_fa_input.count() == 0:
@@ -705,17 +772,19 @@ class FacebookCookieExtractorBot:
                             self.log("WARNING", f"{tag} 🔒 Genuine Checkpoint detected. Routed to Checkpoint column.")
                             break
 
-                    # 5. Auto-dismiss Save Info / Remember Browser / Not Now modal dialogs cleanly
+                    # 6. Auto-dismiss Save Info / Remember Browser / Not Now / Cookie dialogs cleanly
                     try:
-                        if time.time() - poll_start > 2.5:
+                        await self._dismiss_all_overlays(page)
+                        if time.time() - poll_start > 2.2:
                             save_selectors = [
                                 'div[role="dialog"] button:has-text("Not Now")',
                                 'div[role="dialog"] a:has-text("Not Now")',
                                 'div[role="dialog"] div[role="button"]:has-text("Not Now")',
                                 'div[role="dialog"] button:has-text("Save Info")',
+                                'div[role="dialog"] div[role="button"]:has-text("Save Info")',
                                 'button#checkpointSubmitButton:has-text("Save Browser")',
                                 'button:has-text("Trust this device")',
-                                'div[role="dialog"] button[data-cookiebanner*="accept" i]'
+                                'div[role="button"]:has-text("Trust this device")',
                             ]
                             for s_sel in save_selectors:
                                 s_btn = page.locator(s_sel).first
@@ -739,10 +808,8 @@ class FacebookCookieExtractorBot:
 
                 c_user_found = next((c.get("value") for c in final_check_cookies if c.get("name") == "c_user"), "")
                 xs_found = next((c.get("value") for c in final_check_cookies if c.get("name") == "xs"), "")
-                datr_found = next((c.get("value") for c in final_check_cookies if c.get("name") == "datr"), "")
 
-                # If c_user exists in browser session cookies, verify it's not a hard account lock
-                if c_user_found and (xs_found or datr_found):
+                if c_user_found and xs_found:
                     p_text_final = ""
                     try:
                         p_text_final = (await page.evaluate("() => document.body ? document.body.innerText.toLowerCase() : ''"))
@@ -755,16 +822,17 @@ class FacebookCookieExtractorBot:
                         self.log("SUCCESS", f"{tag} 🟢 Verified LIVE Facebook session! (c_user={c_user_found})")
 
             # =========================================================================
-            # CASE A: Genuine Checkpoint / Authentication Failure Exit
+            # CASE A: Authentication Failure / Checkpoint / Timeout Exit
             # =========================================================================
             if not has_authenticated:
                 resolved_uid = self.uid_or_email
                 is_cp = (error_status in ["Checkpoint", "Disabled"] or "checkpoint" in error_msg.lower())
 
-                # If account is checkpointed, report Checkpoint immediately as requested
-                self.log("WARNING", f"{tag} 🔒 Account status confirmed: {error_status}. (Routed to Checkpoint list)")
+                if is_cp:
+                    self.log("WARNING", f"{tag} 🔒 Account status confirmed: {error_status}. (Routed to Checkpoint list)")
+                else:
+                    self.log("WARNING", f"{tag} ⏱️ Account login did not complete ({error_status}): {error_msg}")
 
-                # Extract partial cookies if available
                 cp_cookies: List[Dict[str, Any]] = []
                 try:
                     if self.context:
@@ -773,14 +841,14 @@ class FacebookCookieExtractorBot:
                     pass
 
                 cp_cookie_str = ""
-                if cp_cookies:
+                if cp_cookies and is_cp:
                     cp_cookie_str = format_get_token_cookie_string(cp_cookies)
 
                 return {
                     "success": False,
                     "is_checkpoint": is_cp,
                     "uid": resolved_uid,
-                    "name": f"FB Checkpoint ({resolved_uid})" if is_cp else f"FB User ({resolved_uid})",
+                    "name": f"FB Checkpoint ({resolved_uid})" if is_cp else f"FB_{resolved_uid}",
                     "cookie": cp_cookie_str,
                     "status": error_status,
                     "message": error_msg
@@ -833,8 +901,6 @@ class FacebookCookieExtractorBot:
             i_user_cookie = next((c.get("value") for c in final_cookies if c.get("name") == "i_user"), "")
             active_page_id = page_id_found or i_user_cookie
 
-            # Format EXACT Get Token Cookie string matching the Chrome Extension:
-            # sb=...;datr=...;dpr=1.125;wd=833x811;c_user=...;oo=...;xs=...;i_user=...;
             cookie_semicolon = format_get_token_cookie_string(
                 final_cookies,
                 page_id=active_page_id,

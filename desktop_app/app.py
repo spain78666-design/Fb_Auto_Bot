@@ -1566,6 +1566,7 @@ class CredentialLoginWorker(QThread):
                 mode_label = "Facebook Page ('Use Page')" if self.switch_to_page else "Personal Profile"
                 self.log_signal.emit("INFO", f"🚀 Starting login & cookie capture for [{account.get('name', uid)}] (Mode: {mode_label})...")
 
+                profile_dir = sm.get_profile_dir(self.account_id)
                 bot = FacebookCookieExtractorBot(
                     uid_or_email=uid,
                     password=pwd,
@@ -1577,6 +1578,8 @@ class CredentialLoginWorker(QThread):
                     window_slot=0,
                     total_window_slots=1,
                     tile_rect=compute_tile_rect(0, 1),
+                    persistent_profile_dir=profile_dir,
+                    auto_visible_fallback=True,
                     log_callback=self._log_bridge
                 )
                 res = loop.run_until_complete(bot.extract_cookie())
@@ -1584,22 +1587,24 @@ class CredentialLoginWorker(QThread):
                 cookies = res.get("cookie", "")
                 is_cp = res.get("is_checkpoint", False)
 
-                if (success or cookies) and not is_cp:
+                if (success or ("c_user=" in cookies and "xs=" in cookies)) and not is_cp:
                     account["cookies"] = cookies
                     account["status"] = "Healthy"
                     account["name"] = res.get("name") or account.get("name")
                     account["last_checked"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     sm.add_or_update_account(account)
-                    self.finished_signal.emit(self.account_id, True, f"Fresh cookies captured successfully ({mode_label})!", account)
+                    self.finished_signal.emit(self.account_id, True, f"Fresh cookies & persistent session captured ({mode_label})!", account)
                 elif is_cp:
                     account["status"] = "Checkpoint"
-                    account["cookies"] = cookies
+                    if cookies:
+                        account["cookies"] = cookies
                     account["last_checked"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     sm.add_or_update_account(account)
                     self.finished_signal.emit(self.account_id, False, "Account triggered Facebook security checkpoint.", account)
                 else:
                     err = res.get("message") or "Login failed"
-                    account["status"] = res.get("status") or "Failed"
+                    st = res.get("status") or "Needs Login"
+                    account["status"] = "Needs Login" if st == "Timeout" else st
                     sm.add_or_update_account(account)
                     self.finished_signal.emit(self.account_id, False, err, account)
             elif sm:
@@ -3050,7 +3055,8 @@ class CookieExtractorWorker(QThread):
         delay_seconds = float(self.payload.get("delay_seconds", 3.0))
         network_mode = self.payload.get("network_mode", "direct")
         switch_to_page = bool(self.payload.get("switch_to_page", True))
-        timeout_seconds = max(15, min(180, int(self.payload.get("timeout_seconds", 60))))
+        auto_visible_fallback = bool(self.payload.get("auto_visible_fallback", True))
+        timeout_seconds = max(15, min(180, int(self.payload.get("timeout_seconds", 45))))
 
         mode_desc = f"{'Silent Background' if headless else 'Visible Browser'} | {'Page Profile (Use Page)' if switch_to_page else 'Personal Profile'}"
         self.log_signal.emit(
@@ -3082,6 +3088,8 @@ class CookieExtractorWorker(QThread):
                 pwd = str(item.get("password", "")).strip()
                 secret_2fa = str(item.get("two_factor_secret", "")).strip()
                 raw_proxy = "" if network_mode == "direct" else str(item.get("proxy", "")).strip()
+                persistent_profile_dir = str(item.get("profile_dir", "")).strip() or None
+                account_id = str(item.get("account_id", "")).strip()
 
                 bot = FacebookCookieExtractorBot(
                     uid_or_email=uid,
@@ -3095,10 +3103,13 @@ class CookieExtractorWorker(QThread):
                     window_slot=slot_idx,
                     total_window_slots=effective_slots,
                     tile_rect=tile_rect,
+                    persistent_profile_dir=persistent_profile_dir,
+                    auto_visible_fallback=auto_visible_fallback,
                 )
                 self.active_bots.append(bot)
 
                 result_data = {
+                    "account_id": account_id,
                     "uid": uid,
                     "password": pwd,
                     "two_factor_secret": secret_2fa,
@@ -8725,17 +8736,35 @@ class FBAutoBotMainWindow(QMainWindow):
                 if hasattr(self, 'acc_extract_progress_bar'):
                     self.acc_extract_progress_bar.setValue(0)
 
+                # Pre-allocate persistent account_id & profile_dir so Accounts Manager saves live browser sessions
+                cred_payload_accounts = []
+                for acc in credential_accounts:
+                    c_uid = str(acc.get("uid", "")).strip()
+                    c_name = acc.get("name") or (f"FB_{c_uid}" if c_uid else "FB_Account")
+                    c_acc_id = ""
+                    if self.session_manager:
+                        for ex_id, ex_data in list(self.session_manager.accounts.items()):
+                            if str(ex_data.get("uid", "")).strip() == c_uid:
+                                c_acc_id = ex_id
+                                break
+                    if not c_acc_id:
+                        c_slug = re.sub(r'[^a-zA-Z0-9_-]', '_', str(c_name)).lower()
+                        c_acc_id = f"acc_{c_slug}_{uuid.uuid4().hex[:4]}"
+                    c_profile_dir = self.session_manager.get_profile_dir(c_acc_id) if self.session_manager else ""
+                    cred_payload_accounts.append({
+                        "account_id": c_acc_id,
+                        "profile_dir": c_profile_dir,
+                        "uid": c_uid,
+                        "password": str(acc.get("password", "")).strip(),
+                        "two_factor_secret": str(acc.get("two_fa", "")).strip(),
+                        "proxy": str(acc.get("proxy", "")).strip() if acc.get("proxy") != "Direct (No Proxy)" else ""
+                    })
+
                 payload = {
-                    "accounts": [
-                        {
-                            "uid": str(acc.get("uid", "")).strip(),
-                            "password": str(acc.get("password", "")).strip(),
-                            "two_factor_secret": str(acc.get("two_fa", "")).strip(),
-                            "proxy": str(acc.get("proxy", "")).strip() if acc.get("proxy") != "Direct (No Proxy)" else ""
-                        }
-                        for acc in credential_accounts
-                    ],
+                    "accounts": cred_payload_accounts,
                     "headless": True,
+                    "auto_visible_fallback": True,
+                    "timeout_seconds": 45,
                     "concurrency": min(3, max(1, len(credential_accounts))),
                     "delay_seconds": 2.0,
                     "network_mode": "direct" if not any(acc.get("proxy") and "direct" not in acc.get("proxy", "").lower() for acc in credential_accounts) else "proxy",
@@ -8744,7 +8773,7 @@ class FBAutoBotMainWindow(QMainWindow):
 
                 self.log_message(
                     "INFO",
-                    f"🚀 Background Session Extraction: Launching automated cookie extractor for "
+                    f"🚀 Session Login & Cookie Extraction: Launching automated login for "
                     f"{len(credential_accounts)} UID/Pass account(s) (Target: {mode_str})..."
                 )
 
@@ -8810,6 +8839,7 @@ class FBAutoBotMainWindow(QMainWindow):
         status = str(result.get("status", "Failed")).strip()
         is_cp = bool(result.get("is_checkpoint", False) or "checkpoint" in status.lower())
         msg = str(result.get("message", "")).strip()
+        preset_acc_id = str(result.get("account_id", "")).strip()
 
         switch_to_page = (getattr(self, 'account_target_mode', 'page') == 'page')
         mode_str = "Page" if switch_to_page else "Profile"
@@ -8827,26 +8857,29 @@ class FBAutoBotMainWindow(QMainWindow):
             ppass = self.proxy_pass.text().strip()
 
         clean_slug = re.sub(r'[^a-zA-Z0-9_-]', '_', str(name)).lower()
-        acc_id = f"acc_{clean_slug}_{uuid.uuid4().hex[:4]}"
+        acc_id = preset_acc_id or f"acc_{clean_slug}_{uuid.uuid4().hex[:4]}"
 
         if is_cp:
             acc_status = "Checkpoint"
             acc_notes = f"⚠️ Checkpoint Account ({mode_str} Mode)"
+            final_cookie = cookie
             self.log_message("WARNING", f"[{uid}] 🔒 Account triggered Facebook Checkpoint! Saved with Checkpoint status.")
         elif (result.get("success") or "live" in status.lower() or "success" in status.lower()) and cookie:
             acc_status = "Healthy"
             acc_notes = f"✅ Live Fresh Session ({mode_str} Mode)"
-            self.log_message("SUCCESS", f"[{uid}] 🟢 Successfully extracted fresh {mode_str} cookies! Added as HEALTHY.")
+            final_cookie = cookie
+            self.log_message("SUCCESS", f"[{uid}] 🟢 Successfully logged in & extracted fresh {mode_str} cookies! Added as HEALTHY.")
         else:
-            acc_status = "Failed"
-            acc_notes = f"❌ Extraction Failed: {msg[:40]}"
-            self.log_message("ERROR", f"[{uid}] Extraction failed: {msg}")
+            acc_status = "Needs Login" if status in ("Timeout", "2FA Required", "2FA / Device Approval") else status or "Needs Login"
+            acc_notes = f"⚠️ {acc_status}: {msg[:45]} (Click Auto-Login Selected)"
+            final_cookie = ""
+            self.log_message("WARNING", f"[{uid}] Login incomplete ({acc_status}): {msg} — Saved credentials so you can click 'Auto-Login Selected'.")
 
         # Check if account already exists in vault by UID to update existing record
         existing_found = False
         if self.session_manager:
             for ex_id, ex_data in list(self.session_manager.accounts.items()):
-                if str(ex_data.get("uid", "")).strip() == uid:
+                if str(ex_data.get("uid", "")).strip() == uid or ex_id == acc_id:
                     acc_id = ex_id
                     existing_found = True
                     break
@@ -8858,7 +8891,7 @@ class FBAutoBotMainWindow(QMainWindow):
                 email=uid if "@" in uid else "",
                 password=pwd,
                 two_factor_secret=two_fa,
-                cookies=cookie or (f"c_user={uid};" if uid else ""),
+                cookies=final_cookie,
                 proxy=proxy,
                 proxy_type=ptype,
                 proxy_user=puser,
@@ -8868,11 +8901,11 @@ class FBAutoBotMainWindow(QMainWindow):
             )
         else:
             for a in self.accounts_list:
-                if str(a.get("uid", "")).strip() == uid:
+                if str(a.get("uid", "")).strip() == uid or a.get("id") == acc_id:
                     a["name"] = name
                     a["password"] = pwd
                     a["two_factor_secret"] = two_fa
-                    a["cookies"] = cookie or (f"c_user={uid};" if uid else "")
+                    a["cookies"] = final_cookie
                     a["status"] = acc_status
                     a["notes"] = acc_notes
                     a["proxy"] = proxy
@@ -8891,7 +8924,7 @@ class FBAutoBotMainWindow(QMainWindow):
                     "proxy_type": ptype,
                     "proxy_user": puser,
                     "proxy_pass": ppass,
-                    "cookies": cookie or (f"c_user={uid};" if uid else ""),
+                    "cookies": final_cookie,
                     "notes": acc_notes,
                     "status": acc_status,
                     "last_checked": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -16267,7 +16300,7 @@ class FBAutoBotMainWindow(QMainWindow):
         col_send_v = QVBoxLayout(self.col_send_frame)
         col_send_v.setSpacing(8)
 
-        self.radio_req_send = QRadioButton("🚀 Send Friend Requests")
+        self.radio_req_send = QRadioButton("🚀 Send Friend Requests / Follow Pages")
         self.radio_req_send.setStyleSheet("""
             QRadioButton {
                 color: #c084fc;
@@ -16282,8 +16315,8 @@ class FBAutoBotMainWindow(QMainWindow):
         col_send_v.addWidget(self.radio_req_send)
 
         desc_send = QLabel(
-            "• Sends friend requests to target Facebook profile URLs.\n"
-            "• Opens target profile, clicks 'Add Friend', and confirms.\n"
+            "• Sends Friend Requests to Profile URLs ('Add Friend').\n"
+            "• Auto-Follows / Likes Facebook Page URLs ('Follow').\n"
             "• Distributes URLs evenly across selected accounts.\n"
             "• Automatically closes Chrome when finished."
         )
@@ -16317,7 +16350,7 @@ class FBAutoBotMainWindow(QMainWindow):
         send_layout.setSpacing(10)
 
         send_hdr_row = QHBoxLayout()
-        send_hdr = QLabel("📋 Target Profile URLs for Outbound Friend Requests:")
+        send_hdr = QLabel("📋 Target Profile / Page URLs (Add Friend & Auto Follow):")
         send_hdr.setStyleSheet("font-size: 13px; font-weight: 700; color: #c084fc;")
         send_hdr_row.addWidget(send_hdr)
 
@@ -16335,7 +16368,7 @@ class FBAutoBotMainWindow(QMainWindow):
         self.send_req_per_acc_spin.setRange(1, 1000)
         self.send_req_per_acc_spin.setValue(30)
         self.send_req_per_acc_spin.setStyleSheet("font-weight: 800; color: #e2e8f0; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; padding: 2px 6px;")
-        self.send_req_per_acc_spin.setToolTip("Number of friend requests each selected account will send (e.g. 30)")
+        self.send_req_per_acc_spin.setToolTip("Number of friend requests or page follows each selected account will process (e.g. 30)")
         send_hdr_row.addWidget(self.send_req_per_acc_spin)
 
         # Quick action buttons
@@ -16359,18 +16392,18 @@ class FBAutoBotMainWindow(QMainWindow):
 
         send_layout.addLayout(send_hdr_row)
 
-        sub_info = QLabel("Paste target Facebook profile URLs (one URL per line). The bot will distribute them evenly across selected accounts without repeating.")
+        sub_info = QLabel("Paste target Facebook Profile OR Page URLs (one per line). The bot clicks 'Add Friend' on profiles and 'Follow' on Facebook Pages automatically.")
         sub_info.setStyleSheet("font-size: 11px; color: #94a3b8; font-style: italic;")
         send_layout.addWidget(sub_info)
 
         self.send_req_urls_input = QTextEdit()
         self.send_req_urls_input.setPlaceholderText(
-            "Paste target Facebook profile URLs here (one URL per line):\n"
+            "Paste target Facebook Profile or Page URLs here (one URL per line):\n"
             "https://www.facebook.com/username1\n"
             "https://www.facebook.com/profile.php?id=100012345678\n"
-            "https://www.facebook.com/profile.php?id=100087654321\n"
+            "https://www.facebook.com/YourTargetPageName\n"
             "...\n"
-            "(Load 50, 100, 200+ URLs. Each account will send the specified number of requests)"
+            "(Supports Profiles [Add Friend] and Facebook Pages [Auto Follow])"
         )
         self.send_req_urls_input.setStyleSheet("background-color: #0f172a; color: #f8fafc; font-size: 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 8px;")
         self.send_req_urls_input.setFixedHeight(120)
@@ -17805,10 +17838,10 @@ class FBAutoBotMainWindow(QMainWindow):
         t_lbl.setStyleSheet("color: #cbd5e1; font-size: 11px; font-weight: 700;")
         t_box.addWidget(t_lbl)
         self.extract_timeout_spin = QSpinBox()
-        self.extract_timeout_spin.setRange(10, 120)
-        self.extract_timeout_spin.setValue(20)
+        self.extract_timeout_spin.setRange(15, 180)
+        self.extract_timeout_spin.setValue(45)
         self.extract_timeout_spin.setSingleStep(5)
-        self.extract_timeout_spin.setToolTip("Maximum wait time in seconds for Facebook login & authentication before timeout.")
+        self.extract_timeout_spin.setToolTip("Maximum wait time in seconds for Facebook login & authentication before timeout/fallback.")
         self.extract_timeout_spin.setStyleSheet("background-color: #0f172a; color: #38bdf8; font-weight: 800; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; padding: 4px;")
         t_box.addWidget(self.extract_timeout_spin)
         cfg_row.addLayout(t_box, stretch=1)

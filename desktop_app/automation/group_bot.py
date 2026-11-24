@@ -32,6 +32,7 @@ try:
         build_window_chrome_args,
         apply_cdp_window_bounds,
         launch_bot_browser_context,
+        get_bot_working_page,
         human_click_element,
         human_move_and_click,
         human_click_coords,
@@ -48,6 +49,7 @@ except ImportError:
             build_window_chrome_args,
             apply_cdp_window_bounds,
             launch_bot_browser_context,
+            get_bot_working_page,
             human_click_element,
             human_move_and_click,
             human_click_coords,
@@ -64,6 +66,8 @@ except ImportError:
             return []
         async def apply_cdp_window_bounds(context, page=None, tile_rect=None, total_slots=1, slot_index=0):
             return False
+        async def get_bot_working_page(context):
+            return context.pages[0] if getattr(context, "pages", None) else await context.new_page()
         launch_bot_browser_context = None
         async def human_pause(low=0.55, high=1.45, mult=1.0):
             await asyncio.sleep(random.uniform(low, high))
@@ -638,19 +642,32 @@ class FacebookGroupBot:
             if not is_custom_profile:
                 channels_to_try.append((None, None))
 
+            fb_ign = list(ignore_default_args)
+            if is_custom_profile:
+                for k_flag in (
+                    "--password-store=basic",
+                    "--use-mock-keychain",
+                    "--disable-sync",
+                    "--disable-default-apps",
+                    "--disable-background-networking",
+                ):
+                    if k_flag not in fb_ign:
+                        fb_ign.append(k_flag)
+
             for ch, exe_p in channels_to_try:
                 try:
                     kwargs = {
                         "user_data_dir": profile_dir,
                         "headless": False,
                         "args": launch_args,
-                        "ignore_default_args": ignore_default_args,
+                        "ignore_default_args": fb_ign,
                         "proxy": proxy_cfg,
-                        "user_agent": DESKTOP_CHROME_USER_AGENT,
                         "no_viewport": True,
                         "locale": "en-US",
                         "permissions": ["geolocation", "notifications"]
                     }
+                    if not is_custom_profile:
+                        kwargs["user_agent"] = DESKTOP_CHROME_USER_AGENT
                     if exe_p:
                         kwargs["executable_path"] = exe_p
                     elif ch:
@@ -670,7 +687,7 @@ class FacebookGroupBot:
                     launch_kw = {
                         "headless": False,
                         "args": launch_args,
-                        "ignore_default_args": ignore_default_args,
+                        "ignore_default_args": fb_ign,
                         "proxy": proxy_cfg
                     }
                     self.browser = await self.playwright.chromium.launch(**launch_kw)
@@ -684,7 +701,7 @@ class FacebookGroupBot:
                 except Exception as final_ex:
                     raise RuntimeError(f"Failed to launch Chrome or Edge: {str(final_ex)}")
 
-        self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+        self.page = await get_bot_working_page(self.context)
         await apply_cdp_window_bounds(
             self.context,
             self.page,

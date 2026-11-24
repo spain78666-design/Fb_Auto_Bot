@@ -21,6 +21,7 @@ try:
         build_window_chrome_args,
         apply_cdp_window_bounds,
         launch_bot_browser_context,
+        get_bot_working_page,
         human_move_and_click,
         human_click_coords,
         human_pause,
@@ -34,6 +35,7 @@ except ImportError:
             build_window_chrome_args,
             apply_cdp_window_bounds,
             launch_bot_browser_context,
+            get_bot_working_page,
             human_move_and_click,
             human_click_coords,
             human_pause,
@@ -47,6 +49,8 @@ except ImportError:
             return []
         async def apply_cdp_window_bounds(context, page=None, tile_rect=None, total_slots=1, slot_index=0):
             return False
+        async def get_bot_working_page(context):
+            return context.pages[0] if getattr(context, "pages", None) else await context.new_page()
         launch_bot_browser_context = None
         async def human_move_and_click(page, locator, hover_pause=True, force_fallback=True):
             try:
@@ -332,15 +336,58 @@ class FacebookProfilePictureBot:
             self.log("INFO", "📂 Using existing Chrome profile Facebook login session directly.")
 
     async def _dismiss_popups_and_modals(self, page: Page):
-        """Detects and automatically dismisses blocking dialogs and popups across languages."""
+        """
+        Safely dismisses blocking notification/restriction popups across languages
+        WITHOUT ever closing an active Profile Picture / Cover Photo upload or crop modal,
+        and protects against accidental 'Leave page / Still uploading' discard clicks.
+        """
         try:
             await page.evaluate("""() => {
                 const dialogs = Array.from(document.querySelectorAll('div[role="dialog"], div[aria-modal="true"], div[role="alertdialog"]'));
                 for (const d of dialogs) {
                     const txt = (d.innerText || d.textContent || '').toLowerCase();
-                    const isWarningPopup = txt.includes('what happened') || 
-                                           txt.includes('we removed a post') || 
-                                           txt.includes('restriction') || 
+
+                    // 1. Protect active photo/upload/crop modals — NEVER click Close (X) on them
+                    const isUploadOrCropModal = Boolean(
+                        d.querySelector('input[type="file"]') ||
+                        d.querySelector('[role="progressbar"]') ||
+                        txt.includes('update profile picture') ||
+                        txt.includes('choose profile picture') ||
+                        txt.includes('edit profile picture') ||
+                        txt.includes('mettre à jour la photo') ||
+                        txt.includes('atualizar foto') ||
+                        txt.includes('actualizar foto') ||
+                        txt.includes('upload photo') ||
+                        txt.includes('make temporary') ||
+                        txt.includes('description') && (txt.includes('save') || txt.includes('enregistrer') || txt.includes('salvar') || txt.includes('guardar'))
+                    );
+                    if (isUploadOrCropModal) {
+                        continue;
+                    }
+
+                    // 2. If Facebook warns 'Still uploading / Leave page / Discard changes?', click Stay/Cancel (NOT Discard/Leave)
+                    const isLeaveWarning = (
+                        txt.includes('still uploading') ||
+                        txt.includes('leave page') ||
+                        txt.includes('discard changes') ||
+                        txt.includes('unsaved changes') ||
+                        txt.includes('photo is still')
+                    );
+                    if (isLeaveWarning) {
+                        const btns = Array.from(d.querySelectorAll('button, div[role="button"]'));
+                        for (const b of btns) {
+                            const bt = (b.innerText || b.textContent || '').trim().toLowerCase();
+                            if (bt === 'stay' || bt === 'cancel' || bt === 'keep editing' || bt === 'keep' || bt === 'annuler' || bt === 'cancelar') {
+                                if (b.offsetParent !== null) { b.click(); return true; }
+                            }
+                        }
+                        continue;
+                    }
+
+                    // 3. Dismiss genuine restriction/notification banners safely
+                    const isWarningPopup = txt.includes('what happened') ||
+                                           txt.includes('we removed a post') ||
+                                           txt.includes('restriction') ||
                                            txt.includes("can't read files") ||
                                            txt.includes('your photos') ||
                                            txt.includes('community standards') ||
@@ -357,18 +404,20 @@ class FacebookProfilePictureBot:
                                            txt.includes('padrões da comunidade') ||
                                            txt.includes('normas comunitarias') ||
                                            txt.includes('aviso') ||
-                                           txt.includes('alerta');
-                    
+                                           txt.includes('alerta') ||
+                                           txt.includes('not now') ||
+                                           txt.includes('cookie');
+
                     if (isWarningPopup) {
-                        const closeBtns = Array.from(d.querySelectorAll('div[aria-label="Close"], button[aria-label="Close"], div[role="button"][aria-label="Close"], [aria-label="Close"], [aria-label*="Fechar" i], [aria-label*="Cerrar" i], button, div[role="button"]'));
+                        const closeBtns = Array.from(d.querySelectorAll('div[aria-label="Close"], button[aria-label="Close"], div[role="button"][aria-label="Close"], [aria-label*="Fechar" i], [aria-label*="Cerrar" i], button, div[role="button"]'));
                         for (const cb of closeBtns) {
                             const aria = (cb.getAttribute('aria-label') || '').toLowerCase();
                             const cbTxt = (cb.innerText || cb.textContent || '').toLowerCase().trim();
-                            if (aria === 'close' || cbTxt === 'close' || 
-                                aria === 'fechar' || cbTxt === 'fechar' || 
-                                aria === 'cerrar' || cbTxt === 'cerrar' || 
-                                cbTxt === 'ok' || cbTxt === 'got it' || cbTxt === 'entendi' || 
-                                cbTxt === 'dismiss' || cbTxt === 'descartar' || 
+                            if (aria === 'close' || cbTxt === 'close' ||
+                                aria === 'fechar' || cbTxt === 'fechar' ||
+                                aria === 'cerrar' || cbTxt === 'cerrar' ||
+                                cbTxt === 'ok' || cbTxt === 'got it' || cbTxt === 'entendi' ||
+                                cbTxt === 'dismiss' || cbTxt === 'descartar' ||
                                 cbTxt === 'not now' || cbTxt === 'agora não' || cbTxt === 'ahora no') {
                                 if (cb.offsetParent !== null) {
                                     cb.click();
@@ -383,33 +432,14 @@ class FacebookProfilePictureBot:
         except Exception:
             pass
 
-        try:
-            specific_close_selectors = [
-                'div[role="dialog"] div[aria-label="Close"][role="button"]',
-                'div[role="dialog"] div[aria-label="Fechar"][role="button"]',
-                'div[role="dialog"] div[aria-label="Cerrar"][role="button"]',
-                'div[role="dialog"] button:has-text("Close")',
-                'div[role="dialog"] button:has-text("Fechar")',
-                'div[role="dialog"] button:has-text("Cerrar")',
-                'div[role="dialog"] button:has-text("Not now")',
-                'div[role="dialog"] button:has-text("Agora não")',
-                'div[role="dialog"] button:has-text("Ahora no")'
-            ]
-            for sel in specific_close_selectors:
-                c_btn = page.locator(sel).first
-                if await c_btn.count() > 0 and await c_btn.is_visible():
-                    await human_move_and_click(page, c_btn, hover_pause=False)
-                    await human_pause(0.35, 0.7)
-        except Exception:
-            pass
-
     async def _update_profile_picture(self, page: Page, photo_path: str) -> bool:
         """
         Uploads and saves the profile picture across ALL Facebook account languages:
         (French, Portuguese, Spanish, German, Italian, Turkish, Arabic, Urdu, Russian, English)
         1. Finds and clicks the camera/edit icon on the profile avatar
         2. Uploads the image via FileChooser or direct file input
-        3. Waits for crop dialog and clicks 'Save' / 'Enregistrer' / 'Salvar' / 'Guardar' / 'Speichern'
+        3. Waits for preview & enabled 'Save' button (never clicking prematurely)
+        4. Waits until upload progressbar & dialog close cleanly on their own
         """
         file_name = os.path.basename(photo_path)
         self.log("INFO", f"📷 Uploading Profile Picture: {file_name}...")
@@ -518,7 +548,7 @@ class FacebookProfilePictureBot:
             except Exception:
                 pass
 
-        # Check if direct file input is available on the modal or profile
+        # Attach file inside dialog via FileChooser or direct dialog input
         file_attached = False
         upload_btn_selectors = [
             # English
@@ -526,8 +556,6 @@ class FacebookProfilePictureBot:
             'div[role="dialog"] button:has-text("Upload Photo")',
             'div[role="dialog"] div[role="button"]:has-text("Upload photo")',
             'div[role="dialog"] button:has-text("Upload photo")',
-            'div[role="dialog"] div[role="button"]:has-text("Upload")',
-            'div[role="dialog"] button:has-text("Upload")',
             # French
             'div[role="dialog"] div[role="button"]:has-text("Importer une photo")',
             'div[role="dialog"] button:has-text("Importer une photo")',
@@ -535,8 +563,6 @@ class FacebookProfilePictureBot:
             'div[role="dialog"] button:has-text("Télécharger une photo")',
             'div[role="dialog"] div[role="button"]:has-text("Ajouter une photo")',
             'div[role="dialog"] button:has-text("Ajouter une photo")',
-            'div[role="dialog"] div[role="button"]:has-text("Importer")',
-            'div[role="dialog"] button:has-text("Importer")',
             # Portuguese
             'div[role="dialog"] div[role="button"]:has-text("Carregar foto")',
             'div[role="dialog"] button:has-text("Carregar foto")',
@@ -552,7 +578,6 @@ class FacebookProfilePictureBot:
             'div[role="dialog"] button:has-text("Carica foto")'
         ]
 
-        # Try expect_file_chooser on Upload Photo button
         for u_sel in upload_btn_selectors:
             try:
                 u_btn = page.locator(u_sel).first
@@ -567,23 +592,24 @@ class FacebookProfilePictureBot:
             except Exception:
                 pass
 
-        # Fallback: direct set_input_files on any dialog file input
+        # Fallback: direct set_input_files ONLY on dialog file input first (avoid wrong page file inputs)
         if not file_attached:
             try:
-                f_inputs = page.locator('div[role="dialog"] input[type="file"], input[type="file"]')
+                f_inputs = page.locator('div[role="dialog"] input[type="file"]')
                 if await f_inputs.count() > 0:
                     await f_inputs.first.set_input_files(photo_path)
                     file_attached = True
-                    self.log("SUCCESS", f"✅ Profile picture file attached via direct file input: {file_name}")
+                    self.log("SUCCESS", f"✅ Profile picture file attached via dialog file input: {file_name}")
             except Exception as ex:
-                self.log("DEBUG", f"Direct input notice: {ex}")
+                self.log("DEBUG", f"Direct dialog input notice: {ex}")
 
         if not file_attached:
             self.log("ERROR", f"❌ Could not attach profile picture file: {file_name}")
             return False
 
-        # Wait for crop/preview modal to appear and click 'Save' / 'Enregistrer' / 'Salvar' / 'Guardar' / 'Done'
-        self.log("INFO", "⏳ Waiting for photo crop preview and clicking Save...")
+        # Allow image upload preview & crop editor to render cleanly before looking for Save
+        await asyncio.sleep(random.uniform(1.8, 2.6))
+        self.log("INFO", "⏳ Waiting for crop preview & enabled Save button...")
         saved = False
 
         save_selectors = [
@@ -621,12 +647,14 @@ class FacebookProfilePictureBot:
             if self._cancelled:
                 return False
 
+            # Do not click Save while dialog still shows active upload progressbar if Save is disabled
             for s_sel in save_selectors:
                 try:
                     s_btn = page.locator(s_sel).first
                     if await s_btn.count() > 0 and await s_btn.is_visible():
                         dis = await s_btn.get_attribute("aria-disabled")
-                        if dis != "true":
+                        txt = ((await s_btn.inner_text()) or "").strip().lower()
+                        if dis != "true" and len(txt) <= 28 and "cancel" not in txt and "discard" not in txt and "leave" not in txt:
                             if await human_move_and_click(page, s_btn):
                                 saved = True
                                 self.log("SUCCESS", f"💾 Clicked 'Save' on Profile Picture ({file_name})!")
@@ -637,7 +665,7 @@ class FacebookProfilePictureBot:
             if saved:
                 break
 
-            # Universal DOM coordinate fallback + human click for Save button
+            # Strict DOM coordinate fallback for Save/Done button ONLY (never blind footerBtn[last] click)
             try:
                 save_coords = await page.evaluate("""() => {
                     const btns = Array.from(document.querySelectorAll('div[role="dialog"] div[role="button"], div[role="dialog"] button'));
@@ -653,7 +681,8 @@ class FacebookProfilePictureBot:
                         if (!b.offsetParent) continue;
                         const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
                         const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
-                        if (saveWords.some(w => txt === w || aria === w || txt.startsWith(w) || aria.startsWith(w))) {
+                        if (txt.length > 28) continue;
+                        if (saveWords.some(w => txt === w || aria === w)) {
                             const dis = b.getAttribute('aria-disabled');
                             if (dis !== 'true' && !b.disabled) {
                                 b.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -664,20 +693,10 @@ class FacebookProfilePictureBot:
                             }
                         }
                     }
-                    const footerBtns = Array.from(document.querySelectorAll('div[role="dialog"] div[role="button"]:not([aria-label*="close" i]):not([aria-label*="annuler" i]):not([aria-label*="cancelar" i]):not([aria-label*="cancel" i]), div[role="dialog"] button:not([aria-label*="close" i]):not([aria-label*="annuler" i]):not([aria-label*="cancelar" i]):not([aria-label*="cancel" i])'));
-                    if (footerBtns.length > 0) {
-                        const lastBtn = footerBtns[footerBtns.length - 1];
-                        if (lastBtn.offsetParent !== null && !lastBtn.disabled && lastBtn.getAttribute('aria-disabled') !== 'true') {
-                            const r = lastBtn.getBoundingClientRect();
-                            if (r.width > 4 && r.height > 4) {
-                                return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
-                            }
-                        }
-                    }
                     return { found: false };
                 }""")
                 if save_coords and save_coords.get("found"):
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.25)
                     if await human_click_coords(page, save_coords["x"], save_coords["y"]):
                         saved = True
                         self.log("SUCCESS", f"💾 Clicked 'Save' on Profile Picture ({file_name})!")
@@ -687,49 +706,94 @@ class FacebookProfilePictureBot:
 
             await asyncio.sleep(1.0)
 
-        if saved:
-            self.log("INFO", "⏳ Waiting for Facebook crop modal to close & finalize Profile Picture...")
-            for _ in range(16):
-                if self._cancelled:
-                    break
-                await asyncio.sleep(1.0)
-                try:
-                    still_open = await page.evaluate("""() => {
-                        const dlgs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-                        return dlgs.some(d => {
-                            const t = (d.innerText || '').toLowerCase();
-                            return t.includes('profile picture') || t.includes('photo de profil') || t.includes('foto do perfil') || t.includes('save') || d.querySelector('[role="progressbar"]');
-                        });
-                    }""")
-                    if not still_open:
-                        break
-                except Exception:
-                    pass
-            await asyncio.sleep(2.0)
-            return True
-        else:
-            self.log("WARNING", "⚠️ Could not locate Save button for Profile Picture.")
+        if not saved:
+            self.log("ERROR", "❌ Could not locate enabled Save button for Profile Picture.")
             return False
+
+        # Wait thoroughly until Facebook finishes uploading & closes the Profile Picture modal on its own
+        self.log("INFO", "⏳ Waiting for Facebook upload & crop modal to finish and close...")
+        upload_finished = False
+        upload_error = False
+        for tick in range(35):
+            if self._cancelled:
+                return False
+            await asyncio.sleep(1.0)
+            try:
+                state = await page.evaluate("""() => {
+                    const dlgs = Array.from(document.querySelectorAll('div[role="dialog"]'));
+                    let activeModal = false;
+                    let hasError = false;
+                    let hasLeavePrompt = false;
+                    for (const d of dlgs) {
+                        const t = (d.innerText || '').toLowerCase();
+                        if (t.includes('still uploading') || t.includes('leave page') || t.includes('discard changes')) {
+                            hasLeavePrompt = true;
+                            const stayBtn = Array.from(d.querySelectorAll('button, div[role="button"]')).find(b => {
+                                const bt = (b.innerText || '').trim().toLowerCase();
+                                return bt === 'stay' || bt === 'cancel' || bt === 'keep editing';
+                            });
+                            if (stayBtn) stayBtn.click();
+                            continue;
+                        }
+                        if (t.includes('couldn\\'t upload') || t.includes('try again') || t.includes('something went wrong')) {
+                            hasError = true;
+                        }
+                        if (d.querySelector('[role="progressbar"]') ||
+                            t.includes('update profile picture') ||
+                            t.includes('photo de profil') ||
+                            t.includes('foto do perfil') ||
+                            t.includes('foto del perfil') ||
+                            t.includes('make temporary')) {
+                            activeModal = true;
+                        }
+                    }
+                    const globalProgress = Boolean(document.querySelector('[role="progressbar"]'));
+                    return { activeModal: activeModal || globalProgress || hasLeavePrompt, hasError };
+                }""")
+                if state.get("hasError"):
+                    upload_error = True
+                    break
+                if not state.get("activeModal") and tick >= 2:
+                    upload_finished = True
+                    break
+            except Exception:
+                pass
+
+        if upload_error:
+            self.log("ERROR", f"❌ Facebook reported an error while uploading Profile Picture ({file_name}).")
+            return False
+
+        if not upload_finished:
+            self.log("WARNING", "⚠️ Profile Picture modal remained open after waiting; upload may not have completed.")
+            return False
+
+        await asyncio.sleep(2.5)
+        return True
 
     async def _update_cover_photo(self, page: Page, photo_path: str) -> bool:
         """
         Uploads and saves the cover photo across ALL Facebook account languages:
         (French, Portuguese, Spanish, German, Italian, Turkish, Arabic, Urdu, Russian, English)
-        1. Finds and clicks 'Edit cover photo' / 'Modifier la photo de couverture' on the profile header
-        2. Clicks 'Upload photo' / 'Importer une photo' in the dropdown menu via FileChooser
-        3. Waits for reposition preview and clicks 'Save changes' / 'Enregistrer les modifications'
+        1. Scrolls to profile top and opens 'Edit cover photo' / 'Add cover photo' menu
+        2. Attaches cover image via 'Upload photo' FileChooser
+        3. Waits for reposition banner & enabled 'Save changes' button (never matching sidebar 'Saved')
+        4. Waits until 'Save changes' banner & progressbar disappear completely before returning True
         """
         file_name = os.path.basename(photo_path)
         self.log("INFO", f"🖼️ Uploading Cover Photo: {file_name}...")
 
         await self._dismiss_popups_and_modals(page)
+        try:
+            await page.evaluate("() => window.scrollTo({ top: 0, behavior: 'smooth' })")
+            await asyncio.sleep(1.2)
+        except Exception:
+            pass
 
-        # Look for Edit Cover Photo button (Universal Multilingual)
         cover_btn_selectors = [
             # English
             'div[aria-label*="Edit cover photo" i][role="button"]',
             'div[aria-label*="Edit Cover Photo" i]',
-            'div[aria-label*="Add cover photo" i]',
+            'div[aria-label*="Add cover photo" i][role="button"]',
             'div[aria-label*="Add Cover Photo" i]',
             'div[role="button"]:has-text("Edit cover photo")',
             'div[role="button"]:has-text("Edit Cover Photo")',
@@ -743,116 +807,106 @@ class FacebookProfilePictureBot:
             'div[aria-label*="Changer la photo de couverture" i]',
             'div[role="button"]:has-text("Modifier la photo de couverture")',
             'div[role="button"]:has-text("Ajouter une photo de couverture")',
-            'button:has-text("Modifier la photo de couverture")',
-            'button:has-text("Ajouter une photo de couverture")',
             # Portuguese
             'div[aria-label*="Editar foto da capa" i][role="button"]',
             'div[aria-label*="Editar foto da capa" i]',
             'div[aria-label*="Adicionar foto da capa" i]',
             'div[role="button"]:has-text("Editar foto da capa")',
             'div[role="button"]:has-text("Adicionar foto da capa")',
-            'button:has-text("Editar foto da capa")',
-            'button:has-text("Adicionar foto da capa")',
             # Spanish
             'div[aria-label*="Editar foto de portada" i][role="button"]',
             'div[aria-label*="Editar foto de portada" i]',
             'div[aria-label*="Agregar foto de portada" i]',
             'div[role="button"]:has-text("Editar foto de portada")',
             'div[role="button"]:has-text("Agregar foto de portada")',
-            'button:has-text("Editar foto de portada")',
-            'button:has-text("Agregar foto de portada")',
             # German & Italian
             'div[aria-label*="Titelbild bearbeiten" i]',
             'div[aria-label*="Modifica immagine di copertina" i]'
         ]
 
-        clicked_cover_btn = False
-        for c_sel in cover_btn_selectors:
-            try:
-                btn = page.locator(c_sel).first
-                if await btn.count() > 0 and await btn.is_visible():
-                    if await human_move_and_click(page, btn):
-                        clicked_cover_btn = True
-                        self.log("INFO", "👉 Clicked Cover Photo edit button smoothly.")
-                        await asyncio.sleep(random.uniform(1.6, 2.3))
-                        break
-            except Exception:
-                pass
-
-        if not clicked_cover_btn:
-            # Universal DOM coordinate fallback + human click for cover photo edit button
-            try:
-                cover_coords = await page.evaluate("""() => {
-                    const btns = Array.from(document.querySelectorAll('div[role="button"], button'));
-                    const keywords = [
-                        'edit cover', 'add cover',
-                        'photo de couverture', 'modifier la couverture', 'ajouter une couverture', 'couverture',
-                        'foto da capa', 'editar capa', 'adicionar capa', 'capa',
-                        'foto de portada', 'editar portada', 'agregar portada', 'portada',
-                        'titelbild', 'copertina'
-                    ];
-                    for (const b of btns) {
-                        const txt = (b.innerText || b.textContent || '').toLowerCase();
-                        const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-                        if (keywords.some(k => txt.includes(k) || aria.includes(k))) {
-                            if (b.offsetParent !== null) {
-                                b.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                const r = b.getBoundingClientRect();
-                                if (r.width > 4 && r.height > 4) {
-                                    return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
-                                }
-                            }
-                        }
-                    }
-                    return { found: false };
-                }""")
-                if cover_coords and cover_coords.get("found"):
-                    await asyncio.sleep(0.25)
-                    clicked_cover_btn = await human_click_coords(page, cover_coords["x"], cover_coords["y"])
-                    if clicked_cover_btn:
-                        self.log("INFO", "👉 Clicked Cover Photo edit button cleanly.")
-                        await asyncio.sleep(random.uniform(1.6, 2.3))
-            except Exception:
-                pass
-
-        # Now click 'Upload photo' / 'Importer une photo' in the popup menu via expect_file_chooser
-        file_attached = False
         upload_menu_selectors = [
             # English
             'div[role="menuitem"]:has-text("Upload photo")',
             'div[role="menuitem"]:has-text("Upload Photo")',
+            'div[role="menuitem"] span:has-text("Upload photo")',
             'div[role="button"]:has-text("Upload photo")',
             'div[role="button"]:has-text("Upload Photo")',
-            'span:has-text("Upload photo")',
-            'span:has-text("Upload Photo")',
             # French
             'div[role="menuitem"]:has-text("Importer une photo")',
-            'div[role="menuitem"]:has-text("Importer une Photo")',
             'div[role="menuitem"]:has-text("Télécharger une photo")',
             'div[role="menuitem"]:has-text("Téléverser une photo")',
             'div[role="button"]:has-text("Importer une photo")',
-            'span:has-text("Importer une photo")',
-            'span:has-text("Télécharger une photo")',
             # Portuguese
             'div[role="menuitem"]:has-text("Carregar foto")',
             'div[role="menuitem"]:has-text("Carregar Foto")',
             'div[role="button"]:has-text("Carregar foto")',
-            'span:has-text("Carregar foto")',
             # Spanish
             'div[role="menuitem"]:has-text("Subir foto")',
             'div[role="menuitem"]:has-text("Subir Foto")',
             'div[role="button"]:has-text("Subir foto")',
-            'span:has-text("Subir foto")',
             # German & Italian
             'div[role="menuitem"]:has-text("Foto hochladen")',
             'div[role="menuitem"]:has-text("Carica foto")'
         ]
 
-        for u_sel in upload_menu_selectors:
-            try:
-                u_item = page.locator(u_sel).first
-                if await u_item.count() > 0 and await u_item.is_visible():
-                    try:
+        file_attached = False
+        for attempt in range(2):
+            if self._cancelled:
+                return False
+
+            clicked_cover_btn = False
+            for c_sel in cover_btn_selectors:
+                try:
+                    btn = page.locator(c_sel).first
+                    if await btn.count() > 0 and await btn.is_visible():
+                        if await human_move_and_click(page, btn):
+                            clicked_cover_btn = True
+                            self.log("INFO", "👉 Clicked Cover Photo edit button smoothly.")
+                            await asyncio.sleep(random.uniform(1.4, 2.2))
+                            break
+                except Exception:
+                    pass
+
+            if not clicked_cover_btn:
+                try:
+                    cover_coords = await page.evaluate("""() => {
+                        const btns = Array.from(document.querySelectorAll('div[role="button"], button'));
+                        const keywords = [
+                            'edit cover', 'add cover',
+                            'photo de couverture', 'modifier la couverture', 'ajouter une couverture',
+                            'foto da capa', 'editar capa', 'adicionar capa',
+                            'foto de portada', 'editar portada', 'agregar portada',
+                            'titelbild', 'copertina'
+                        ];
+                        for (const b of btns) {
+                            const txt = (b.innerText || b.textContent || '').toLowerCase();
+                            const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                            if (keywords.some(k => txt.includes(k) || aria.includes(k))) {
+                                if (b.offsetParent !== null) {
+                                    b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    const r = b.getBoundingClientRect();
+                                    if (r.width > 4 && r.height > 4) {
+                                        return { found: true, x: r.left + r.width * 0.5, y: r.top + r.height * 0.5 };
+                                    }
+                                }
+                            }
+                        }
+                        return { found: false };
+                    }""")
+                    if cover_coords and cover_coords.get("found"):
+                        await asyncio.sleep(0.25)
+                        clicked_cover_btn = await human_click_coords(page, cover_coords["x"], cover_coords["y"])
+                        if clicked_cover_btn:
+                            self.log("INFO", "👉 Clicked Cover Photo edit button cleanly.")
+                            await asyncio.sleep(random.uniform(1.4, 2.2))
+                except Exception:
+                    pass
+
+            # Click 'Upload photo' in dropdown menu via FileChooser
+            for u_sel in upload_menu_selectors:
+                try:
+                    u_item = page.locator(u_sel).first
+                    if await u_item.count() > 0 and await u_item.is_visible():
                         async with page.expect_file_chooser(timeout=5000) as fc_info:
                             await human_move_and_click(page, u_item, hover_pause=False)
                         fc = await fc_info.value
@@ -860,65 +914,63 @@ class FacebookProfilePictureBot:
                         file_attached = True
                         self.log("SUCCESS", f"✅ Cover photo file attached via FileChooser: {file_name}")
                         break
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
-        # Fallback: direct set_input_files on any file input
-        if not file_attached:
-            try:
-                f_inputs = page.locator('input[type="file"]')
-                if await f_inputs.count() > 0:
-                    await f_inputs.last.set_input_files(photo_path)
-                    file_attached = True
-                    self.log("SUCCESS", f"✅ Cover photo attached via direct file input: {file_name}")
-            except Exception:
-                pass
+            if file_attached:
+                break
+
+            # Fallback: only use direct file input if menu/cover controls opened
+            if clicked_cover_btn:
+                try:
+                    f_inputs = page.locator('div[role="menu"] input[type="file"], div[role="main"] input[type="file"], input[type="file"]')
+                    cnt = await f_inputs.count()
+                    if cnt > 0:
+                        await f_inputs.last.set_input_files(photo_path)
+                        file_attached = True
+                        self.log("SUCCESS", f"✅ Cover photo attached via direct file input: {file_name}")
+                        break
+                except Exception:
+                    pass
+
+            if attempt == 0:
+                await asyncio.sleep(1.5)
 
         if not file_attached:
             self.log("ERROR", f"❌ Could not attach cover photo file: {file_name}")
             return False
 
-        # Wait for reposition banner & 'Save changes' / 'Enregistrer les modifications' / 'Salvar alterações' / 'Guardar cambios' button
-        self.log("INFO", "⏳ Waiting for reposition preview and clicking Save Changes...")
+        # Wait for reposition preview banner & 'Save changes' button to appear cleanly
+        await asyncio.sleep(random.uniform(2.0, 3.0))
+        self.log("INFO", "⏳ Waiting for Cover Photo reposition preview and enabled 'Save changes' button...")
         saved_cover = False
 
         save_changes_selectors = [
-            # English
+            # English (strictly Save changes — never generic 'Save' or sidebar 'Saved')
             'div[aria-label="Save changes"][role="button"]',
+            'div[aria-label="Save Changes"][role="button"]',
             'div[role="button"]:has-text("Save changes")',
             'div[role="button"]:has-text("Save Changes")',
             'button:has-text("Save changes")',
             'button:has-text("Save Changes")',
-            'span:has-text("Save changes")',
             # French
             'div[aria-label="Enregistrer les modifications"][role="button"]',
             'div[role="button"]:has-text("Enregistrer les modifications")',
-            'div[role="button"]:has-text("Enregistrer les Modifications")',
             'button:has-text("Enregistrer les modifications")',
-            'button:has-text("Enregistrer les Modifications")',
-            'div[role="button"]:has-text("Enregistrer")',
-            'button:has-text("Enregistrer")',
             # Portuguese
             'div[aria-label="Salvar alterações"][role="button"]',
             'div[role="button"]:has-text("Salvar alterações")',
             'div[role="button"]:has-text("Salvar Alterações")',
             'button:has-text("Salvar alterações")',
-            'button:has-text("Salvar Alterações")',
             # Spanish
             'div[aria-label="Guardar cambios"][role="button"]',
             'div[role="button"]:has-text("Guardar cambios")',
-            'div[role="button"]:has-text("Guardar Cambios")',
             'button:has-text("Guardar cambios")',
-            'button:has-text("Guardar Cambios")',
             # German & Italian
             'button:has-text("Änderungen speichern")',
+            'div[role="button"]:has-text("Änderungen speichern")',
             'button:has-text("Salva modifiche")',
-            # Fallback Save
-            'div[aria-label="Save"][role="button"]',
-            'button:has-text("Save")',
-            'div[role="button"]:has-text("Save")'
+            'div[role="button"]:has-text("Salva modifiche")'
         ]
 
         for loop_tick in range(30):
@@ -930,7 +982,8 @@ class FacebookProfilePictureBot:
                     sc_btn = page.locator(sc_sel).first
                     if await sc_btn.count() > 0 and await sc_btn.is_visible():
                         dis = await sc_btn.get_attribute("aria-disabled")
-                        if dis != "true":
+                        txt = ((await sc_btn.inner_text()) or "").strip().lower()
+                        if dis != "true" and len(txt) <= 36 and txt != "saved":
                             if await human_move_and_click(page, sc_btn):
                                 saved_cover = True
                                 self.log("SUCCESS", f"💾 Clicked 'Save Changes' on Cover Photo ({file_name})!")
@@ -941,22 +994,24 @@ class FacebookProfilePictureBot:
             if saved_cover:
                 break
 
-            # Universal DOM coordinate fallback + human click for Save changes
+            # Strict DOM coordinate fallback for Cover Save button (top banner, excluding sidebar/navigation)
             try:
                 sc_coords = await page.evaluate("""() => {
                     const btns = Array.from(document.querySelectorAll('div[role="button"], button, span[role="button"]'));
-                    const keywords = [
-                        'save changes', 'save',
-                        'enregistrer les modifications', 'enregistrer', 'sauvegarder',
-                        'salvar alterações', 'salvar alteracoes', 'salvar',
-                        'guardar cambios', 'guardar',
+                    const exactKeywords = [
+                        'save changes',
+                        'enregistrer les modifications',
+                        'salvar alterações', 'salvar alteracoes',
+                        'guardar cambios',
                         'änderungen speichern', 'salva modifiche'
                     ];
                     for (const b of btns) {
                         if (!b.offsetParent) continue;
+                        if (b.closest('[role="navigation"]')) continue;
                         const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
                         const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
-                        if (keywords.some(k => txt.includes(k) || aria.includes(k))) {
+                        if (txt === 'saved' || txt.length > 36) continue;
+                        if (exactKeywords.some(k => txt === k || aria === k)) {
                             const dis = b.getAttribute('aria-disabled');
                             if (dis !== 'true' && !b.disabled) {
                                 b.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -970,7 +1025,7 @@ class FacebookProfilePictureBot:
                     return { found: false };
                 }""")
                 if sc_coords and sc_coords.get("found"):
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.25)
                     if await human_click_coords(page, sc_coords["x"], sc_coords["y"]):
                         saved_cover = True
                         self.log("SUCCESS", f"💾 Clicked 'Save Changes' on Cover Photo ({file_name})!")
@@ -980,30 +1035,63 @@ class FacebookProfilePictureBot:
 
             await asyncio.sleep(1.0)
 
-        if saved_cover:
-            self.log("INFO", "⏳ Waiting for Facebook to process and save Cover Photo...")
-            for _ in range(16):
-                if self._cancelled:
-                    break
-                await asyncio.sleep(1.0)
-                try:
-                    still_saving = await page.evaluate("""() => {
-                        const btns = Array.from(document.querySelectorAll('div[role="button"], button'));
-                        return btns.some(b => {
-                            if (!b.offsetParent) return false;
-                            const t = (b.innerText || '').trim().toLowerCase();
-                            return t === 'save changes' || t === 'enregistrer les modifications' || t === 'salvar alterações' || t === 'guardar cambios';
-                        });
-                    }""")
-                    if not still_saving:
-                        break
-                except Exception:
-                    pass
-            await asyncio.sleep(2.0)
-            return True
-        else:
-            self.log("WARNING", "⚠️ Could not locate Save Changes button for Cover Photo.")
+        if not saved_cover:
+            self.log("ERROR", "❌ Could not locate enabled 'Save Changes' button for Cover Photo.")
             return False
+
+        # Wait thoroughly until Cover Save Changes banner & any upload indicator completely disappear
+        self.log("INFO", "⏳ Waiting for Facebook to process and finalize Cover Photo...")
+        cover_finished = False
+        cover_error = False
+        for tick in range(35):
+            if self._cancelled:
+                return False
+            await asyncio.sleep(1.0)
+            try:
+                state = await page.evaluate("""() => {
+                    const saveBannerBtns = Array.from(document.querySelectorAll('div[role="button"], button'));
+                    const stillHasSaveChanges = saveBannerBtns.some(b => {
+                        if (!b.offsetParent) return false;
+                        const t = (b.innerText || '').trim().toLowerCase();
+                        return t === 'save changes' || t === 'enregistrer les modifications' || t === 'salvar alterações' || t === 'guardar cambios';
+                    });
+                    const hasProgress = Boolean(document.querySelector('[role="progressbar"]'));
+                    let hasError = false;
+                    const dlgs = Array.from(document.querySelectorAll('div[role="dialog"]'));
+                    for (const d of dlgs) {
+                        const dt = (d.innerText || '').toLowerCase();
+                        if (dt.includes('still uploading') || dt.includes('leave page') || dt.includes('discard changes')) {
+                            const stayBtn = Array.from(d.querySelectorAll('button, div[role="button"]')).find(b => {
+                                const bt = (b.innerText || '').trim().toLowerCase();
+                                return bt === 'stay' || bt === 'cancel' || bt === 'keep editing';
+                            });
+                            if (stayBtn) stayBtn.click();
+                        }
+                        if (dt.includes('couldn\\'t upload') || dt.includes('try again') || dt.includes('something went wrong')) {
+                            hasError = true;
+                        }
+                    }
+                    return { stillSaving: stillHasSaveChanges || hasProgress, hasError };
+                }""")
+                if state.get("hasError"):
+                    cover_error = True
+                    break
+                if not state.get("stillSaving") and tick >= 2:
+                    cover_finished = True
+                    break
+            except Exception:
+                pass
+
+        if cover_error:
+            self.log("ERROR", f"❌ Facebook reported an upload error while saving Cover Photo ({file_name}).")
+            return False
+
+        if not cover_finished:
+            self.log("WARNING", "⚠️ Cover Photo 'Save changes' banner stayed open; upload did not finalize.")
+            return False
+
+        await asyncio.sleep(2.5)
+        return True
 
     async def close(self):
         """Gracefully closes all open pages, browser contexts, and the Playwright engine."""
@@ -1032,10 +1120,10 @@ class FacebookProfilePictureBot:
         """
         Executes Profile & Cover Photo Update for this account:
         1. Launches Chrome with cookies and anti-throttling flags
-        2. Navigates to user profile
-        3. Uploads and saves Profile Picture if configured
-        4. Uploads and saves Cover Photo if configured
-        5. Cleanly closes Chrome
+        2. Navigates to user profile & guards beforeunload/upload dialogs
+        3. Uploads and saves Profile Picture if configured (waiting for upload completion)
+        4. Uploads and saves Cover Photo if configured (waiting for Save Changes completion)
+        5. Cleanly closes Chrome and returns true only when ALL requested photos saved
         """
         if not self.profile_photo_path and not self.cover_photo_path:
             self.log("ERROR", "No profile or cover photo selected to upload.")
@@ -1049,7 +1137,18 @@ class FacebookProfilePictureBot:
             if self._cancelled or not self.context:
                 return {"success": False, "message": "Cancelled before start"}
 
-            page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+            page = await get_bot_working_page(self.context)
+
+            # Guard JS beforeunload dialogs so active uploads are never discarded automatically
+            async def _handle_js_dialog(dialog):
+                try:
+                    await dialog.dismiss()
+                except Exception:
+                    pass
+            try:
+                page.on("dialog", lambda d: asyncio.create_task(_handle_js_dialog(d)))
+            except Exception:
+                pass
 
             # Navigate to profile URL
             clean_uid = "".join(c for c in str(self.account_data.get("uid", "")) if c.isdigit())
@@ -1078,31 +1177,36 @@ class FacebookProfilePictureBot:
             await self._dismiss_popups_and_modals(page)
             await human_session_warmup(page, duration_range=(1.1, 2.0))
 
-            # Step 1: Upload Profile Picture
+            # Step 1: Upload Profile Picture (if configured)
             if self.profile_photo_path:
                 profile_ok = await self._update_profile_picture(page, self.profile_photo_path)
                 if profile_ok:
                     self.log("SUCCESS", "🎉 Profile Picture updated and saved successfully!")
                 else:
-                    self.log("WARNING", "⚠️ Profile Picture update was incomplete.")
-                await human_pause(max(0.6, self.action_delay * 0.75), max(1.1, self.action_delay * 1.25))
+                    self.log("ERROR", "❌ Profile Picture update failed or did not finish saving.")
+                await human_pause(max(1.2, self.action_delay * 0.75), max(2.2, self.action_delay * 1.25))
 
-            # Step 2: Upload Cover Photo
+            # Step 2: Upload Cover Photo (if configured)
             if self.cover_photo_path and not self._cancelled:
                 await human_idle_drift(page)
                 cover_ok = await self._update_cover_photo(page, self.cover_photo_path)
                 if cover_ok:
                     self.log("SUCCESS", "🎉 Cover Photo updated and saved changes successfully!")
                 else:
-                    self.log("WARNING", "⚠️ Cover Photo update was incomplete.")
-                await human_pause(max(0.6, self.action_delay * 0.75), max(1.1, self.action_delay * 1.25))
+                    self.log("ERROR", "❌ Cover Photo update failed or did not finish saving.")
+                await human_pause(max(1.0, self.action_delay * 0.65), max(1.8, self.action_delay * 1.15))
 
             overall_success = (profile_ok if self.profile_photo_path else True) and (cover_ok if self.cover_photo_path else True)
 
             if overall_success:
-                self.log("SUCCESS", f"✨ Both Profile and Cover photos successfully completed for {self.account_name}!")
+                done_parts = []
+                if self.profile_photo_path:
+                    done_parts.append("Profile Picture")
+                if self.cover_photo_path:
+                    done_parts.append("Cover Photo")
+                self.log("SUCCESS", f"✨ Successfully completed & saved {' and '.join(done_parts)} for {self.account_name}!")
             else:
-                self.log("INFO", f"Finished profile photo tasks for {self.account_name}.")
+                self.log("WARNING", f"⚠️ Profile/Cover update finished partially for {self.account_name} (Profile OK: {profile_ok}, Cover OK: {cover_ok}).")
 
             return {
                 "success": overall_success,

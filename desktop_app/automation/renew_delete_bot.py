@@ -34,6 +34,7 @@ try:
         resolve_tile_context,
         apply_cdp_window_bounds,
         launch_bot_browser_context,
+        get_bot_working_page,
         human_click_element,
         human_move_and_click,
         human_click_coords,
@@ -49,6 +50,7 @@ except ImportError:
             resolve_tile_context,
             apply_cdp_window_bounds,
             launch_bot_browser_context,
+            get_bot_working_page,
             human_click_element,
             human_move_and_click,
             human_click_coords,
@@ -64,6 +66,9 @@ except ImportError:
 
         async def apply_cdp_window_bounds(context, page=None, tile_rect=None, total_slots=1, slot_index=0):
             return False
+
+        async def get_bot_working_page(context):
+            return context.pages[0] if getattr(context, "pages", None) else await context.new_page()
 
         async def launch_bot_browser_context(*args, **kwargs):
             raise RuntimeError("browser_window_manager module is required.")
@@ -347,16 +352,16 @@ class FacebookRenewDeleteBot:
             "--no-first-run",
             "--disable-dev-shm-usage",
             "--disable-notifications",
-            "--password-store=basic",
             "--lang=en-US,en",
         ]
         ctx_kwargs: Dict[str, Any] = {
-            "user_agent": ua,
             "no_viewport": True,
             "locale": "en-US",
-            "timezone_id": "America/New_York",
             "permissions": ["notifications"],
         }
+        if not self.is_custom_profile:
+            ctx_kwargs["user_agent"] = ua
+            ctx_kwargs["timezone_id"] = "America/New_York"
 
         self.context, self.browser = await launch_bot_browser_context(
             self.playwright,
@@ -367,6 +372,7 @@ class FacebookRenewDeleteBot:
             ignore_default_args=["--enable-automation", "--disable-extensions"],
             context_kwargs=ctx_kwargs,
             log_cb=lambda lvl, msg: self.log(lvl, msg),
+            allow_ephemeral_fallback=not self.is_custom_profile,
         )
 
         # Inject cookies when provided (Accounts Manager accounts)
@@ -389,7 +395,7 @@ class FacebookRenewDeleteBot:
         elif self.is_custom_profile:
             self.log("INFO", f"🗂️ Using live Chrome profile session: {os.path.basename(profile_dir or '')}")
 
-        self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+        self.page = await get_bot_working_page(self.context)
         if HAS_PLAYWRIGHT_STEALTH:
             try:
                 await stealth_async(self.page)

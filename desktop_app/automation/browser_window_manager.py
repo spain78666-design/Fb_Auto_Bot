@@ -26,13 +26,16 @@ import re
 import sys
 import json
 import math
+import time
 import shlex
+import socket
 import struct
 import random
 import hashlib
 import asyncio
 import logging
 import subprocess
+import urllib.request
 from contextlib import asynccontextmanager
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -1735,7 +1738,6 @@ _BRIDGE_SKIP_FILENAMES = {
     "singletonsocket",
     "log",
     "log.old",
-    "cookies-journal",
 }
 _BRIDGE_SKIP_DIRNAMES = {
     "cache",
@@ -1749,7 +1751,6 @@ _BRIDGE_SKIP_DIRNAMES = {
     "browsermetrics",
     "component_crx_cache",
     "safebrowsing",
-    "sessions",
     "cachestorage",
     "scriptcache",
     "blob_storage",
@@ -1913,25 +1914,93 @@ def _stage_nondefault_chrome_bridge(
 
         for dname in (
             "Network",
+            "Sessions",
             "Local Storage",
             "Session Storage",
             "IndexedDB",
             "Extension State",
             "Local Extension Settings",
             "Sync Extension Settings",
+            "Managed Extension Settings",
+            "Extension Cookies",
+            "Extension Rules",
+            "Extension Scripts",
+            "Platform Notifications",
+            "Local App Settings",
+            "Sync Data",
             "Extensions",
+            "Service Worker",
             "Storage",
             "WebStorage",
+            "Databases",
+            "Shared Dictionary",
         ):
             sp = os.path.join(src_prof, dname)
             dp = os.path.join(dst_prof, dname)
             if os.path.isdir(sp):
+                # Clean stale WAL/SHM remnants in destination before syncing fresh SQLite DBs
+                if dname == "Network":
+                    for wal_f in ("Cookies-wal", "Cookies-shm", "Cookies-journal"):
+                        wal_dst = os.path.join(dp, wal_f)
+                        if os.path.isfile(wal_dst) and not os.path.isfile(os.path.join(sp, wal_f)):
+                            try:
+                                os.unlink(wal_dst)
+                            except Exception:
+                                pass
                 _copy_tree_resilient(sp, dp, status_out=status_out)
 
-        for fname in ("Cookies", "Preferences", "Secure Preferences", "Web Data", "Login Data", "Login Data For Account"):
+        sqlite_journal_bases = (
+            "Cookies",
+            "Web Data",
+            "Account Web Data",
+            "Login Data",
+            "Login Data For Account",
+            "History",
+            "Shortcuts",
+            "DIPS",
+            "Top Sites",
+            "Favicons",
+        )
+        for db_base in sqlite_journal_bases:
+            for suffix in ("-wal", "-shm", "-journal"):
+                jn_name = f"{db_base}{suffix}"
+                sp_jn = os.path.join(src_prof, jn_name)
+                dp_jn = os.path.join(dst_prof, jn_name)
+                if os.path.isfile(dp_jn) and not os.path.isfile(sp_jn):
+                    try:
+                        os.unlink(dp_jn)
+                    except Exception:
+                        pass
+
+        for fname in (
+            "Cookies",
+            "Cookies-wal",
+            "Cookies-shm",
+            "Preferences",
+            "Secure Preferences",
+            "Web Data",
+            "Web Data-wal",
+            "Account Web Data",
+            "Account Web Data-wal",
+            "Login Data",
+            "Login Data-wal",
+            "Login Data For Account",
+            "Login Data For Account-wal",
+            "Bookmarks",
+            "Bookmarks.bak",
+            "Shortcuts",
+            "Shortcuts-wal",
+            "DIPS",
+            "DIPS-wal",
+            "History",
+            "History-wal",
+            "Top Sites",
+            "Favicons",
+        ):
             sp = os.path.join(src_prof, fname)
+            dp = os.path.join(dst_prof, fname)
             if os.path.isfile(sp):
-                ok, locked = _copy_file_resilient(sp, os.path.join(dst_prof, fname))
+                ok, locked = _copy_file_resilient(sp, dp)
                 if status_out is not None and fname == "Cookies":
                     if ok:
                         status_out["cookies_copied"] = True
@@ -1951,6 +2020,11 @@ def resolve_chrome_executable_for_account(account_data: Optional[Dict[str, Any]]
     acc = account_data or {}
     custom_exe = (acc.get("chrome_executable") or "").strip()
     if custom_exe and os.path.isfile(custom_exe):
+        # Chrome PWA/profile shortcuts occasionally point to chrome_proxy.exe; prefer sibling chrome.exe
+        if os.path.basename(custom_exe).lower() == "chrome_proxy.exe":
+            sib = os.path.join(os.path.dirname(custom_exe), "chrome.exe")
+            if os.path.isfile(sib):
+                return os.path.abspath(sib)
         return os.path.abspath(custom_exe)
     try:
         from automation.extension_manager import get_system_chrome_executable
@@ -1976,6 +2050,256 @@ def resolve_chrome_executable_for_account(account_data: Optional[Dict[str, Any]]
             if os.path.isfile(cand):
                 return os.path.abspath(cand)
     return None
+
+
+CUSTOM_CHROME_IGNORED_DEFAULT_ARGS = [
+    "--enable-automation",
+    "--disable-extensions",
+    "--password-store=basic",
+    "--use-mock-keychain",
+    "--disable-sync",
+    "--disable-default-apps",
+    "--disable-component-extensions-with-background-pages",
+    "--disable-background-networking",
+]
+
+_ALLOCATED_CDP_PORTS: Dict[int, float] = {}
+_CDP_PORT_LOCK: Optional[asyncio.Lock] = None
+
+
+def _get_cdp_port_lock() -> asyncio.Lock:
+    global _CDP_PORT_LOCK
+    if _CDP_PORT_LOCK is None:
+        _CDP_PORT_LOCK = asyncio.Lock()
+    return _CDP_PORT_LOCK
+
+
+async def _reserve_free_cdp_port() -> int:
+    """Finds an unused loopback TCP port cleanly without concurrent race collisions."""
+    async with _get_cdp_port_lock():
+        now = time.monotonic()
+        stale = [p for p, ts in _ALLOCATED_CDP_PORTS.items() if now - ts > 15.0]
+        for p in stale:
+            _ALLOCATED_CDP_PORTS.pop(p, None)
+
+        for _ in range(25):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", 0))
+                port = int(s.getsockname()[1])
+            if port not in _ALLOCATED_CDP_PORTS:
+                _ALLOCATED_CDP_PORTS[port] = now
+                return port
+        return random.randint(19222, 29999)
+
+
+def _probe_cdp_ready(port: int) -> bool:
+    """Checks whether Chrome's local CDP endpoint on 127.0.0.1:<port> is accepting connections."""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(f"http://127.0.0.1:{int(port)}/json/version", timeout=0.6) as resp:
+            if resp.status == 200:
+                body = resp.read().decode("utf-8", errors="ignore")
+                return "webSocketDebuggerUrl" in body
+    except Exception:
+        pass
+    return False
+
+
+def _is_blank_or_newtab_url(url: str) -> bool:
+    u = (url or "").strip().lower()
+    if not u or u == "about:blank":
+        return True
+    return (
+        u.startswith("chrome://newtab")
+        or u.startswith("chrome://new-tab-page")
+        or u.startswith("edge://newtab")
+        or u.startswith("chrome-search://local-ntp")
+    )
+
+
+async def get_bot_working_page(context: Any) -> Any:
+    """
+    Returns an automation working tab WITHOUT overwriting existing user-restored tabs.
+    - Reuses an existing blank or New Tab page if present.
+    - Otherwise opens a fresh tab via context.new_page() so existing open tabs remain intact.
+    """
+    if not context:
+        return None
+    try:
+        pages = list(getattr(context, "pages", None) or [])
+        for p in pages:
+            try:
+                if _is_blank_or_newtab_url(getattr(p, "url", "") or ""):
+                    return p
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return await context.new_page()
+
+
+def _attach_cdp_graceful_close(ctx: Any, browser: Any, proc: subprocess.Popen) -> None:
+    """
+    Ensures calling `await context.close()` or `await browser.close()` gracefully closes the
+    attached Chrome instance via CDP `Browser.close` (flushing all cookies/tabs cleanly to disk)
+    instead of leaving orphan Chrome processes or crashing on disconnect.
+    """
+    state = {"closed": False}
+    orig_browser_close = browser.close
+
+    async def _shutdown_all(*_args, **_kwargs):
+        if state["closed"]:
+            return
+        state["closed"] = True
+        sent_browser_close = False
+        try:
+            if hasattr(browser, "new_browser_cdp_session"):
+                bcdp = await browser.new_browser_cdp_session()
+                try:
+                    await bcdp.send("Browser.close")
+                    sent_browser_close = True
+                finally:
+                    try:
+                        await bcdp.detach()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        if not sent_browser_close:
+            try:
+                p0 = ctx.pages[0] if getattr(ctx, "pages", None) else None
+                if p0 is not None:
+                    cdp = await ctx.new_cdp_session(p0)
+                    try:
+                        await cdp.send("Browser.close")
+                    finally:
+                        try:
+                            await cdp.detach()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        try:
+            await orig_browser_close()
+        except Exception:
+            pass
+
+        # Give Chrome up to 2.5s to flush Cookies/Sessions cleanly before gentle terminate
+        deadline = time.monotonic() + 2.5
+        while proc.poll() is None and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+        if proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+            for _ in range(10):
+                if proc.poll() is not None:
+                    break
+                await asyncio.sleep(0.08)
+
+    try:
+        setattr(ctx, "close", _shutdown_all)
+    except Exception:
+        pass
+    try:
+        setattr(browser, "close", _shutdown_all)
+    except Exception:
+        pass
+
+
+async def _launch_native_chrome_via_cdp(
+    playwright: Any,
+    chrome_exe: str,
+    user_data_dir: str,
+    profile_subdir: Optional[str],
+    tile_rect: Optional[Tuple[int, int, int, int]],
+    total_slots: int,
+    slot_index: int,
+    proxy_cfg: Optional[Dict[str, Any]],
+    extra_load_extensions: Optional[List[str]] = None,
+) -> Tuple[Any, Any]:
+    """
+    Launches the user's real Chrome binary directly (just like opening it manually!) with zero
+    Playwright keychain/sync/extension blocking flags, then attaches Playwright via CDP.
+    Preserves 100% of DPAPI/App-Bound cookies, saved logins, passwords, extensions, and tabs.
+    """
+    port = await _reserve_free_cdp_port()
+    rect = tile_rect or compute_tile_rect(slot_index, total_slots)
+    x, y, w, h = (int(rect[0]), int(rect[1]), max(320, int(rect[2])), max(300, int(rect[3])))
+
+    cmd: List[str] = [
+        chrome_exe,
+        f"--user-data-dir={os.path.abspath(user_data_dir)}",
+        f"--remote-debugging-port={port}",
+        "--no-default-browser-check",
+        "--no-first-run",
+        "--disable-blink-features=AutomationControlled",
+        "--disable-infobars",
+        f"--window-position={x},{y}",
+        f"--window-size={w},{h}",
+    ]
+    if profile_subdir:
+        cmd.append(f"--profile-directory={profile_subdir}")
+    if proxy_cfg and proxy_cfg.get("server") and not proxy_cfg.get("username"):
+        cmd.append(f"--proxy-server={proxy_cfg['server']}")
+    for ext_flag in (extra_load_extensions or []):
+        if ext_flag not in cmd:
+            cmd.append(ext_flag)
+
+    creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=creation_flags,
+    )
+
+    try:
+        ready = False
+        deadline = time.monotonic() + 14.0
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                break
+            if await asyncio.to_thread(_probe_cdp_ready, port):
+                ready = True
+                break
+            await asyncio.sleep(0.2)
+
+        if not ready:
+            raise RuntimeError(
+                f"Real Chrome did not open CDP port {port} cleanly (exit={proc.poll()})."
+            )
+
+        browser = await playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")
+        # Wait briefly for Chrome's default profile context & restored tabs to register
+        ctx = None
+        for _ in range(25):
+            if getattr(browser, "contexts", None):
+                ctx = browser.contexts[0]
+                break
+            await asyncio.sleep(0.12)
+        if ctx is None:
+            ctx = await browser.new_context(no_viewport=True)
+
+        for _ in range(15):
+            if getattr(ctx, "pages", None):
+                break
+            await asyncio.sleep(0.1)
+        if not getattr(ctx, "pages", None):
+            await ctx.new_page()
+
+        _attach_cdp_graceful_close(ctx, browser, proc)
+        return ctx, browser
+    except Exception:
+        if proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        raise
 
 
 async def launch_bot_browser_context(
@@ -2014,15 +2338,30 @@ async def launch_bot_browser_context(
     ign = list(ignore_default_args or ["--enable-automation", "--disable-extensions"])
     if "--enable-automation" not in ign:
         ign.append("--enable-automation")
-    if is_custom and "--disable-extensions" not in ign:
-        ign.append("--disable-extensions")
+    if is_custom:
+        for req_ign in CUSTOM_CHROME_IGNORED_DEFAULT_ARGS:
+            if req_ign not in ign:
+                ign.append(req_ign)
 
     ctx_opts = dict(context_kwargs or {})
-    # Let real Chrome use its own authentic versioned User-Agent for custom profiles so Client Hints match cookies
+    # Let real Chrome use its own authentic versioned User-Agent & timezone for custom profiles
     if is_custom and chrome_exe:
         ctx_opts.pop("user_agent", None)
+        ctx_opts.pop("timezone_id", None)
 
     clean_args = strip_maximized_args(list(launch_args or []))
+    if is_custom:
+        # Never disable Windows Chrome DPAPI / keychain / proxy extensions / default apps on user Chrome profiles
+        stripped_flags = {
+            "--password-store=basic",
+            "--use-mock-keychain",
+            "--disable-sync",
+            "--disable-default-apps",
+        }
+        if not proxy_cfg:
+            stripped_flags.add("--no-proxy-server")
+        clean_args = [a for a in clean_args if str(a).strip().lower() not in stripped_flags]
+
     if prof_subdir and not any(a.lower().startswith("--profile-directory") for a in clean_args):
         clean_args.append(f"--profile-directory={prof_subdir}")
 
@@ -2030,7 +2369,7 @@ async def launch_bot_browser_context(
     if not any(a.startswith("--window-position=") for a in clean_args):
         clean_args.extend(build_window_chrome_args(tile_rect=resolved_tile, total_slots=total_slots, slot_index=slot_idx))
 
-    # 1. Persistent Context (Direct or Seamless Session Bridge)
+    # 1. Persistent Context (Direct Real Chrome via CDP or Seamless Session Bridge)
     if profile_dir and os.path.isdir(profile_dir):
         handoff_lock = _get_launch_handoff_lock(profile_dir)
         async with handoff_lock:
@@ -2049,10 +2388,10 @@ async def launch_bot_browser_context(
                     bridge_tried = True
                     target_dir = staged
                     if bridge_info.get("cookies_locked") and not bridge_info.get("cookies_copied"):
-                        _log(
-                            "WARNING",
-                            f"⚠️ Chrome actively holds an exclusive lock on '{acc_name}' Cookies DB; "
-                            f"if Facebook asks to log in, close just that Chrome profile window once."
+                        raise RuntimeError(
+                            f"⚠️ Chrome profile '{acc_name}' is actively locked by another Chrome window or "
+                            f"background Chrome process, so saved logins/cookies cannot be read. "
+                            f"Please close Chrome completely (including system tray) and retry."
                         )
                 elif is_locked_now:
                     raise RuntimeError(
@@ -2064,6 +2403,38 @@ async def launch_bot_browser_context(
 
             # Pre-write Preferences window_placement so Chrome never restores maximized/overlapping bounds
             prepare_profile_tile_placement(target_dir, resolved_tile, profile_subdir=prof_subdir)
+
+            # Primary path for custom Chrome profiles: launch REAL chrome.exe natively & attach over CDP
+            # (Zero Playwright keychain/sync/extension flags; keeps all logins, passwords, extensions & tabs!)
+            if is_custom and chrome_exe and os.path.isfile(chrome_exe) and not (proxy_cfg and proxy_cfg.get("username")):
+                ext_flags = [
+                    a for a in clean_args
+                    if str(a).lower().startswith("--load-extension=")
+                    or str(a).strip().lower() == "--enable-unsafe-extension-debugging"
+                ]
+                try:
+                    ctx, brw = await _launch_native_chrome_via_cdp(
+                        playwright=playwright,
+                        chrome_exe=chrome_exe,
+                        user_data_dir=target_dir,
+                        profile_subdir=prof_subdir,
+                        tile_rect=resolved_tile,
+                        total_slots=total_slots,
+                        slot_index=slot_idx,
+                        proxy_cfg=proxy_cfg,
+                        extra_load_extensions=ext_flags,
+                    )
+                    mode_tag = "session bridge" if target_dir != profile_dir else f"profile '{os.path.basename(target_dir)}'"
+                    _log("INFO", f"🌐 Launched Native Chrome ({os.path.basename(chrome_exe)}) directly using {mode_tag} (saved logins/extensions intact).")
+                    try:
+                        p0 = ctx.pages[0] if ctx.pages else await ctx.new_page()
+                        await apply_cdp_window_bounds(ctx, p0, tile_rect=resolved_tile, total_slots=total_slots, slot_index=slot_idx)
+                    except Exception:
+                        pass
+                    return ctx, brw
+                except Exception as cdp_err:
+                    _log("DEBUG", f"Direct Native CDP launch notice for '{acc_name}': {str(cdp_err)[:140]}")
+                    _cleanup_stale_chrome_locks(target_dir)
 
             attempts: List[Tuple[str, Optional[str], Optional[str], List[str]]] = []
             if chrome_exe and os.path.isfile(chrome_exe):
@@ -2090,6 +2461,11 @@ async def launch_bot_browser_context(
                         if staged and os.path.isdir(staged):
                             bridge_tried = True
                             target_dir = staged
+                            if bridge_info.get("cookies_locked") and not bridge_info.get("cookies_copied"):
+                                raise RuntimeError(
+                                    f"⚠️ Chrome profile '{acc_name}' cookies are locked by an open Chrome process. "
+                                    f"Close Chrome completely and retry."
+                                )
                             prepare_profile_tile_placement(target_dir, resolved_tile, profile_subdir=prof_subdir)
                     if _is_chrome_profile_locked(target_dir):
                         _cleanup_stale_chrome_locks(target_dir)
@@ -2141,6 +2517,11 @@ async def launch_bot_browser_context(
                         bridge_dir = _stage_nondefault_chrome_bridge(profile_dir, prof_subdir, status_out=bridge_info)
                         if bridge_dir and os.path.isdir(bridge_dir):
                             target_dir = bridge_dir
+                            if bridge_info.get("cookies_locked") and not bridge_info.get("cookies_copied"):
+                                raise RuntimeError(
+                                    f"⚠️ Chrome profile '{acc_name}' cookies are locked by an open Chrome process. "
+                                    f"Close Chrome completely and retry."
+                                )
                             prepare_profile_tile_placement(bridge_dir, resolved_tile, profile_subdir=prof_subdir)
                             try:
                                 b_kw = dict(kwargs)

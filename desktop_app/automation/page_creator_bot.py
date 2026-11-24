@@ -31,6 +31,7 @@ try:
         build_window_chrome_args,
         apply_cdp_window_bounds,
         launch_bot_browser_context,
+        get_bot_working_page,
         human_click_element,
         human_move_and_click,
         human_click_coords,
@@ -47,6 +48,7 @@ except ImportError:
             build_window_chrome_args,
             apply_cdp_window_bounds,
             launch_bot_browser_context,
+            get_bot_working_page,
             human_click_element,
             human_move_and_click,
             human_click_coords,
@@ -63,6 +65,8 @@ except ImportError:
             return []
         async def apply_cdp_window_bounds(context, page=None, tile_rect=None, total_slots=1, slot_index=0):
             return False
+        async def get_bot_working_page(context):
+            return context.pages[0] if getattr(context, "pages", None) else await context.new_page()
         launch_bot_browser_context = None
         async def human_pause(low=0.55, high=1.45, mult=1.0):
             await asyncio.sleep(random.uniform(low, high))
@@ -555,15 +559,25 @@ class FacebookPageCreatorBot:
             if not is_custom_profile:
                 channels.append((None, None))
 
+            fb_ign = ["--enable-automation", "--disable-extensions"]
+            if is_custom_profile:
+                fb_ign.extend([
+                    "--password-store=basic",
+                    "--use-mock-keychain",
+                    "--disable-sync",
+                    "--disable-default-apps",
+                    "--disable-component-extensions-with-background-pages",
+                    "--disable-background-networking",
+                ])
+
             for ch, exe_p in channels:
                 try:
                     kwargs = {
                         "user_data_dir": profile_dir,
                         "headless": False,
                         "args": launch_args,
-                        "ignore_default_args": ["--enable-automation", "--disable-extensions"],
+                        "ignore_default_args": fb_ign,
                         "proxy": proxy_cfg,
-                        "user_agent": DESKTOP_CHROME_USER_AGENT,
                         "no_viewport": True,
                         "locale": "en-US",
                         "extra_http_headers": {
@@ -571,6 +585,8 @@ class FacebookPageCreatorBot:
                         },
                         "permissions": ["geolocation", "notifications"]
                     }
+                    if not is_custom_profile:
+                        kwargs["user_agent"] = DESKTOP_CHROME_USER_AGENT
                     if exe_p:
                         kwargs["executable_path"] = exe_p
                     elif ch:
@@ -1765,9 +1781,9 @@ class FacebookPageCreatorBot:
                 return results
 
             pages = []
-            existing_pages = self.context.pages
-            if existing_pages:
-                pages.append(existing_pages[0])
+            first_work_p = await get_bot_working_page(self.context)
+            if first_work_p:
+                pages.append(first_work_p)
 
             while len(pages) < num_tabs and not self._is_cancelled:
                 new_p = await self.context.new_page()

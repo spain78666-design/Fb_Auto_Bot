@@ -40,7 +40,7 @@ import AdminPanel from './components/AdminPanel';
 import listingFormsPreview from './assets/images/listing_forms_preview_1789717279793.jpg';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'desktop-sim' | 'landing-page' | 'code-viewer' | 'roadmap' | 'admin-panel' | 'columns-preview'>('columns-preview');
+  const [activeTab, setActiveTab] = useState<'desktop-sim' | 'landing-page' | 'code-viewer' | 'roadmap' | 'admin-panel' | 'columns-preview'>('landing-page');
 
   const [landingPreviewMode, setLandingPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
   const [iframeKey, setIframeKey] = useState(0);
@@ -285,7 +285,7 @@ export default function App() {
             </div>
           )}
           <a
-            href="https://drive.google.com/file/d/1BJJpRR4W-5v7RkwIHDEpKqEGQ7XyfAzB/view?usp=sharing"
+            href="https://drive.google.com/file/d/1MNX27_FwzmFcMImhpQTMzUA0Ms0XhBm9/view?usp=sharing"
             target="_blank"
             rel="noopener noreferrer"
             className="hidden lg:flex items-center space-x-1.5 px-3 py-1 rounded-md text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-sm shadow-emerald-600/30 border border-emerald-400/30 transition-all ml-1"
@@ -1167,12 +1167,11 @@ export default function App() {
             <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900/80 border border-slate-800 p-4 rounded-2xl shadow-xl">
               <div className="space-y-1">
                 <div className="flex items-center space-x-2">
-                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <h2 className="text-lg font-bold text-white tracking-tight">FB Auto Bot - Live Sales Landing Page</h2>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Single-File HTML + Tailwind</span>
+                  <h2 className="text-lg font-bold text-white tracking-tight">FB Auto Bot - Cyberpunk Sales Landing Page</h2>
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">Cyberpunk Live Mascot + 12-Page Guide</span>
                 </div>
                 <p className="text-xs text-slate-400">
-                  Modern dark glassmorphic landing page designed for maximum conversion. Includes Hero, Features, Architecture Comparison Table, Pricing ($10/mo & $100/yr), Interactive FAQ Accordion, and WhatsApp ordering.
+                  Cyberpunk UI/UX edition featuring the shield background + live working laptop avatar emblem, interactive 12-page blueprint, desktop simulator, comparison matrix, pricing, and WhatsApp activation.
                 </p>
               </div>
 
@@ -1241,7 +1240,7 @@ export default function App() {
                   </div>
 
                   <a
-                    href="https://drive.google.com/file/d/1BJJpRR4W-5v7RkwIHDEpKqEGQ7XyfAzB/view?usp=sharing"
+                    href="https://drive.google.com/file/d/1MNX27_FwzmFcMImhpQTMzUA0Ms0XhBm9/view?usp=sharing"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-md shadow-emerald-600/30 border border-emerald-400/30 transition-all"

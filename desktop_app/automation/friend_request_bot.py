@@ -20,6 +20,7 @@ try:
         build_window_chrome_args,
         apply_cdp_window_bounds,
         launch_bot_browser_context,
+        get_bot_working_page,
         human_move_and_click,
         human_click_coords,
         human_smooth_scroll,
@@ -34,6 +35,7 @@ except ImportError:
             build_window_chrome_args,
             apply_cdp_window_bounds,
             launch_bot_browser_context,
+            get_bot_working_page,
             human_move_and_click,
             human_click_coords,
             human_smooth_scroll,
@@ -48,6 +50,8 @@ except ImportError:
             return []
         async def apply_cdp_window_bounds(context, page=None, tile_rect=None, total_slots=1, slot_index=0):
             return False
+        async def get_bot_working_page(context):
+            return context.pages[0] if getattr(context, "pages", None) else await context.new_page()
         launch_bot_browser_context = None
         async def human_move_and_click(page, locator, hover_pause=True, force_fallback=True):
             try:
@@ -325,12 +329,8 @@ class FacebookFriendRequestBot:
         elif is_custom_profile:
             self.log("INFO", "📂 Using existing Chrome profile login session directly.")
 
-        # Open page & enforce tiled grid bounds
-        pages = self.context.pages
-        if pages:
-            self.page = pages[0]
-        else:
-            self.page = await self.context.new_page()
+        # Open working tab (never overwrite restored user tabs) & enforce tiled grid bounds
+        self.page = await get_bot_working_page(self.context)
 
         await apply_cdp_window_bounds(
             self.context,
@@ -342,10 +342,15 @@ class FacebookFriendRequestBot:
 
     async def _run_send_requests(self) -> Dict[str, Any]:
         """
-        Navigates to each target Facebook profile URL, clicks 'Add Friend', and records sent requests.
+        Navigates to each target Facebook Profile or Page URL:
+        - On Profiles: clicks 'Add Friend' (and confirms any modal)
+        - On Pages (or profiles without Add Friend): automatically clicks 'Follow' (or fallback 'More -> Follow' / header 'Like')
+        - Skips already-requested / already-following / already-friends targets cleanly
         """
-        self.log("INFO", f"🚀 Starting Outbound Friend Request sender for {len(self.target_urls)} target profile(s)...")
+        self.log("INFO", f"🚀 Starting Outbound Friend Request / Page Follow sender for {len(self.target_urls)} target URL(s)...")
         self.processed_count = 0
+        sent_friends = 0
+        followed_pages = 0
 
         try:
             await self._init_browser()
@@ -377,16 +382,19 @@ class FacebookFriendRequestBot:
             for idx, raw_target_url in enumerate(self.target_urls, start=1):
                 if self._cancelled:
                     break
+                if self.max_requests > 0 and self.processed_count >= self.max_requests:
+                    self.log("INFO", f"🎯 Target limit ({self.max_requests}) reached.")
+                    break
 
                 target_url = raw_target_url.strip()
                 if not target_url.startswith("http"):
                     target_url = "https://" + target_url
 
-                self.log("INFO", f"[{idx}/{len(self.target_urls)}] Navigating to profile: {target_url}")
+                self.log("INFO", f"[{idx}/{len(self.target_urls)}] Navigating to target: {target_url}")
                 try:
                     await self.page.goto(target_url, wait_until="domcontentloaded", timeout=40000)
                     await human_pause(1.8, 2.8)
-                    await human_smooth_scroll(self.page, total_delta_y=random.randint(110, 230), steps=3)
+                    await human_smooth_scroll(self.page, total_delta_y=random.randint(90, 180), steps=3)
                     await human_pause(0.45, 0.95)
                 except Exception as ex:
                     self.log("WARNING", f"Could not load {target_url}: {ex}")
@@ -395,48 +403,70 @@ class FacebookFriendRequestBot:
                 if self._cancelled:
                     break
 
-                # Check if already friends or request already sent
+                # Inspect visible header/profile action buttons cleanly (excluding feed posts & global nav)
+                header_state = {}
                 try:
-                    page_text = (await self.page.evaluate("() => (document.body.innerText || '').toLowerCase()"))
+                    header_state = await self.page.evaluate("""() => {
+                        const pendingWords = ['cancel request', 'request sent', 'requested', 'درخواست منسوخ کریں', 'solicitud enviada', 'invitation envoyée'];
+                        const followingWords = ['following', 'followed', 'فالو کر رہے ہیں', 'siguiendo', 'seguindo', 'abonné', 'suivi', 'abonniert', 'mengikuti', 'đang theo dõi'];
+                        const friendsWords = ['friends', 'friend', 'دوست'];
+                        const btns = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"], a[role="button"]'));
+                        let hasPending = false;
+                        let hasFollowing = false;
+                        let hasFriends = false;
+                        for (const b of btns) {
+                            if (!b.offsetParent && b.offsetWidth === 0 && b.offsetHeight === 0) continue;
+                            if (b.closest('[role="banner"], [role="navigation"], [role="article"]')) continue;
+                            const r = b.getBoundingClientRect();
+                            if (r.top < 0 || r.top > 780) continue;
+                            const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+                            const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
+                            if (!txt && !aria) continue;
+                            if (txt.includes('follower') || aria.includes('follower')) continue;
+                            if (pendingWords.some(w => txt === w || aria === w || txt.includes(w))) hasPending = true;
+                            if (followingWords.some(w => txt === w || aria === w)) hasFollowing = true;
+                            if (friendsWords.some(w => txt === w || aria === w)) hasFriends = true;
+                        }
+                        return { hasPending, hasFollowing, hasFriends };
+                    }""")
                 except Exception:
-                    page_text = ""
+                    header_state = {}
 
-                if "cancel request" in page_text or "request sent" in page_text:
+                if header_state.get("hasPending"):
                     self.log("INFO", f"ℹ️ Friend request already pending for {target_url}. Skipping.")
                     continue
 
-                # Locate 'Add friend' button
-                clicked = False
+                # 1. Try 'Add friend' (Facebook Profile target)
+                clicked_action = None  # "friend" or "follow"
                 add_selectors = [
                     'div[aria-label="Add friend"][role="button"]',
                     'div[aria-label="Add Friend"][role="button"]',
                     'div[aria-label*="Add friend" i][role="button"]',
-                    'div[aria-label*="Add Friend" i]',
                     'button:has-text("Add friend")',
                     'div[role="button"]:has-text("Add friend")',
                     'button:has-text("Add Friend")',
                     'div[role="button"]:has-text("Add Friend")',
-                    'span:has-text("Add friend")',
-                    'span:has-text("Add Friend")',
                     'div[aria-label="دوست بنائیں"][role="button"]',
-                    'span:has-text("دوست بنائیں")',
                     'div[aria-label*="Añadir a amigos" i]',
                     'div[aria-label*="Ajouter" i]',
-                    'div[aria-label*="Freund hinzufügen" i]'
+                    'div[aria-label*="Freund hinzufügen" i]',
+                    'div[aria-label*="Adicionar" i][role="button"]'
                 ]
 
                 for sel in add_selectors:
                     try:
                         btn = self.page.locator(sel).first
                         if await btn.count() > 0 and await btn.is_visible():
-                            if await human_move_and_click(self.page, btn):
-                                clicked = True
-                                break
+                            txt = ((await btn.inner_text()) or "").strip().lower()
+                            if len(txt) <= 32 and "cancel" not in txt:
+                                if await human_move_and_click(self.page, btn):
+                                    clicked_action = "friend"
+                                    break
                     except Exception:
                         pass
 
-                # DOM coordinate locate + human mouse click fallback
-                if not clicked:
+                # DOM coordinate locate for 'Add friend'
+                if not clicked_action:
                     try:
                         coords = await self.page.evaluate("""() => {
                             const keywords = [
@@ -447,9 +477,11 @@ class FacebookFriendRequestBot:
                             const btns = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"], a[role="button"]'));
                             for (const b of btns) {
                                 if (!b.offsetParent && b.offsetWidth === 0 && b.offsetHeight === 0) continue;
+                                if (b.closest('[role="banner"], [role="navigation"], [role="article"]')) continue;
                                 const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
                                 const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
-                                if (keywords.some(k => txt === k || txt.startsWith(k) || aria.includes(k))) {
+                                if (txt.length > 35 || txt.includes('cancel')) continue;
+                                if (keywords.some(k => txt === k || txt.startsWith(k) || aria === k || aria.startsWith(k))) {
                                     b.scrollIntoView({ behavior: 'smooth', block: 'center' });
                                     const r = b.getBoundingClientRect();
                                     if (r.width > 4 && r.height > 4) {
@@ -461,12 +493,152 @@ class FacebookFriendRequestBot:
                         }""")
                         if coords and coords.get("found"):
                             await asyncio.sleep(random.uniform(0.25, 0.45))
-                            clicked = await human_click_coords(self.page, coords["x"], coords["y"])
+                            if await human_click_coords(self.page, coords["x"], coords["y"]):
+                                clicked_action = "friend"
                     except Exception:
                         pass
 
-                if clicked:
+                # 2. If not a profile with 'Add friend', check if it's a Facebook Page (Auto-Follow / Like)
+                if not clicked_action:
+                    if header_state.get("hasFollowing"):
+                        self.log("INFO", f"ℹ️ Already Following page/profile: {target_url}. Skipping.")
+                        continue
+
+                    # Look for 'Follow' button in header / action bar
+                    follow_selectors = [
+                        'div[aria-label="Follow"][role="button"]',
+                        'div[aria-label="Follow page" i][role="button"]',
+                        'div[aria-label="Follow Page" i][role="button"]',
+                        'div[role="button"]:has-text("Follow")',
+                        'button:has-text("Follow")',
+                        'div[aria-label="Suivre"][role="button"]',
+                        'div[aria-label="Seguir"][role="button"]',
+                        'div[aria-label="Folgen"][role="button"]',
+                        'div[aria-label="Segui"][role="button"]',
+                        'div[aria-label="Ikuti"][role="button"]',
+                        'div[aria-label="فالو کریں"][role="button"]',
+                    ]
+                    for fsel in follow_selectors:
+                        try:
+                            btns = self.page.locator(fsel)
+                            cnt = min(await btns.count(), 8)
+                            for b_i in range(cnt):
+                                fbtn = btns.nth(b_i)
+                                if not await fbtn.is_visible():
+                                    continue
+                                txt = ((await fbtn.inner_text()) or "").strip().lower()
+                                aria = ((await fbtn.get_attribute("aria-label")) or "").strip().lower()
+                                if any(bad in txt or bad in aria for bad in ("following", "follower", "unfollow", "stopped")):
+                                    continue
+                                if txt in ("follow", "follow page", "suivre", "seguir", "folgen", "segui", "ikuti", "فالو کریں", "متابعة", "theo dõi") or aria in ("follow", "follow page", "suivre", "seguir", "folgen", "segui", "ikuti"):
+                                    box = await fbtn.bounding_box()
+                                    if box and box.get("y", 9999) < 820:
+                                        if await human_move_and_click(self.page, fbtn):
+                                            clicked_action = "follow"
+                                            break
+                            if clicked_action:
+                                break
+                        except Exception:
+                            pass
+
+                    # JS DOM scan for Follow button near profile/page header
+                    if not clicked_action:
+                        try:
+                            f_coords = await self.page.evaluate("""() => {
+                                const followWords = [
+                                    'follow', 'follow page', 'suivre', 'seguir', 'folgen', 'segui',
+                                    'ikuti', 'فالو کریں', 'متابعة', 'theo dõi'
+                                ];
+                                const excludeWords = ['following', 'followers', 'follower', 'unfollow', 'suivi', 'seguindo', 'siguiendo'];
+                                const btns = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"], a[role="button"]'));
+                                for (const b of btns) {
+                                    if (!b.offsetParent && b.offsetWidth === 0 && b.offsetHeight === 0) continue;
+                                    if (b.closest('[role="banner"], [role="navigation"], [role="article"]')) continue;
+                                    const r = b.getBoundingClientRect();
+                                    if (r.top < 0 || r.top > 820 || r.width < 10 || r.height < 10) continue;
+                                    const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+                                    const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
+                                    if (excludeWords.some(ex => txt.includes(ex) || aria.includes(ex))) continue;
+                                    if (followWords.some(k => txt === k || aria === k || aria.startsWith(k + ' '))) {
+                                        b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                        const nr = b.getBoundingClientRect();
+                                        return { found: true, x: nr.left + nr.width * 0.5, y: nr.top + nr.height * 0.5 };
+                                    }
+                                }
+                                return { found: false };
+                            }""")
+                            if f_coords and f_coords.get("found"):
+                                await asyncio.sleep(random.uniform(0.22, 0.42))
+                                if await human_click_coords(self.page, f_coords["x"], f_coords["y"]):
+                                    clicked_action = "follow"
+                        except Exception:
+                            pass
+
+                    # Try '...' (More options) menu on Facebook Pages that place Follow inside More dropdown
+                    if not clicked_action:
+                        try:
+                            more_clicked = await self.page.evaluate("""() => {
+                                const btns = Array.from(document.querySelectorAll('div[role="button"], button'));
+                                for (const b of btns) {
+                                    if (!b.offsetParent && b.offsetWidth === 0) continue;
+                                    if (b.closest('[role="banner"], [role="navigation"], [role="article"]')) continue;
+                                    const r = b.getBoundingClientRect();
+                                    if (r.top < 150 || r.top > 750) continue;
+                                    const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
+                                    if (aria === 'more' || aria === 'more options' || aria.includes('see options') || aria.includes('profile settings') || aria.includes('action options')) {
+                                        b.click();
+                                        return true;
+                                    }
+                                }
+                                return false;
+                            }""")
+                            if more_clicked:
+                                await asyncio.sleep(0.85)
+                                menu_follow = self.page.locator(
+                                    'div[role="menu"] div[role="menuitem"]:has-text("Follow"), '
+                                    'div[role="menu"] span:has-text("Follow"), '
+                                    'div[role="dialog"] div[role="menuitem"]:has-text("Follow")'
+                                ).first
+                                if await menu_follow.count() > 0 and await menu_follow.is_visible():
+                                    m_txt = ((await menu_follow.inner_text()) or "").strip().lower()
+                                    if "unfollow" not in m_txt and "following" not in m_txt:
+                                        if await human_move_and_click(self.page, menu_follow):
+                                            clicked_action = "follow"
+                        except Exception:
+                            pass
+
+                    # Final Page fallback: Page header 'Like' button (on Classic Pages where Like = Follow)
+                    if not clicked_action:
+                        try:
+                            like_coords = await self.page.evaluate("""() => {
+                                const likeWords = ['like', "j'aime", 'curtir', 'me gusta', 'gefällt mir', 'mi piace', 'پسند کریں', 'أعجبني'];
+                                const btns = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"]'));
+                                for (const b of btns) {
+                                    if (!b.offsetParent && b.offsetWidth === 0 && b.offsetHeight === 0) continue;
+                                    if (b.closest('[role="banner"], [role="navigation"], [role="article"]')) continue;
+                                    const r = b.getBoundingClientRect();
+                                    if (r.top < 120 || r.top > 720 || r.width < 15 || r.height < 15) continue;
+                                    const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+                                    const aria = (b.getAttribute('aria-label') || '').trim().toLowerCase();
+                                    if (likeWords.some(k => txt === k || aria === k)) {
+                                        if (b.getAttribute('aria-pressed') === 'true') continue;
+                                        b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                        const nr = b.getBoundingClientRect();
+                                        return { found: true, x: nr.left + nr.width * 0.5, y: nr.top + nr.height * 0.5 };
+                                    }
+                                }
+                                return { found: false };
+                            }""")
+                            if like_coords and like_coords.get("found"):
+                                await asyncio.sleep(random.uniform(0.22, 0.42))
+                                if await human_click_coords(self.page, like_coords["x"], like_coords["y"]):
+                                    clicked_action = "follow"
+                        except Exception:
+                            pass
+
+                if clicked_action == "friend":
                     self.processed_count += 1
+                    sent_friends += 1
                     self.log("SUCCESS", f"✅ Sent Friend Request to: {target_url} ({self.processed_count}/{len(self.target_urls)})")
                     if self.counter_cb:
                         self.counter_cb(self.account_id, self.processed_count)
@@ -484,19 +656,31 @@ class FacebookFriendRequestBot:
                             await human_move_and_click(self.page, confirm_loc)
                     except Exception:
                         pass
+                elif clicked_action == "follow":
+                    self.processed_count += 1
+                    followed_pages += 1
+                    self.log("SUCCESS", f"✅ Followed Facebook Page: {target_url} ({self.processed_count}/{len(self.target_urls)})")
+                    if self.counter_cb:
+                        self.counter_cb(self.account_id, self.processed_count)
+                    await asyncio.sleep(random.uniform(0.7, 1.2))
                 else:
-                    self.log("WARNING", f"⚠️ 'Add friend' button not available on: {target_url} (May have private privacy or already friends)")
+                    if header_state.get("hasFriends"):
+                        self.log("INFO", f"ℹ️ Already Friends with: {target_url}. Skipping.")
+                    else:
+                        self.log("WARNING", f"⚠️ Neither 'Add friend' nor 'Follow' button was available on: {target_url}")
 
                 # Natural jittered delay & periodic idle drift between outbound requests
                 if self.processed_count > 0 and self.processed_count % 5 == 0:
                     await human_idle_drift(self.page)
                 await asyncio.sleep(max(0.4, self.click_delay + random.uniform(-0.1, 0.45)))
 
-            self.log("SUCCESS", f"✨ Finished sending requests! Total sent: {self.processed_count} requests.")
+            self.log("SUCCESS", f"✨ Finished! Friend requests sent: {sent_friends} | Pages followed: {followed_pages} (Total: {self.processed_count}).")
             return {
                 "success": True,
                 "count": self.processed_count,
-                "message": f"Successfully sent {self.processed_count} friend requests"
+                "friend_requests": sent_friends,
+                "page_follows": followed_pages,
+                "message": f"Successfully processed {self.processed_count} targets ({sent_friends} friend requests, {followed_pages} page follows)"
             }
 
         except Exception as e:
@@ -525,14 +709,15 @@ class FacebookFriendRequestBot:
     async def run(self) -> Dict[str, Any]:
         """
         Main execution flow:
-        1. If mode == 'send', sends friend requests to target_urls
-        2. If mode == 'accept' or 'reject', loops through incoming requests
+        1. If mode == 'send', sends friend requests to profiles / follows pages in target_urls
+        2. If mode == 'accept' or 'reject'/'delete', loops through incoming requests
         3. Closes browser when all requests are processed or max reached
         """
         if self.mode == "send":
             return await self._run_send_requests()
 
-        action_verb = "Accepting" if self.mode == "accept" else "Rejecting"
+        is_accept = (self.mode == "accept")
+        action_verb = "Accepting" if is_accept else "Deleting/Rejecting"
         self.log("INFO", f"🚀 Starting Auto Friend Request {action_verb} engine...")
         self.processed_count = 0
 
@@ -559,23 +744,11 @@ class FacebookFriendRequestBot:
                 self.log("ERROR", "❌ Account requires manual login or valid cookies in Account Manager.")
                 return {"success": False, "count": 0, "message": "Account not logged in"}
 
-            self.log("SUCCESS", "✅ Facebook Friend Requests page loaded. Scanning for requests...")
+            self.log("SUCCESS", "✅ Facebook Friend Requests page loaded. Scanning incoming requests...")
             await human_session_warmup(self.page, duration_range=(1.0, 1.9))
 
-            # Selectors based on mode
-            if self.mode == "accept":
-                target_button_texts = [
-                    "Confirm", "Accept", "Confirm request", "ایکسیپٹ", "تصدیق",
-                    "Aceptar", "Confirmer", "Bestätigen"
-                ]
-            else:
-                target_button_texts = [
-                    "Delete", "Delete request", "Reject", "Remove", "ریجیکٹ", "حذف",
-                    "Eliminar", "Supprimer", "Löschen"
-                ]
-
             consecutive_empty_scrolls = 0
-            max_empty_scrolls = 5
+            max_empty_scrolls = 6
 
             while not self._cancelled:
                 # If a cap is specified
@@ -583,29 +756,64 @@ class FacebookFriendRequestBot:
                     self.log("INFO", f"🎯 Target limit of {self.max_requests} requests reached.")
                     break
 
-                # Locate visible candidate button cleanly and retrieve exact coordinates for curved mouse click
-                mode_name = self.mode
+                # Locate visible candidate button cleanly on REAL incoming friend request cards
+                # (explicitly skips "People You May Know" suggestion cards with "Add friend" + "Remove")
+                mode_name = "accept" if is_accept else "reject"
                 find_and_scroll_script = """
                 (mode) => {
-                    const acceptKeywords = ["confirm", "accept", "تصدیق", "ایکسیپٹ", "aceptar", "confirmer", "bestätigen"];
-                    const rejectKeywords = ["delete", "reject", "remove", "حذف", "ریجیکٹ", "eliminar", "supprimer", "löschen"];
-                    const keywords = (mode === "accept") ? acceptKeywords : rejectKeywords;
+                    const acceptKeywords = ["confirm", "accept", "تصدیق", "ایکسیپٹ", "aceptar", "confirmer", "bestätigen", "confirmar"];
+                    const deleteKeywords = ["delete", "delete request", "reject", "حذف", "ریجیکٹ", "eliminar", "supprimer", "löschen", "excluir", "recusar", "rejeitar"];
+                    const addFriendWords = ["add friend", "دوست بنائیں", "añadir a amigos", "ajouter", "freund hinzufügen", "adicionar"];
+
+                    function cardContainsAddFriend(el) {
+                        let p = el.parentElement;
+                        for (let i = 0; i < 4 && p; i++) {
+                            const btns = p.querySelectorAll('button, div[role="button"], span[role="button"]');
+                            if (btns.length >= 2 && btns.length <= 6) {
+                                const labels = Array.from(btns).map(b => (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase());
+                                if (labels.some(l => addFriendWords.some(af => l === af || l.startsWith(af)))) {
+                                    return true; // People You May Know card
+                                }
+                                if (mode !== 'accept') {
+                                    // Verify confirm/accept sibling exists if text is generic 'remove'
+                                    return { isPYMK: false, hasConfirmSibling: labels.some(l => acceptKeywords.some(ak => l === ak || l.startsWith(ak))) };
+                                }
+                            }
+                            p = p.parentElement;
+                        }
+                        return { isPYMK: false, hasConfirmSibling: false };
+                    }
 
                     const elements = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"], a[role="button"]'));
                     for (const el of elements) {
                         if (!el.offsetParent && el.offsetWidth === 0 && el.offsetHeight === 0) continue;
                         if (el.getAttribute('aria-disabled') === 'true' || el.disabled) continue;
                         if (el.getAttribute('data-bot-clicked') === 'true') continue;
-                        if (el.closest('[role="banner"], header, [aria-label*="Navigation" i]')) continue;
+                        if (el.closest('[role="banner"], header')) continue;
 
                         const parentCard = el.closest('div[role="listitem"], div[role="article"], div[data-visualcompletion="ignore-dynamic-extra-display"], div[role="main"], div[role="navigation"]');
                         if (!parentCard) continue;
 
                         const text = (el.innerText || el.textContent || '').trim().toLowerCase();
                         const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+                        if (!text && !aria) continue;
                         if (text.length > 32) continue;
 
-                        if (keywords.some(k => text === k || text.startsWith(k) || aria.includes(k))) {
+                        const cardInfo = cardContainsAddFriend(el);
+                        if (cardInfo === true || (cardInfo && cardInfo.isPYMK)) continue;
+
+                        let matched = false;
+                        if (mode === "accept") {
+                            matched = acceptKeywords.some(k => text === k || text.startsWith(k) || aria === k);
+                        } else {
+                            if (deleteKeywords.some(k => text === k || text.startsWith(k) || aria === k || aria.startsWith(k + ' '))) {
+                                matched = true;
+                            } else if ((text === 'remove' || text === 'remover' || text === 'rimuovi') && cardInfo && cardInfo.hasConfirmSibling) {
+                                matched = true;
+                            }
+                        }
+
+                        if (matched) {
                             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                             const rect = el.getBoundingClientRect();
                             if (rect.width > 4 && rect.height > 4) {
@@ -623,7 +831,7 @@ class FacebookFriendRequestBot:
                 if eval_res and eval_res.get("found"):
                     await asyncio.sleep(random.uniform(0.18, 0.36))
                     # Re-read bounding box after smooth scroll settles
-                    rect_now = await self.page.evaluate("""(mode) => {
+                    rect_now = await self.page.evaluate("""() => {
                         const els = Array.from(document.querySelectorAll('[data-bot-clicked="true"]'));
                         for (let i = els.length - 1; i >= 0; i--) {
                             const r = els[i].getBoundingClientRect();
@@ -635,7 +843,7 @@ class FacebookFriendRequestBot:
                             }
                         }
                         return null;
-                    }""", mode_name)
+                    }""")
                     tx = rect_now["x"] if rect_now else eval_res["x"]
                     ty = rect_now["y"] if rect_now else eval_res["y"]
 
@@ -644,7 +852,22 @@ class FacebookFriendRequestBot:
                         self.processed_count += 1
                         consecutive_empty_scrolls = 0
 
-                        action_label = "✅ Accepted" if self.mode == "accept" else "🗑️ Rejected"
+                        # If Facebook pops a delete confirmation modal, confirm it cleanly
+                        if not is_accept:
+                            await asyncio.sleep(0.3)
+                            try:
+                                del_confirm = self.page.locator(
+                                    'div[role="dialog"] button:has-text("Delete"), '
+                                    'div[role="dialog"] div[role="button"]:has-text("Delete"), '
+                                    'div[role="dialog"] button:has-text("Confirm"), '
+                                    'div[role="dialog"] div[role="button"]:has-text("Confirm")'
+                                ).first
+                                if await del_confirm.count() > 0 and await del_confirm.is_visible():
+                                    await human_move_and_click(self.page, del_confirm, hover_pause=False)
+                            except Exception:
+                                pass
+
+                        action_label = "✅ Accepted" if is_accept else "🗑️ Deleted/Rejected"
                         self.log("INFO", f"{action_label} request #{self.processed_count} successfully.")
 
                         if self.counter_cb:
@@ -673,23 +896,41 @@ class FacebookFriendRequestBot:
                 await human_smooth_scroll(self.page, total_delta_y=520, steps=5)
                 await asyncio.sleep(random.uniform(1.3, 2.0))
 
-                # Check again without marking if any new buttons rendered after scroll
+                # Check again without marking if any new incoming request buttons rendered after scroll
                 has_more = await self.page.evaluate("""(mode) => {
-                    const acceptKeywords = ["confirm", "accept", "تصدیق", "ایکسیپٹ", "aceptar", "confirmer", "bestätigen"];
-                    const rejectKeywords = ["delete", "reject", "remove", "حذف", "ریجیکٹ", "eliminar", "supprimer", "löschen"];
-                    const keywords = (mode === "accept") ? acceptKeywords : rejectKeywords;
+                    const acceptKeywords = ["confirm", "accept", "تصدیق", "ایکسیپٹ", "aceptar", "confirmer", "bestätigen", "confirmar"];
+                    const deleteKeywords = ["delete", "delete request", "reject", "حذف", "ریجیکٹ", "eliminar", "supprimer", "löschen", "excluir", "recusar", "rejeitar"];
+                    const addFriendWords = ["add friend", "دوست بنائیں", "añadir a amigos", "ajouter", "freund hinzufügen", "adicionar"];
                     const elements = Array.from(document.querySelectorAll('button, div[role="button"], span[role="button"], a[role="button"]'));
                     for (const el of elements) {
                         if (!el.offsetParent && el.offsetWidth === 0 && el.offsetHeight === 0) continue;
                         if (el.getAttribute('aria-disabled') === 'true' || el.disabled) continue;
                         if (el.getAttribute('data-bot-clicked') === 'true') continue;
-                        if (el.closest('[role="banner"], header, [aria-label*="Navigation" i]')) continue;
+                        if (el.closest('[role="banner"], header')) continue;
                         const parentCard = el.closest('div[role="listitem"], div[role="article"], div[data-visualcompletion="ignore-dynamic-extra-display"], div[role="main"], div[role="navigation"]');
                         if (!parentCard) continue;
+                        let isPYMK = false;
+                        let hasConfirmSibling = false;
+                        let p = el.parentElement;
+                        for (let i = 0; i < 4 && p; i++) {
+                            const btns = p.querySelectorAll('button, div[role="button"], span[role="button"]');
+                            if (btns.length >= 2 && btns.length <= 6) {
+                                const labels = Array.from(btns).map(b => (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase());
+                                if (labels.some(l => addFriendWords.some(af => l === af || l.startsWith(af)))) { isPYMK = true; break; }
+                                hasConfirmSibling = labels.some(l => acceptKeywords.some(ak => l === ak || l.startsWith(ak)));
+                                break;
+                            }
+                            p = p.parentElement;
+                        }
+                        if (isPYMK) continue;
                         const text = (el.innerText || el.textContent || '').trim().toLowerCase();
                         const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
-                        if (text.length <= 32 && keywords.some(k => text === k || text.startsWith(k) || aria.includes(k))) {
-                            return true;
+                        if (text.length > 32) continue;
+                        if (mode === "accept") {
+                            if (acceptKeywords.some(k => text === k || text.startsWith(k) || aria === k)) return true;
+                        } else {
+                            if (deleteKeywords.some(k => text === k || text.startsWith(k) || aria === k)) return true;
+                            if ((text === 'remove' || text === 'remover' || text === 'rimuovi') && hasConfirmSibling) return true;
                         }
                     }
                     return false;
@@ -699,13 +940,13 @@ class FacebookFriendRequestBot:
                     consecutive_empty_scrolls += 1
                     self.log("DEBUG", f"Scanning for more requests... (Scroll check {consecutive_empty_scrolls}/{max_empty_scrolls})")
                     if consecutive_empty_scrolls >= max_empty_scrolls:
-                        self.log("SUCCESS", "🎉 No more pending friend requests found. All available requests have been processed!")
+                        self.log("SUCCESS", "🎉 No more pending friend requests found. All available incoming requests have been processed!")
                         break
                 else:
                     consecutive_empty_scrolls = 0
 
             # Wrap up
-            final_verb = "accepted" if self.mode == "accept" else "rejected"
+            final_verb = "accepted" if is_accept else "deleted/rejected"
             self.log("SUCCESS", f"✨ Finished! Total friend requests {final_verb}: {self.processed_count}.")
             return {
                 "success": True,

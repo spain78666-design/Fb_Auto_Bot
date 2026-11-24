@@ -22,6 +22,7 @@ try:
         build_window_chrome_args,
         apply_cdp_window_bounds,
         launch_bot_browser_context,
+        get_bot_working_page,
         human_click_element,
         human_move_and_click,
         human_click_coords,
@@ -38,6 +39,7 @@ except ImportError:
             build_window_chrome_args,
             apply_cdp_window_bounds,
             launch_bot_browser_context,
+            get_bot_working_page,
             human_click_element,
             human_move_and_click,
             human_click_coords,
@@ -54,6 +56,8 @@ except ImportError:
             return []
         async def apply_cdp_window_bounds(context, page=None, tile_rect=None, total_slots=1, slot_index=0):
             return False
+        async def get_bot_working_page(context):
+            return context.pages[0] if getattr(context, "pages", None) else await context.new_page()
         launch_bot_browser_context = None
         async def human_click_element(page, target, hover_pause=True, force_fallback=True):
             try:
@@ -1603,7 +1607,7 @@ class FacebookReelsUploaderBot:
                 return {"success": False, "count": 0, "message": "Cancelled before start"}
 
             # Detect Profile / Page Reels Tab URL
-            main_page = self.context.pages[0] if self.context.pages else await self.context.new_page()
+            main_page = await get_bot_working_page(self.context)
             try:
                 await main_page.goto("https://www.facebook.com/", wait_until="domcontentloaded", timeout=40000)
                 await asyncio.sleep(2.0)
